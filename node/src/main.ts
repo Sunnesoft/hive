@@ -1,13 +1,15 @@
 // The runner loop: review new agents, optionally bid on board jobs, run every hire through the swarm.
+// The swarm adds up private knowledge of owners who do not trust each other. Agents never see each
+// other: the protocol's model asks each one a question, then composes the answer from the replies.
 // Every round of work on an assignment (the first answer, each rework, each dispute redo) is its own
 // job on chain: `<assignment>#<round>`. State lives on chain and on the market, so a restart is safe.
 import { setTimeout as sleep } from 'node:timers/promises';
 import * as chain from './chain.ts';
 import { cfg, log, policyHash } from './config.ts';
-import { instructions, judge, priceOf, refreshPrices, reviewManifest, runAgent, screenJob, type Verdict } from './llm.ts';
+import { compose, instructions, priceOf, refreshPrices, reviewManifest, route, runAgent, screenJob, type Verdict } from './llm.ts';
 import { InvalidManifest, load, useSecret, type Manifest } from './manifest.ts';
 import * as market from './market.ts';
-import { best, candidates, NOTHING, outcomes, stepCeiling, type Agent } from './settle.ts';
+import { candidates, NOTHING, outcomes, stepCeiling, type Agent } from './settle.ts';
 import { publicKeyOf } from './seal.ts';
 import { bootKeys } from './tee.ts';
 
@@ -43,26 +45,25 @@ async function bid(job: market.BoardJob) {
   log('screened', { job: job.jobId, ...v });
 }
 
-/** The task as the agents see it: the brief, everything the customer wrote, and on a rework the answer sent back. */
-async function brief(id: string, job: market.Row['job'], round: number) {
-  const parts = [`# ${job.title}`, job.description];
+/** The task: the brief and everything the customer wrote (clarifications, rework feedback). */
+async function brief(id: string, job: market.Row['job']) {
   const notes = await market.notes(id);
-  if (notes.length) parts.push('## Customer messages', ...notes);
-  if (round > 1) parts.push('## Previous answer, sent back for changes', (await market.delivered(id)).slice(0, 20_000));
-  return parts.join('\n\n');
+  return [`# ${job.title}`, job.description, ...(notes.length ? ['## Customer messages', ...notes] : [])].join('\n\n');
 }
 
-/** Up to SLOTS candidates, one per distinct manifest (clones never share a job), each with a cap
- *  that covers a worst-case first step. */
-async function team(agents: Agent[], task: string) {
+const POOL = 30; // how many candidates the router sees at once
+
+/** Candidates the router may pick from: one per distinct manifest (clones never share a job), each with
+ *  a cap that covers a worst-case first step. */
+async function pool(agents: Agent[], task: string) {
   const crew: { id: string; m: Manifest; cap: bigint }[] = [];
   const seen = new Set<string>();
   for (const a of candidates(agents)) {
-    if (crew.length === cfg.SLOTS) break;
+    if (crew.length === POOL) break;
     const m = await load(a).catch(() => undefined);
     const price = m && priceOf(m.model);
     const cap = BigInt(a.max_cost);
-    if (!m || !price || cap < stepCeiling(instructions(m).length + task.length, price) || seen.has(JSON.stringify(m))) continue;
+    if (!m || !price || cap < stepCeiling(instructions(m).length + task.length + 2_000, price) || seen.has(JSON.stringify(m))) continue;
     seen.add(JSON.stringify(m));
     crew.push({ id: a.account, m, cap });
   }
@@ -84,23 +85,30 @@ async function serve({ assignment: a, job }: market.Row, agents: Agent[]) {
   if (open?.done) return decline(id, 'failed', 'The answer was lost in a runner restart.');
   if (open) await chain.finish(key, open.slots.map(() => NOTHING)); // a round cut by a restart: holds go back, run again
 
-  const task = await brief(id, job, round);
+  const task = await brief(id, job);
   const verdict = await screen(key, job.title, task);
   if (!verdict.allow) return decline(id, giveUp, verdict.reason);
-  const crew = await team(agents, task);
-  if (crew.length === 0) return log('no_agents', { assignment: id, round }); // retried next tick
+  const ready = await pool(agents, task);
+  if (ready.length === 0) return log('no_agents', { assignment: id, round }); // retried next tick
+  const crew = (await route(task, ready.map((t) => t.m.skills), cfg.SLOTS)).map((q) => ({ ...ready[q.id]!, question: q.question }));
+  if (crew.length === 0) return decline(id, giveUp, 'No agent in the swarm knows enough for this task.');
 
   if (!a.startedAt) await market.start(id); // the customer can no longer cancel, so a cut round is always resumed here
   await chain.assign(key, crew.map((t) => t.id));
-  const runs = await Promise.all(crew.map((t) => runAgent(t.m, task, t.cap)));
-  const scores = await judge(task, runs).catch((e) => void log('judge_failed', { job: key, error: String(e) }));
-  const outs = scores ? outcomes(runs, scores) : runs.map(() => NOTHING); // a judge failure is ours: nobody pays, nobody earns
+  // Each agent sees the task and its own question, never another agent's answer: its knowledge stays with it.
+  const ask = (q: string) => `${task}\n\n# Your part\n\n${q}\n\nAnswer only your part, from your instructions, knowledge and tools.`;
+  const runs = await Promise.all(crew.map((t) => runAgent(t.m, ask(t.question), t.cap)));
+  // Only the protocol's model sees the answer that was sent back: it holds every agent's knowledge.
+  const previous = round > 1 ? (await market.delivered(id)).slice(0, 20_000) : '';
+  const done = await compose(task, previous, crew.map((t, i) => ({ question: t.question, text: runs[i]!.text }))).catch(
+    (e) => void log('compose_failed', { job: key, error: String(e) }),
+  );
+  const outs = done ? outcomes(runs, done.scores) : runs.map(() => NOTHING); // a failure of ours: nobody pays, nobody earns
   await chain.finish(key, outs);
   log('finished', { job: key, agents: crew.map((t) => t.id), outcomes: outs });
 
-  const i = best(outs);
-  if (i < 0) return decline(id, 'failed', 'No answer passed the judge.');
-  outbox.set(id, `${runs[i]!.text}\n\n---\nDelivered by swarm agent ${crew[i]!.id}, round ${round}.`);
+  if (!done?.answer.trim() || outs.every((o) => o.weight === 0)) return decline(id, 'failed', 'The swarm could not compose an answer.');
+  outbox.set(id, `${done.answer}\n\n---\nComposed by Swarm-for-Hire from ${crew.length} agents, round ${round}.`);
   await deliver(id);
 }
 

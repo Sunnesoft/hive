@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { best, candidates, microUsd, outcomes, stepCeiling, type Agent } from '../src/settle.ts';
+import { candidates, microUsd, outcomes, stepCeiling, type Agent } from '../src/settle.ts';
 
 test('cost is micro-USD, rounded up', () => {
   assert.equal(microUsd({ inputTokens: 1_000, outputTokens: 500 }, { in: 0.85, out: 3.3 }), 2_500n);
@@ -33,11 +33,8 @@ test('copies, empty answers and violations earn nothing; scores are clamped', ()
   ]);
 });
 
-test('a missing score means zero, and nothing is delivered when nobody earned', () => {
-  const outs = outcomes([{ text: 'x', cost: 1n }], []);
-  assert.deepEqual(outs, [{ cost: '1', weight: 0, violation: false }]);
-  assert.equal(best(outs), -1);
-  assert.equal(best([{ cost: '0', weight: 3, violation: false }, { cost: '0', weight: 7, violation: false }]), 1);
+test('a missing score means zero', () => {
+  assert.deepEqual(outcomes([{ text: 'x', cost: 1n }], []), [{ cost: '1', weight: 0, violation: false }]);
 });
 
 test('candidates: active and funded for one job', () => {

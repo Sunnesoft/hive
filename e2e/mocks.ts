@@ -19,10 +19,11 @@ async function listen(handle: Handler) {
 export const STEP = { in: 1_000, out: 200 }; // tokens every model call reports
 export const PRICE = { in: 1_000, out: 5_000 }; // 1e-9 USD per token: $1 and $5 per 1M
 
-/** NEAR AI: a price list and a chat endpoint whose answers depend only on the system prompt. */
+/** NEAR AI: a price list and a chat endpoint whose answers follow fixed rules by system prompt. */
 export async function nearai(models: string[]) {
+  const agentCalls: string[] = []; // everything each agent call saw, to check that agents stay isolated
+  const composed: { previous: string }[] = [];
   const toolResults: string[] = [];
-  const prompts: string[] = [];
   const reply = (content: string | null, tool_calls?: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content, tool_calls }, finish_reason: tool_calls ? 'tool_calls' : 'stop' }],
@@ -39,24 +40,31 @@ export async function nearai(models: string[]) {
     const json = (x: unknown) => reply(JSON.stringify(x));
     if (system.startsWith('You review an AI agent')) return json({ allow: !/OVERRIDE/.test(user), reason: 'mock review' });
     if (system.startsWith('You review a task')) return json({ allow: !/malware/i.test(user), reason: 'mock screening' });
-    if (system.startsWith('You judge answers')) {
-      const { answers } = JSON.parse(user) as { answers: { id: number; text: string }[] };
-      const score = (t: string) => (t.includes('researcher') ? 8 : t.includes('auditor') ? 3 : 0);
-      return json({ scores: answers.map((a) => ({ id: a.id, score: score(a.text), violation: false })) });
+    if (system.startsWith('You route a task')) {
+      // An agent is asked when the task names the topic of its skills ("<topic>: <what exactly>").
+      const { task, agents } = JSON.parse(user) as { task: string; agents: { id: number; skills: string }[] };
+      const asked = agents.filter((a) => task.includes(a.skills.split(':')[0]!));
+      return json({ questions: asked.map((a) => ({ id: a.id, question: `What do your notes say about ${a.skills}?` })) });
     }
-    // An agent. One with tools first tries to reach the cloud metadata host, then answers.
-    const who = system.includes('research') ? 'researcher' : 'auditor';
-    prompts.push(user);
-    const revised = user.includes('sent back for changes') ? ' Revised: about 2.1 million people live there.' : '';
+    if (system.startsWith('You write the final answer')) {
+      const { previous, contributions } = JSON.parse(user) as { previous: string; contributions: { id: number; text: string }[] };
+      composed.push({ previous });
+      const answer = `Answer: ${contributions.map((c) => c.text).join(' ')}${previous ? ' Revised: it launches at 09:00 UTC.' : ''}`;
+      const score = (t: string) => (t.includes('2027-03-14') ? 6 : t.includes('BLUE-HERON') ? 4 : 0);
+      return json({ answer, scores: contributions.map((c) => ({ id: c.id, score: score(c.text), violation: false })) });
+    }
+    // An agent answers from its private knowledge. One with tools first tries the cloud metadata host.
+    agentCalls.push(JSON.stringify(msgs));
+    const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
     const tool = msgs.find((m) => m.role === 'tool');
     if (body.tools?.length && !tool) {
       const args = JSON.stringify({ url: 'http://169.254.169.254/latest/meta-data/' });
       return reply(null, [{ id: 'call_1', type: 'function', function: { name: 'fetch_url', arguments: args } }]);
     }
     if (tool) toolResults.push(JSON.stringify(tool.content));
-    return reply(`ANSWER from ${who}: Paris is the capital of France.${revised}`);
+    return reply(`From my notes: ${knowledge}`);
   });
-  return { ...server, toolResults, prompts };
+  return { ...server, agentCalls, composed, toolResults };
 }
 
 type Row = {

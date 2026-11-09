@@ -6,7 +6,7 @@ import { devSecret, open, publicKeyOf, seal } from '../src/seal.ts';
 
 const runner = devSecret('ed25519:test');
 const sealFor = (sponsor: string, json: unknown) => seal(Buffer.from(JSON.stringify(json)), publicKeyOf(runner), sponsor);
-const good = { name: 'ok', model: allowedModels[0], system: 'Answer.' };
+const good = { name: 'ok', model: allowedModels[0], skills: 'Answers questions.', system: 'Answer.' };
 
 test('a sealed manifest opens only in the runner, only for its sponsor', () => {
   const sealed = sealFor('alice.near', good);
@@ -20,7 +20,8 @@ test('a sealed manifest opens only in the runner, only for its sponsor', () => {
 });
 
 test("the sponsor's mistakes deny the agent", () => {
-  for (const bad of [{ ...good, model: 'evil/model' }, { ...good, extra: 1 }, { ...good, maxSteps: 99 }]) {
+  const { skills: _, ...noSkills } = good;
+  for (const bad of [{ ...good, model: 'evil/model' }, { ...good, extra: 1 }, { ...good, maxSteps: 99 }, noSkills]) {
     assert.throws(() => parse(sealFor('alice.near', bad), runner, 'alice.near'), InvalidManifest);
   }
   assert.throws(() => parse(seal(Buffer.from('not json'), publicKeyOf(runner), 'a'), runner, 'a'), InvalidManifest);

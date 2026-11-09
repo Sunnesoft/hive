@@ -10,7 +10,7 @@ services:
       NEAR_RPC: https://rpc.mainnet.fastnear.com
       CONTRACT: swarm.sunnesoft.near
       RUNNER_ACCOUNT: runner.sunnesoft.near
-      JUDGE_MODEL: z-ai/glm-5.3
+      PROTOCOL_MODEL: z-ai/glm-5.3
       SLOTS: "3"
       NEARAI_API_KEY: ${NEARAI_API_KEY}
       MARKET_TOKEN: ${MARKET_TOKEN}

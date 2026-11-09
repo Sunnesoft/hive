@@ -1,4 +1,4 @@
-// Pure rules: costs, weights, who works, what gets delivered. No I/O; see test/settle.test.ts.
+// Pure rules: costs, weights, who may work. No I/O; see test/settle.test.ts.
 
 export type Agent = { account: string; hash: string; max_cost: string; balance: string; status: 'Pending' | 'Active' | 'Suspended' };
 export type Job = { at: number; done: boolean; slots: { agent: string; hold: string; weight: number }[] };
@@ -30,7 +30,7 @@ export const candidates = (agents: Agent[], rnd = Math.random): Agent[] =>
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** Weight is the judge's score, 0..10. Empty answers, copies of an earlier answer and violations earn nothing. */
+/** Weight is the composer's score of a contribution, 0..10. Empty answers, copies of an earlier one and violations earn nothing. */
 export function outcomes(runs: Run[], scores: Score[]): Outcome[] {
   const seen = new Set<string>();
   return runs.map((run, i) => {
@@ -42,7 +42,3 @@ export function outcomes(runs: Run[], scores: Score[]): Outcome[] {
     return { cost: run.cost.toString(), weight, violation };
   });
 }
-
-/** Index of the answer to deliver, or -1 if nobody earned anything. */
-export const best = (outs: Outcome[]) =>
-  outs.reduce((top, o, i) => (o.weight > (outs[top]?.weight ?? 0) ? i : top), -1);

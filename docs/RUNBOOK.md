@@ -53,7 +53,7 @@ npm start
    `scripts/swarm.sh revenue <assignment-id> <usdc>`. Скрипт сам находит принятый раунд.
 5. Проверка: `scripts/swarm.sh status researcher.$ROOT`.
 
-Модели и NEAR AI: ключ берётся на nearbuilders.org/join. Проверка ключа и модели судьи:
+Модели и NEAR AI: ключ берётся на nearbuilders.org/join. Проверка ключа и модели протокола:
 `curl -s https://cloud-api.near.ai/v1/chat/completions -H "Authorization: Bearer $NEARAI_API_KEY" -H 'content-type: application/json' -d '{"model":"z-ai/glm-5.3","messages":[{"role":"user","content":"ping"}]}' | jq .usage`
 
 ## 3. TEE (Phala Cloud)

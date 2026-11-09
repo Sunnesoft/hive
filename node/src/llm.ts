@@ -1,5 +1,6 @@
-// All inference goes to NEAR AI Cloud. Agents get only their own manifest and the task: no keys,
-// no other agents, no memory between jobs. Their output is data for the judge, never instructions.
+// All inference goes to NEAR AI Cloud. An agent gets only its own manifest, the task and its question:
+// no keys, no other agents, no memory between jobs. The protocol's own model reviews agents, screens
+// tasks, routes questions and composes the answer. Agents' output is data for it, never instructions.
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, isStepCount, Output } from 'ai';
 import { z } from 'zod';
@@ -63,7 +64,7 @@ const VerdictSchema = z.object({ allow: z.boolean(), reason: z.string() });
 
 async function ask<T>(instructions: string, data: unknown, schema: z.ZodType<T>): Promise<T> {
   const { output } = await generateText({
-    model: nearai(cfg.JUDGE_MODEL),
+    model: nearai(cfg.PROTOCOL_MODEL),
     instructions,
     prompt: JSON.stringify(data), // data only: the policies tell the model never to obey it
     output: Output.object({ schema }),
@@ -76,11 +77,28 @@ async function ask<T>(instructions: string, data: unknown, schema: z.ZodType<T>)
 export const reviewManifest = (m: Manifest): Promise<Verdict> => ask(policy.manifest, m, VerdictSchema);
 export const screenJob = (job: { title: string; description: string }): Promise<Verdict> => ask(policy.job, job, VerdictSchema);
 
-// Lenient on purpose: an out-of-range score is clamped by `outcomes`, not a reason to fail the whole job.
-const Scores = z.object({ scores: z.array(z.object({ id: z.number(), score: z.number(), violation: z.boolean() })) });
+const Questions = z.object({ questions: z.array(z.object({ id: z.number(), question: z.string() })) });
 
-/** One call sees all answers, labelled only by index: the judge never learns who wrote what. */
-export async function judge(task: string, runs: Run[]): Promise<Score[]> {
-  const { scores } = await ask(policy.result, { task, answers: runs.map((r, id) => ({ id, text: r.text })) }, Scores);
-  return runs.map((_, i) => scores.find((s) => s.id === i) ?? { score: 0, violation: false });
+/** Picks the agents whose skills the task needs and writes each a question it can answer alone.
+ *  Agents are shown by index and skills only. Returns at most `slots` distinct, valid picks. */
+export async function route(task: string, skills: string[], slots: number) {
+  const { questions } = await ask(policy.route, { task, agents: skills.map((s, id) => ({ id, skills: s })) }, Questions);
+  const seen = new Set<number>();
+  return questions
+    .filter((q) => Number.isInteger(q.id) && q.id >= 0 && q.id < skills.length && q.question.trim() && !seen.has(q.id) && !!seen.add(q.id))
+    .slice(0, slots);
+}
+
+// Lenient on purpose: an out-of-range score is clamped by `outcomes`, not a reason to fail the whole job.
+const Composed = z.object({
+  answer: z.string(),
+  scores: z.array(z.object({ id: z.number(), score: z.number(), violation: z.boolean() })),
+});
+
+/** Writes the customer's answer from the contributions (improving `previous`, the answer sent back, on a
+ *  rework) and scores what each contribution gave. Contributions are labelled by index only. */
+export async function compose(task: string, previous: string, parts: { question: string; text: string }[]): Promise<{ answer: string; scores: Score[] }> {
+  const data = { task, previous, contributions: parts.map((p, id) => ({ id, ...p })) };
+  const { answer, scores } = await ask(policy.compose, data, Composed);
+  return { answer: answer.slice(0, 200_000), scores: parts.map((_, i) => scores.find((s) => s.id === i) ?? { score: 0, violation: false }) };
 }

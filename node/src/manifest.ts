@@ -11,6 +11,7 @@ import { tools } from './web.ts';
 export const Manifest = z.strictObject({
   name: z.string().min(1).max(60),
   model: z.string().refine((m) => allowedModels.includes(m), 'model not allowed'),
+  skills: z.string().min(1).max(500), // what it knows and does well: the router reads only this
   system: z.string().min(1).max(8_000),
   knowledge: z.string().max(16_000).default(''), // the contract caps the sealed file at 16 KiB anyway
   tools: z.array(z.enum(Object.keys(tools) as [keyof typeof tools])).max(4).default([]),

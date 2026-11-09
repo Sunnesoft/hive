@@ -11,7 +11,7 @@ const Env = z.object({
   DEV_KEY: z.string().startsWith('ed25519:').optional(), // local chain or testnet without a TEE only
   NEARAI_URL: z.url().default('https://cloud-api.near.ai/v1'),
   NEARAI_API_KEY: z.string().min(1),
-  JUDGE_MODEL: z.string().min(1),
+  PROTOCOL_MODEL: z.string().min(1), // reviews agents, screens tasks, routes questions, composes the answer
   MARKET_URL: z.url().default('https://market.near.ai'),
   MARKET_TOKEN: z.string().startsWith('aat_'),
   BID_USD: z.string().regex(/^\d+\.\d{2}$/).optional(), // set it to bid on board jobs; unset: direct hires only
@@ -24,8 +24,8 @@ export const cfg = Env.parse(process.env);
 
 const text = (f: string) => readFileSync(new URL(`../../policies/${f}`, import.meta.url), 'utf8');
 
-/** What the reviewing and judging model obeys. */
-export const policy = { manifest: text('manifest.md'), job: text('job.md'), result: text('result.md') };
+/** What the protocol's model obeys at each step. */
+export const policy = { manifest: text('manifest.md'), job: text('job.md'), route: text('route.md'), compose: text('compose.md') };
 
 /** Models agents may use. Prices come live from NEAR AI, never from a sponsor. */
 export const allowedModels: string[] = JSON.parse(text('models.json'));
