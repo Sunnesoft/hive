@@ -6,11 +6,13 @@
 //! - Customer revenue for a finished job is split by the judge's weights, minus the owner's fee.
 //! - A stuck job can be closed by anyone after a timeout; every balance can be withdrawn.
 //!
+//! - An agent's manifest is sealed to the runner's TEE key: it is stored here, but only the runner reads it.
+//!
 //! Judging, disputes and the customer escrow live off-chain: the attested runner and Agent Market.
 #[cfg(test)]
 mod tests;
 
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::serde_json::{self, json, Value};
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, ext_contract, is_promise_success, near, require};
@@ -19,6 +21,7 @@ use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise};
 const MAX_SLOTS: usize = 8;
 const MAX_FEE_BPS: u16 = 2_000;
 const MAX_SECS: u64 = 90 * 86_400;
+const MAX_MANIFEST: usize = 16_384; // bytes of a sealed manifest; the contract pays for its storage
 const GAS: Gas = Gas::from_tgas(10);
 
 #[near(serializers = [borsh, json])]
@@ -32,6 +35,7 @@ pub struct Config {
     pub min_deposit: U128,   // the least a registration brings
     pub run_secs: u64,       // an unfinished job may be closed by anyone after this; holds return
     pub pay_secs: u64,       // a finished job waits this long for revenue, then may be closed
+    pub seal_key: String,    // the runner's X25519 public key (hex) that sponsors seal manifests to
 }
 
 #[near(serializers = [borsh, json])]
@@ -42,12 +46,12 @@ pub enum Status {
     Suspended,
 }
 
-/// One agent per sponsor account. Its budget is the sponsor's balance.
+/// One agent per sponsor account. Its budget is the sponsor's balance; its manifest is in `manifests`.
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Agent {
-    pub manifest: String, // sha256 hex of the manifest file (= digest of its IPFS CIDv1 raw)
-    pub max_cost: U128,   // the most one job may take
+    pub hash: String,   // sha256 hex of the sealed manifest: pins what was reviewed
+    pub max_cost: U128, // the most one job may take
     pub status: Status,
 }
 
@@ -77,7 +81,7 @@ pub struct Outcome {
 /// `msg` of `ft_transfer_call`.
 #[near(serializers = [json])]
 pub enum Msg {
-    Register { manifest: String, max_cost: U128 },
+    Register { manifest: Base64VecU8, max_cost: U128 }, // the manifest sealed to `seal_key`
     TopUp { agent: AccountId },
     Revenue { job: String },
 }
@@ -85,7 +89,7 @@ pub enum Msg {
 #[near(serializers = [json])]
 pub struct AgentView {
     pub account: AccountId,
-    pub manifest: String,
+    pub hash: String,
     pub max_cost: U128,
     pub status: Status,
     pub balance: U128,
@@ -104,6 +108,7 @@ pub struct Contract {
     cfg: Config,
     balances: LookupMap<AccountId, u128>,
     agents: IterableMap<AccountId, Agent>,
+    manifests: LookupMap<AccountId, Vec<u8>>,
     jobs: LookupMap<String, Job>,
     total: u128, // = balances + holds; must never exceed our token balance
 }
@@ -113,8 +118,8 @@ impl Contract {
     #[init]
     pub fn new(token: AccountId, cfg: Config) -> Self {
         check(&cfg);
-        let (balances, agents, jobs) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"j"));
-        Self { token, cfg, balances, agents, jobs, total: 0 }
+        let (balances, agents, manifests) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"m"));
+        Self { token, cfg, balances, agents, manifests, jobs: LookupMap::new(b"j"), total: 0 }
     }
 
     // ---- money in: `ft_transfer_call` on the token; a panic here refunds the sender ----
@@ -122,7 +127,7 @@ impl Contract {
     pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> U128 {
         require!(env::predecessor_account_id() == self.token, "wrong token");
         match serde_json::from_str(&msg).expect("bad msg") {
-            Msg::Register { manifest, max_cost } => self.register(sender_id, amount.0, manifest, max_cost),
+            Msg::Register { manifest, max_cost } => self.register(sender_id, amount.0, manifest.0, max_cost),
             Msg::TopUp { agent } => {
                 require!(self.agents.contains_key(&agent), "no agent");
                 self.credit(&agent, amount.0);
@@ -136,14 +141,14 @@ impl Contract {
 
     // ---- runner ----
 
-    /// Activates or suspends a pending agent. `manifest` pins what was reviewed: if the sponsor
+    /// Activates or suspends a pending agent. `hash` pins what was reviewed: if the sponsor
     /// re-registered meanwhile, the verdict is stale and refused.
-    pub fn review(&mut self, agent: AccountId, manifest: String, allow: bool) {
+    pub fn review(&mut self, agent: AccountId, hash: String, allow: bool) {
         self.only(&self.cfg.runner);
         let a = self.agent_mut(&agent);
-        require!(a.status == Status::Pending && a.manifest == manifest, "stale review");
+        require!(a.status == Status::Pending && a.hash == hash, "stale review");
         a.status = if allow { Status::Active } else { Status::Suspended };
-        emit("review", json!({ "agent": agent, "manifest": manifest, "allow": allow }));
+        emit("review", json!({ "agent": agent, "hash": hash, "allow": allow }));
     }
 
     /// Holds `max_cost` from each agent's balance for the job.
@@ -245,6 +250,10 @@ impl Contract {
     pub fn agent(&self, account: AccountId) -> Option<AgentView> {
         self.agents.get(&account).map(|a| self.view(&account, a))
     }
+    /// The sealed manifest: useless to anyone but the runner's TEE.
+    pub fn manifest(&self, account: AccountId) -> Option<Base64VecU8> {
+        self.manifests.get(&account).map(|m| Base64VecU8(m.clone()))
+    }
     pub fn agents(&self, from: u32, limit: u32) -> Vec<AgentView> {
         let page = self.agents.iter().skip(from as usize).take(limit.min(100) as usize);
         page.map(|(id, a)| self.view(id, a)).collect()
@@ -262,14 +271,16 @@ impl Contract {
 }
 
 impl Contract {
-    fn register(&mut self, sponsor: AccountId, amount: u128, manifest: String, max_cost: U128) {
-        require!(is_sha256_hex(&manifest), "manifest must be sha256 hex");
+    fn register(&mut self, sponsor: AccountId, amount: u128, manifest: Vec<u8>, max_cost: U128) {
+        require!((1..=MAX_MANIFEST).contains(&manifest.len()), "manifest empty or too big");
         require!(max_cost.0 > 0 && amount >= self.cfg.min_deposit.0, "deposit too small");
         let fee = self.cfg.review_fee.0;
         self.credit(&self.cfg.operator.clone(), fee);
         self.credit(&sponsor, amount - fee);
-        self.agents.insert(sponsor.clone(), Agent { manifest: manifest.clone(), max_cost, status: Status::Pending });
-        emit("register", json!({ "agent": sponsor, "manifest": manifest, "max_cost": max_cost, "fee": U128(fee) }));
+        let hash: String = env::sha256(&manifest).iter().map(|b| format!("{b:02x}")).collect();
+        self.agents.insert(sponsor.clone(), Agent { hash: hash.clone(), max_cost, status: Status::Pending });
+        self.manifests.insert(sponsor.clone(), manifest);
+        emit("register", json!({ "agent": sponsor, "hash": hash, "max_cost": max_cost, "fee": U128(fee) }));
     }
 
     fn revenue(&mut self, sender: AccountId, amount: u128, job: String) {
@@ -295,8 +306,8 @@ impl Contract {
         self.agents.get_mut(id).expect("no agent")
     }
     fn view(&self, account: &AccountId, a: &Agent) -> AgentView {
-        let (manifest, max_cost, status) = (a.manifest.clone(), a.max_cost, a.status);
-        AgentView { account: account.clone(), manifest, max_cost, status, balance: U128(self.balance_of(account)) }
+        let (hash, max_cost, status) = (a.hash.clone(), a.max_cost, a.status);
+        AgentView { account: account.clone(), hash, max_cost, status, balance: U128(self.balance_of(account)) }
     }
     fn balance_of(&self, id: &AccountId) -> u128 {
         self.balances.get(id).copied().unwrap_or(0)
@@ -337,8 +348,4 @@ fn emit(event: &str, data: Value) {
 
 fn now() -> u64 {
     env::block_timestamp() / 1_000_000_000
-}
-
-fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

@@ -17,7 +17,6 @@ const Env = z.object({
   BID_USD: z.string().regex(/^\d+\.\d{2}$/).optional(), // set it to bid on board jobs; unset: direct hires only
   SLOTS: z.coerce.number().int().min(1).max(8).default(3),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
-  IPFS_GATEWAY: z.url().default('https://w3s.link'),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
 });
 

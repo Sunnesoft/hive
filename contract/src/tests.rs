@@ -33,12 +33,13 @@ fn acc(s: &str) -> AccountId {
     s.parse().unwrap()
 }
 
-fn hash(c: char) -> String {
-    c.to_string().repeat(64)
+/// A stand-in for a sealed manifest: the contract only stores and hashes the bytes.
+fn register(sealed: &[u8], max_cost: u128) -> String {
+    json!({ "Register": { "manifest": Base64VecU8(sealed.to_vec()), "max_cost": U128(max_cost) } }).to_string()
 }
 
-fn register(manifest: &str, max_cost: u128) -> String {
-    format!(r#"{{"Register":{{"manifest":"{manifest}","max_cost":"{max_cost}"}}}}"#)
+fn hash_of(c: &Contract, a: &str) -> String {
+    c.agent(acc(a)).unwrap().hash
 }
 
 fn revenue(job: &str) -> String {
@@ -68,6 +69,7 @@ fn cfg() -> Config {
         min_deposit: U128(U),
         run_secs: 600,
         pay_secs: 86_400,
+        seal_key: "ab".repeat(32),
     }
 }
 
@@ -76,9 +78,9 @@ fn setup() -> Contract {
     call(DAO, 0);
     let mut c = Contract::new(acc(USDC), cfg());
     for a in [A, B] {
-        deposit(&mut c, a, 10 * U, register(&hash('a'), 2 * U));
+        deposit(&mut c, a, 10 * U, register(b"sealed a", 2 * U));
         call(RUNNER, 0);
-        c.review(acc(a), hash('a'), true);
+        c.review(acc(a), hash_of(&c, a), true);
     }
     c
 }
@@ -199,7 +201,7 @@ fn top_up_funds_an_existing_agent() {
 #[test]
 fn re_registering_needs_a_new_review() {
     let mut c = setup();
-    deposit(&mut c, A, U, register(&hash('b'), U));
+    deposit(&mut c, A, U, register(b"sealed b", U));
     let a = c.agent(acc(A)).unwrap();
     assert_eq!((a.status, a.max_cost.0, a.balance.0), (Status::Pending, U, 11 * U));
 }
@@ -208,9 +210,25 @@ fn re_registering_needs_a_new_review() {
 #[should_panic(expected = "stale review")]
 fn a_review_of_a_replaced_manifest_is_refused() {
     let mut c = setup();
-    deposit(&mut c, A, U, register(&hash('b'), U)); // the sponsor swaps the manifest mid-review
+    let reviewed = hash_of(&c, A);
+    deposit(&mut c, A, U, register(b"sealed b", U)); // the sponsor swaps the manifest mid-review
     call(RUNNER, 1);
-    c.review(acc(A), hash('a'), true);
+    c.review(acc(A), reviewed, true);
+}
+
+#[test]
+fn the_sealed_manifest_is_stored_and_hashed() {
+    let c = setup();
+    assert_eq!(c.manifest(acc(A)).unwrap().0, b"sealed a".to_vec());
+    let sha: String = env::sha256(b"sealed a").iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(hash_of(&c, A), sha);
+}
+
+#[test]
+#[should_panic(expected = "manifest empty or too big")]
+fn a_manifest_has_a_size_cap() {
+    let mut c = setup();
+    deposit(&mut c, X, U, register(&[7; MAX_MANIFEST + 1], U));
 }
 
 #[test]
@@ -218,7 +236,7 @@ fn registration_pays_the_review_fee_to_the_operator() {
     let mut c = setup();
     call(DAO, 1);
     c.set_config(Config { review_fee: U128(U / 10), ..cfg() });
-    deposit(&mut c, X, 2 * U, register(&hash('c'), U));
+    deposit(&mut c, X, 2 * U, register(b"sealed c", U));
     assert_eq!((bal(&c, OP), bal(&c, X)), (U / 10, 2 * U - U / 10));
     assert_books(&c, &[]);
 }
@@ -236,14 +254,14 @@ fn config_is_bounded() {
 fn only_the_token_deposits() {
     let mut c = setup();
     call(A, 1);
-    c.ft_on_transfer(acc(A), U128(U), register(&hash('a'), U));
+    c.ft_on_transfer(acc(A), U128(U), register(b"sealed a", U));
 }
 
 #[test]
 #[should_panic(expected = "deposit too small")]
 fn registration_needs_min_deposit() {
     let mut c = setup();
-    deposit(&mut c, X, U - 1, register(&hash('a'), U));
+    deposit(&mut c, X, U - 1, register(b"sealed x", U));
 }
 
 #[test]
@@ -258,7 +276,7 @@ fn only_the_runner_assigns() {
 #[should_panic(expected = "agent not ready")]
 fn pending_agent_cannot_work() {
     let mut c = setup();
-    deposit(&mut c, X, U, register(&hash('a'), U));
+    deposit(&mut c, X, U, register(b"sealed x", U));
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(X)]);
 }

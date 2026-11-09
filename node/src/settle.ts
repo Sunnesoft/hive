@@ -1,6 +1,6 @@
 // Pure rules: costs, weights, who works, what gets delivered. No I/O; see test/settle.test.ts.
 
-export type Agent = { account: string; manifest: string; max_cost: string; balance: string; status: 'Pending' | 'Active' | 'Suspended' };
+export type Agent = { account: string; hash: string; max_cost: string; balance: string; status: 'Pending' | 'Active' | 'Suspended' };
 export type Job = { at: number; done: boolean; slots: { agent: string; hold: string; weight: number }[] };
 export type Usage = { inputTokens?: number | undefined; outputTokens?: number | undefined };
 export type Price = { in: number; out: number }; // USD per 1M tokens
@@ -20,16 +20,13 @@ export const microUsd = (u: Usage, p: Price) =>
 export const stepCeiling = (promptChars: number, p: Price) =>
   microUsd({ inputTokens: Math.ceil(promptChars / 2), outputTokens: MAX_OUT }, p);
 
-/** Active, funded agents in random order, one per manifest, so exact clones never share a job. */
-export function candidates(agents: Agent[], rnd = Math.random): Agent[] {
-  const seen = new Set<string>();
-  return agents
+/** Active agents funded for one job, in random order. */
+export const candidates = (agents: Agent[], rnd = Math.random): Agent[] =>
+  agents
     .filter((a) => a.status === 'Active' && BigInt(a.balance) >= BigInt(a.max_cost))
     .map((a) => ({ a, r: rnd() }))
     .sort((p, q) => p.r - q.r)
-    .map(({ a }) => a)
-    .filter((a) => !seen.has(a.manifest) && !!seen.add(a.manifest));
-}
+    .map(({ a }) => a);
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 

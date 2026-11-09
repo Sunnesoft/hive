@@ -24,9 +24,12 @@ export async function agents(): Promise<Agent[]> {
 }
 
 export const job = (job: string) => view<Job | null>('job', { job });
+export const manifest = (account: string) =>
+  view<string | null>('manifest', { account }).then((b) => (b === null ? null : Buffer.from(b, 'base64')));
+export const sealKey = () => view<{ seal_key: string }>('config').then((c) => c.seal_key);
 export const hasKey = (publicKey: string) =>
   provider.viewAccessKey({ accountId: cfg.RUNNER_ACCOUNT, publicKey }).then(() => true, () => false);
 
-export const review = (agent: string, manifest: string, allow: boolean) => call('review', { agent, manifest, allow });
+export const review = (agent: string, hash: string, allow: boolean) => call('review', { agent, hash, allow });
 export const assign = (job: string, agents: string[]) => call('assign', { job, agents });
 export const finish = (job: string, outcomes: Outcome[]) => call('finish', { job, outcomes });

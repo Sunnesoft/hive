@@ -5,19 +5,20 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import * as chain from './chain.ts';
 import { cfg, log, policyHash } from './config.ts';
 import { instructions, judge, priceOf, refreshPrices, reviewManifest, runAgent, screenJob, type Verdict } from './llm.ts';
-import { InvalidManifest, load, type Manifest } from './manifest.ts';
+import { InvalidManifest, load, useSecret, type Manifest } from './manifest.ts';
 import * as market from './market.ts';
 import { best, candidates, NOTHING, outcomes, stepCeiling, type Agent } from './settle.ts';
-import { bootKey } from './tee.ts';
+import { publicKeyOf } from './seal.ts';
+import { bootKeys } from './tee.ts';
 
-/** Code checks first (hash, schema, allowlists); only a manifest that passes them reaches the reviewing model. */
+/** Code checks first (seal, schema, allowlists); only a manifest that passes them reaches the reviewing model. */
 async function review(a: Agent) {
   if (a.status !== 'Pending') return;
-  const v = await load(a.manifest).then(reviewManifest, (e) => {
+  const v = await load(a).then(reviewManifest, (e) => {
     if (e instanceof InvalidManifest) return { allow: false, reason: `invalid manifest: ${e.message}` };
     throw e; // gateway trouble: stays Pending, retried next tick
   });
-  await chain.review(a.account, a.manifest, v.allow);
+  await chain.review(a.account, a.hash, v.allow);
   log('reviewed', { agent: a.account, ...v });
 }
 
@@ -51,15 +52,19 @@ async function brief(id: string, job: market.Row['job'], round: number) {
   return parts.join('\n\n');
 }
 
-/** Up to SLOTS candidates whose manifest loads and whose cap covers a worst-case first step. */
+/** Up to SLOTS candidates, one per distinct manifest (clones never share a job), each with a cap
+ *  that covers a worst-case first step. */
 async function team(agents: Agent[], task: string) {
   const crew: { id: string; m: Manifest; cap: bigint }[] = [];
+  const seen = new Set<string>();
   for (const a of candidates(agents)) {
     if (crew.length === cfg.SLOTS) break;
-    const m = await load(a.manifest).catch(() => undefined);
+    const m = await load(a).catch(() => undefined);
     const price = m && priceOf(m.model);
     const cap = BigInt(a.max_cost);
-    if (m && price && cap >= stepCeiling(instructions(m).length + task.length, price)) crew.push({ id: a.account, m, cap });
+    if (!m || !price || cap < stepCeiling(instructions(m).length + task.length, price) || seen.has(JSON.stringify(m))) continue;
+    seen.add(JSON.stringify(m));
+    crew.push({ id: a.account, m, cap });
   }
   return crew;
 }
@@ -123,8 +128,12 @@ async function tick() {
   await each(await market.assignments(), (row) => serve(row, agents));
 }
 
-chain.useKey(await bootKey());
-log('ready', { runner: cfg.RUNNER_ACCOUNT, contract: cfg.CONTRACT, policies: policyHash });
+const keys = await bootKeys();
+chain.useKey(keys.key);
+useSecret(keys.seal);
+const sealKey = publicKeyOf(keys.seal).toString('hex');
+if ((await chain.sealKey()) !== sealKey) log('seal_key_mismatch', { runner: sealKey, hint: 'sponsors seal to the key in the contract config' });
+log('ready', { runner: cfg.RUNNER_ACCOUNT, contract: cfg.CONTRACT, sealKey, policies: policyHash });
 for (;;) {
   await tick().catch((e) => log('error', { error: String(e) }));
   await sleep(cfg.POLL_MS);

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Swarm-for-Hire commands for the owner, sponsors and the operator. Needs near-cli-rs, jq, curl, node.
+# Swarm-for-Hire commands for the owner, sponsors and the operator. Needs near-cli-rs, jq, curl, node, npm ci.
 #
 #   NETWORK=testnet|mainnet ROOT=<owner account> TOKEN=<USDC contract> scripts/swarm.sh <command> ...
 #
 #   test-token                      owner     testnet: deploy our own USDC at TOKEN (= usdc.<ROOT>), 1M to ROOT
 #   fund <account> <usdc>           owner     register an account with the token and send it USDC
 #   deploy                          owner     build, create swarm/runner/operator, deploy and init the contract
-#   runner-key <quote.json>         owner     check a TEE quote, then give its key the three runner methods
-#   dev-key                         owner     a runner key without a TEE (testnet only); prints DEV_KEY for .env
+#   runner-key <quote.json>         owner     check a TEE quote, give its key the runner methods, publish its seal key
+#   dev-key                         owner     runner keys without a TEE (testnet only); prints DEV_KEY for .env
 #   pause | resume                  owner     no key can act as the runner / the runner works again
-#   agent <manifest> <usdc> <cap>   sponsor   register an agent: deposit and cap per job (SPONSOR=<account>)
+#   agent <manifest> <usdc> <cap>   sponsor   seal the manifest to the runner, register: deposit, cap per job (SPONSOR=)
 #   top-up <agent> <usdc>           anyone    add to an agent's budget (SPONSOR=<payer>)
 #   revenue <assignment> <usdc>     operator  forward an Agent Market payout to the accepted round's agents
 #   withdraw <account> [usdc]       anyone    take a balance, all of it if no amount
@@ -48,8 +48,10 @@ runner_key() {
     --contract-account-id "$C" --function-names 'review, assign, finish' \
     use-manually-provided-public-key "$1" network-config "$NETWORK" sign-with-keychain send
 }
-set_runner() { send "$C" set_config "$(view "$C" config | jq -c --arg r "$1" '{cfg: (.runner = $r)}')" "$ROOT"; }
-js() { node --input-type=module -e "$1"; }
+# set_cfg <field> <value>: change one config field (owner)
+set_cfg() { send "$C" set_config "$(view "$C" config | jq -c --arg k "$1" --arg v "$2" '{cfg: (.[$k] = $v)}')" "$ROOT"; }
+# ts <js>: run JavaScript that may import the runner's TypeScript modules
+ts() { node --experimental-strip-types --disable-warning=ExperimentalWarning --input-type=module -e "$1"; }
 
 case "${1:-}" in
 test-token)
@@ -64,12 +66,12 @@ fund)
   send "$TOKEN" ft_transfer "$(jq -nc --arg a "$2" --arg n "$(usdc "$3")" '{receiver_id:$a, amount:$n}')" "$ROOT" '1 yoctoNEAR' ;;
 deploy)
   (cd contract && cargo near build non-reproducible-wasm)
-  for a in "$C:3" "runner.$ROOT:1" "operator.$ROOT:1"; do # full-access keys stay with the owner
+  for a in "$C:5" "runner.$ROOT:1" "operator.$ROOT:1"; do # full-access keys stay with the owner; swarm pays for storage
     near account create-account fund-myself "${a%:*}" "${a#*:} NEAR" autogenerate-new-keypair save-to-keychain \
       sign-as "$ROOT" network-config "$NETWORK" sign-with-keychain send
   done
   cfg=$(jq -nc --arg r "$ROOT" '{owner:$r, runner:"runner.\($r)", operator:"operator.\($r)", fee_bps:500,
-    review_fee:"100000", min_deposit:"1000000", run_secs:1800, pay_secs:1209600}')
+    review_fee:"100000", min_deposit:"1000000", run_secs:1800, pay_secs:1209600, seal_key:""}')
   near contract deploy "$C" use-file contract/target/near/swarm.wasm with-init-call new \
     json-args "$(jq -nc --arg t "$TOKEN" --argjson c "$cfg" '{token:$t, cfg:$c}')" \
     prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-keychain send
@@ -78,25 +80,33 @@ deploy)
   done ;;
 runner-key)
   pk=$(jq -r .publicKey "$2")
-  want=$(printf %s "$pk" | shasum -a 256 | cut -c1-64)
-  got=$(jq -r '.quote | ltrimstr("0x")' "$2" | xxd -r -p | tail -c +569 | head -c 32 | xxd -p -c 64) # TDX v4: report_data at byte 568
-  [[ $got == "$want" ]] || { echo "report_data does not commit to $pk" >&2; exit 1; }
-  echo "report_data commits to $pk. Now check the quote and its compose-hash (docs/RUNBOOK.md, TEE)."
-  read -rp "add the key to runner.$ROOT? [y/N] " ok
-  [[ $ok == y ]] && runner_key "$pk" ;;
-dev-key)
-  read -r sk pk < <(js "import { KeyPair } from 'near-api-js'; const k = KeyPair.fromRandom('ed25519'); console.log(k.toString(), k.getPublicKey().toString())")
+  seal=$(jq -r .sealKey "$2")
+  want="$(printf %s "$pk" | shasum -a 256 | cut -c1-64)$seal"
+  got=$(jq -r '.quote | ltrimstr("0x")' "$2" | xxd -r -p | tail -c +569 | head -c 64 | xxd -p -c 128) # TDX v4: report_data at byte 568
+  [[ $got == "$want" ]] || { echo "report_data does not commit to these keys" >&2; exit 1; }
+  echo "report_data commits to signing key $pk and seal key $seal."
+  echo "Now check the quote and its compose-hash (docs/RUNBOOK.md, TEE)."
+  read -rp "give these keys to runner.$ROOT? [y/N] " ok
+  [[ $ok == y ]] || exit 1
   runner_key "$pk"
+  [[ $(view "$C" config | jq -r .seal_key) == "$seal" ]] || set_cfg seal_key "$seal" ;;
+dev-key)
+  read -r sk pk seal < <(ts "import { KeyPair } from 'near-api-js'; import { devSecret, publicKeyOf } from './node/src/seal.ts';
+    const k = KeyPair.fromRandom('ed25519'); console.log(k.toString(), k.getPublicKey().toString(), publicKeyOf(devSecret(k.toString())).toString('hex'))")
+  runner_key "$pk"
+  set_cfg seal_key "$seal"
   echo "DEV_KEY=$sk" ;;
-pause) set_runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
-resume) set_runner "runner.$ROOT" ;;
+pause) set_cfg runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
+resume) set_cfg runner "runner.$ROOT" ;;
 agent)
-  hex=$(shasum -a 256 "$2" | cut -c1-64)
-  cid=$(js "import { CID } from 'multiformats/cid'; import * as raw from 'multiformats/codecs/raw'; import * as D from 'multiformats/hashes/digest';
-    console.log(CID.createV1(raw.code, D.create(0x12, Buffer.from('$hex', 'hex'))).toString())")
-  echo "pin $2 so that its CID is $cid  (ipfs add --cid-version 1 --raw-leaves $2)"
-  pay "${SPONSOR:?account that sponsors the agent}" "$(usdc "$3")" \
-    "$(jq -nc --arg h "$hex" --arg m "$(usdc "$4")" '{Register:{manifest:$h, max_cost:$m}}')" ;;
+  : "${SPONSOR:?account that sponsors the agent}"
+  key=$(view "$C" config | jq -r .seal_key)
+  [[ -n $key ]] || { echo "the contract has no seal key yet: run runner-key or dev-key first" >&2; exit 1; }
+  sealed=$(FILE="$2" KEY="$key" ts "import { readFileSync } from 'node:fs'; import { seal } from './node/src/seal.ts';
+    const { FILE, KEY, SPONSOR } = process.env;
+    process.stdout.write(seal(readFileSync(FILE), Buffer.from(KEY, 'hex'), SPONSOR).toString('base64'))")
+  (( ${#sealed} * 3 / 4 <= 16384 )) || { echo "$2 is too big: the sealed manifest must fit 16 KiB" >&2; exit 1; }
+  pay "$SPONSOR" "$(usdc "$3")" "$(jq -nc --arg s "$sealed" --arg m "$(usdc "$4")" '{Register:{manifest:$s, max_cost:$m}}')" ;;
 top-up)
   pay "${SPONSOR:?account that pays}" "$(usdc "$3")" "$(jq -nc --arg a "$2" '{TopUp:{agent:$a}}')" ;;
 revenue) # an assignment id pays its latest finished round: the one the customer accepted

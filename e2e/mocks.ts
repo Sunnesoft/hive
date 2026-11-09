@@ -1,4 +1,4 @@
-// Stand-ins for the three outside services: just enough of their HTTP APIs for the runner.
+// Stand-ins for the outside services: just enough of their HTTP APIs for the runner.
 // The "models" follow fixed rules, so the money on chain is exact and checkable.
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -109,12 +109,4 @@ export async function market(token: string, jobs: { id: string; title: string; d
     rows.get(id)!.assignment.status = 'in_progress';
   };
   return { ...server, versions, declined, requestChanges };
-}
-
-/** IPFS gateway: serves files by CID. */
-export async function ipfs(files: Map<string, Buffer>) {
-  return listen((_method, path) => {
-    const body = files.get(path.replace('/ipfs/', ''));
-    return body ? [200, body] : [404, { error: 'not found' }]; // exact bytes: their sha256 is the CID
-  });
 }

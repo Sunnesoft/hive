@@ -13,7 +13,7 @@
 
 | `msg` | Кто | Что делает | Отказ (токены возвращаются) |
 |---|---|---|---|
-| `{"Register":{"manifest":"<sha256 hex>","max_cost":"<units>"}}` | спонсор | Агент = аккаунт отправителя, статус `Pending`. `review_fee` уходит оператору, остаток на баланс | не sha256 hex; `max_cost` = 0; сумма < `min_deposit` |
+| `{"Register":{"manifest":"<base64>","max_cost":"<units>"}}` | спонсор | Агент = аккаунт отправителя, статус `Pending`. `manifest` — манифест, зашифрованный для раннера (см. ниже). `review_fee` уходит оператору, остаток на баланс | манифест пустой или больше 16 KiB; `max_cost` = 0; сумма < `min_deposit` |
 | `{"TopUp":{"agent":"<account>"}}` | любой | Добавляет к балансу агента | агента нет |
 | `{"Revenue":{"job":"<assignment>#<round>"}}` | оператор | `fee_bps` владельцу, остальное по весам участникам задачи. Задача удаляется | не оператор; задачи нет или она не завершена |
 
@@ -21,7 +21,7 @@
 
 | Метод | Кто | Что делает | Отказ |
 |---|---|---|---|
-| `review(agent, manifest, allow)` | раннер | `Pending` → `Active` или `Suspended` | агент не `Pending` или манифест уже сменился (`stale review`) |
+| `review(agent, hash, allow)` | раннер | `Pending` → `Active` или `Suspended` | агент не `Pending` или манифест уже сменился (`stale review`) |
 | `assign(job, agents)` | раннер | У каждого агента удерживает `max_cost` с баланса | id пустой, длиннее 64 или занят; агентов не 1–8; повтор; агент не `Active` или баланс < `max_cost` |
 | `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, weight, violation}`: `cost` оператору, остаток агенту. При `violation` остаток идёт владельцу, агент `Suspended`, вес 0. Если никто не заработал, задача удаляется | задачи нет или она завершена; `outcomes` ≠ слотам; `cost` > удержания |
 | `close(job)` | любой | Не завершена за `run_secs`: удержания назад. Не оплачена за `pay_secs`: запись удаляется | рано |
@@ -32,8 +32,9 @@
 
 | View | Ответ |
 |---|---|
-| `config()` | `{owner, runner, operator, fee_bps, review_fee, min_deposit, run_secs, pay_secs}` |
-| `agent(account)` | `{account, manifest, max_cost, status, balance}` или `null` |
+| `config()` | `{owner, runner, operator, fee_bps, review_fee, min_deposit, run_secs, pay_secs, seal_key}` |
+| `agent(account)` | `{account, hash, max_cost, status, balance}` или `null`; `hash` — sha256 зашифрованного манифеста |
+| `manifest(account)` | зашифрованный манифест (base64) или `null` |
 | `agents(from, limit)` | список того же вида, `limit` ≤ 100 |
 | `job(job)` | `{at, done, slots: [{agent, hold, weight}]}` или `null` |
 | `balance(account)` | `"<units>"`: свободные деньги аккаунта (для спонсора это бюджет агента) |
@@ -41,7 +42,7 @@
 
 ### События (NEP-297, `standard: "swarm"`, `version: "1.0.0"`)
 
-`register {agent, manifest, max_cost, fee}` · `top_up {agent, amount}` · `review {agent, manifest, allow}` ·
+`register {agent, hash, max_cost, fee}` · `top_up {agent, amount}` · `review {agent, hash, allow}` ·
 `assign {job, agents}` · `finish {job, earned}` · `revenue {job, amount, fee, parts}` · `close {job}` ·
 `withdraw {account, amount, ok}`
 
@@ -64,19 +65,25 @@
 | `NEARAI_API_KEY`, `JUDGE_MODEL` | да | инференс; модель ревью, проверки задач и судьи |
 | `MARKET_TOKEN` | да | `aat_…` агента роя на Agent Market |
 | `BID_USD` | нет | ставка на USDC-задачи с доски; без неё только прямой найм |
-| `SLOTS` (3), `AGENT_TIMEOUT_MS` (120000), `POLL_MS` (30000), `IPFS_GATEWAY`, `NEARAI_URL`, `MARKET_URL` | нет | значения по умолчанию в скобках |
+| `SLOTS` (3), `AGENT_TIMEOUT_MS` (120000), `POLL_MS` (30000), `NEARAI_URL`, `MARKET_URL` | нет | значения по умолчанию в скобках |
 
-### Манифест агента (JSON на IPFS, CIDv1 raw = sha256 файла)
+### Манифест агента
 
-`{name ≤60, model ∈ policies/models.json, system ≤8000, knowledge ≤32000, tools ⊆ ["fetch_url"], maxSteps 1–8}`.
-Лишние поля запрещены. Размер не больше 256 kB.
+JSON: `{name ≤60, model ∈ policies/models.json, system ≤8000, knowledge ≤16000, tools ⊆ ["fetch_url"], maxSteps 1–8}`.
+Лишние поля запрещены. После шифрования не больше 16 KiB.
+
+**Шифрование** (`node/src/seal.ts`, это делает `scripts/swarm.sh agent`): X25519 с ключом раннера `config.seal_key`,
+HKDF-SHA256, AES-256-GCM. Аккаунт спонсора входит в шифрование как associated data.
+Формат: `эфемерный публичный ключ (32) | nonce (12) | шифротекст | тег (16)`.
+Открыть его может только раннер, и только для того аккаунта, которым он зашифрован. Копия под другим аккаунтом не открывается.
 
 ### Лог (по одной JSON-строке на событие)
 
 | Событие | Когда |
 |---|---|
-| `attest` | старт в TEE: `publicKey`, `quote`, `event_log`, хэш политик. Раннер ждёт ключ |
-| `ready` | ключ на месте, цикл запущен |
+| `attest` | старт в TEE: `publicKey`, `sealKey`, `quote`, `event_log`, хэш политик. `report_data` = sha256(`publicKey`) ‖ `sealKey`. Раннер ждёт ключ |
+| `ready` | ключ на месте, цикл запущен; `sealKey` |
+| `seal_key_mismatch` | ключ раннера не совпадает с `config.seal_key`: спонсоры шифруют не тем ключом |
 | `reviewed` | агент проверен: `agent`, `allow`, `reason` |
 | `screened` | задача с доски проверена (только с `BID_USD`) |
 | `finished` | раунд рассчитан в контракте: `job`, `agents`, `outcomes` |
@@ -91,7 +98,6 @@
 |---|---|
 | Agent Market (`/openapi.json`) | `GET /v1/agents/me/assignments`; для назначения `{id}`: `GET …/messages`, `GET …/deliverable/versions`, `GET …/deliverable/raw`, `POST …/start`, `POST …/submit {deliverableMarkdown}`, `POST …/decline {reason, detail}`; доска: `GET /v1/jobs/board?kind=standard`, `POST /v1/jobs/{id}/bids {amount, proposal}` |
 | NEAR AI Cloud | `GET /v1/model/list` (цена: `amount × 10^-scale` USD за токен), `POST /v1/chat/completions` (OpenAI-совместимый) |
-| IPFS | `GET {gateway}/ipfs/{cid}` |
 
 ## Раунды назначения (что делает раннер)
 

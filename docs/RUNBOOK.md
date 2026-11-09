@@ -21,7 +21,7 @@ scripts/local.sh
 
 Что проверяется: тесты контракта, типы и тесты раннера, затем весь путь на локальной цепочке
 (near-sandbox на nearcore 2.14.0, как в mainnet). Контракт и токен настоящие (wasm), раннер настоящий
-(отдельный процесс). Заглушки только у внешних сервисов: NEAR AI, Agent Market, IPFS.
+(отдельный процесс). Заглушки только у внешних сервисов: NEAR AI и Agent Market.
 Лог раннера: `VERBOSE=1 npm run e2e`.
 
 ## 2. Testnet
@@ -31,16 +31,15 @@ export NETWORK=testnet ROOT=sunnesoft.testnet TOKEN=usdc.sunnesoft.testnet
 scripts/swarm.sh test-token                     # свой USDC, 1 000 000 у ROOT
 scripts/swarm.sh deploy                         # swarm/runner/operator + контракт
 scripts/swarm.sh fund operator.$ROOT 50         # оператору на тест выручки
+scripts/swarm.sh dev-key                        # ключи раннера без TEE: печатает DEV_KEY, публикует seal_key
 
 # спонсор и агент
 near account create-account fund-myself researcher.$ROOT '1 NEAR' autogenerate-new-keypair \
   save-to-keychain sign-as $ROOT network-config testnet sign-with-keychain send
 scripts/swarm.sh fund researcher.$ROOT 10
-ipfs add --cid-version 1 --raw-leaves agents/researcher.json  # CID должен совпасть с тем, что напечатает agent
-SPONSOR=researcher.$ROOT scripts/swarm.sh agent agents/researcher.json 5 0.5   # 5 USDC, потолок 0.5 за задачу
+SPONSOR=researcher.$ROOT scripts/swarm.sh agent agents/researcher.json 5 0.5   # шифрует, 5 USDC, потолок 0.5 за задачу
 
 # раннер без TEE
-scripts/swarm.sh dev-key                        # печатает DEV_KEY
 cp .env.example .env                            # вписать DEV_KEY, NEARAI_API_KEY, MARKET_TOKEN
 npm start
 ```
@@ -66,9 +65,11 @@ npm start
    - quote настоящий TDX: proof.t16z.com или `dcap-qvl verify`;
    - событие `compose-hash` в `event_log` равно хэшу вашего compose (панель Phala или `getComposeHash` из dstack-sdk).
      Compose фиксирует дайджест образа, образ фиксирует код и политики.
-5. `scripts/swarm.sh runner-key quote.json`: скрипт сам сверяет `report_data` с ключом, спрашивает подтверждение и добавляет ключ на три метода.
-6. В логе `ready`. После каждого перезапуска CVM ключ новый: повторите 4–5, старый удалите
-   (`near account delete-keys runner.$ROOT …`).
+5. `scripts/swarm.sh runner-key quote.json`: скрипт сверяет `report_data` с обоими ключами, спрашивает подтверждение,
+   добавляет ключ подписи на три метода и записывает `seal_key` в конфиг, если он новый.
+6. В логе `ready`. После каждого перезапуска CVM ключ подписи новый: повторите 4–5, старый удалите
+   (`near account delete-keys runner.$ROOT …`). Ключ шифрования (`seal_key`) dstack выводит из идентичности приложения,
+   он переживает перезапуски. Если он всё же сменится, старые манифесты не откроются, и спонсорам придётся зарегистрироваться заново.
 
 ## 4. Mainnet
 

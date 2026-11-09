@@ -40,10 +40,8 @@ test('a missing score means zero, and nothing is delivered when nobody earned', 
   assert.equal(best([{ cost: '0', weight: 3, violation: false }, { cost: '0', weight: 7, violation: false }]), 1);
 });
 
-test('candidates: active, funded, one per manifest', () => {
-  const a = (account: string, manifest: string, status: Agent['status'], balance = '5'): Agent =>
-    ({ account, manifest, status, balance, max_cost: '2' });
-  const all = [a('a', 'm1', 'Active'), a('b', 'm1', 'Active'), a('c', 'm2', 'Pending'), a('d', 'm3', 'Active', '1'), a('e', 'm4', 'Active')];
-  const ids = candidates(all, () => 0.5).map((x) => x.account); // equal keys keep input order
-  assert.deepEqual(ids, ['a', 'e']);
+test('candidates: active and funded for one job', () => {
+  const a = (account: string, status: Agent['status'], balance = '5'): Agent => ({ account, hash: 'h', status, balance, max_cost: '2' });
+  const all = [a('a', 'Active'), a('b', 'Pending'), a('c', 'Active', '1'), a('d', 'Suspended'), a('e', 'Active')];
+  assert.deepEqual(candidates(all, () => 0.5).map((x) => x.account), ['a', 'e']); // equal keys keep input order
 });

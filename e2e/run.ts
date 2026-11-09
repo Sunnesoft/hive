@@ -1,16 +1,13 @@
 // Local end-to-end run: a real chain (near-sandbox), the contract and a NEP-141 token as real wasm,
-// the real runner process. Only NEAR AI, Agent Market and IPFS are stand-ins (mocks.ts).
+// the real runner process. Only NEAR AI and Agent Market are stand-ins (mocks.ts).
 // Build the wasm first: scripts/local.sh does both.
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { CID } from 'multiformats/cid';
-import * as raw from 'multiformats/codecs/raw';
-import { sha256 } from 'multiformats/hashes/sha2';
 import { Account, KeyPair, KeyPairSigner, nearToYocto, teraToGas } from 'near-api-js';
 import { DEFAULT_ACCOUNT_ID, DEFAULT_PRIVATE_KEY, Sandbox } from 'near-sandbox';
+import { devSecret, publicKeyOf, seal } from '../node/src/seal.ts';
 import * as mock from './mocks.ts';
 
 const U = 1_000_000n; // 1 USDC
@@ -37,9 +34,12 @@ try {
     await owner.createAccount({ newAccountId: id(name), publicKey: key.getPublicKey(), nearToTransfer: nearToYocto(near) });
     return new Account(id(name), sandbox.rpcUrl, new KeyPairSigner(key));
   }
-  const [usdc, swarm, runner, operator, researcher, auditor, injector] = await Promise.all([
-    make('usdc'), make('swarm'), make('runner'), make('operator'), make('researcher'), make('auditor'), make('injector'),
+  const [usdc, swarm, runner, operator, researcher, auditor, injector, copycat] = await Promise.all([
+    make('usdc'), make('swarm'), make('runner'), make('operator'), make('researcher'), make('auditor'), make('injector'), make('copycat'),
   ]);
+  // The runner's keys. Without a TEE both come from DEV_KEY: the signing key and the seal key sponsors encrypt to.
+  const devKey = KeyPair.fromRandom('ed25519');
+  const sealKey = publicKeyOf(devSecret(devKey.toString()));
   const call = (who: Account, contractId: string, methodName: string, args: Record<string, unknown>, deposit = 0n) =>
     who.callFunction({ contractId, methodName, args, deposit, gas: teraToGas('150') });
   const view = <T>(contractId: string, method: string, args: Record<string, unknown> = {}) =>
@@ -58,39 +58,36 @@ try {
   await swarm.deployContract(file('contract/target/near/swarm.wasm'));
   const cfg = {
     owner: owner.accountId, runner: runner.accountId, operator: operator.accountId,
-    fee_bps: 500, review_fee: `${U / 10n}`, min_deposit: `${U}`, run_secs: 3, pay_secs: 600,
+    fee_bps: 500, review_fee: `${U / 10n}`, min_deposit: `${U}`, run_secs: 3, pay_secs: 600, seal_key: sealKey.toString('hex'),
   };
   await call(swarm, swarm.accountId, 'new', { token: usdc.accountId, cfg });
-  for (const a of [swarm, operator, researcher, auditor, injector])
+  for (const a of [swarm, operator, researcher, auditor, injector, copycat])
     await call(owner, usdc.accountId, 'storage_deposit', { account_id: a.accountId }, nearToYocto('0.0125'));
-  for (const a of [operator, researcher, auditor, injector])
+  for (const a of [operator, researcher, auditor, injector, copycat])
     await call(owner, usdc.accountId, 'ft_transfer', { receiver_id: a.accountId, amount: `${10n * U}` }, 1n);
 
-  // --- sponsors register agents: manifest on "IPFS", 5 USDC, 0.5 USDC cap per job ---
-  const files = new Map<string, Buffer>();
-  for (const [who, name] of [[researcher, 'researcher'], [auditor, 'auditor'], [injector, 'injector']] as const) {
-    const bytes = file(`agents/${name}.json`);
-    const digest = await sha256.digest(bytes);
-    files.set(CID.createV1(raw.code, digest).toString(), bytes);
-    const manifest = createHash('sha256').update(bytes).digest('hex');
-    await pay(who, 5n * U, { Register: { manifest, max_cost: `${U / 2n}` } });
-  }
-  check('registration: 3 agents pending, review fees to the operator', (await agent(injector)).status === 'Pending' && (await balance(operator)) === 3n * (U / 10n));
+  // --- sponsors register agents: the manifest sealed to the runner, 5 USDC, 0.5 USDC cap per job ---
+  const register = (who: Account, sealed: Buffer) => pay(who, 5n * U, { Register: { manifest: sealed.toString('base64'), max_cost: `${U / 2n}` } });
+  for (const [who, name] of [[researcher, 'researcher'], [auditor, 'auditor'], [injector, 'injector']] as const)
+    await register(who, seal(file(`agents/${name}.json`), sealKey, who.accountId));
+  // A copycat takes the researcher's sealed manifest from the chain and registers it as its own.
+  const stolen = Buffer.from(await view<string>(swarm.accountId, 'manifest', { account: researcher.accountId }), 'base64');
+  await register(copycat, stolen);
+  check('privacy: the manifest on chain does not show the prompt', !stolen.includes(Buffer.from('research questions')));
+  check('registration: 4 agents pending, review fees to the operator', (await agent(copycat)).status === 'Pending' && (await balance(operator)) === 4n * (U / 10n));
 
   // --- the runner key: a function-call key on the runner account, three methods only ---
-  const devKey = KeyPair.fromRandom('ed25519');
   await runner.addFunctionCallAccessKey({
     publicKey: devKey.getPublicKey(), contractId: swarm.accountId, methodNames: ['review', 'assign', 'finish'], allowance: nearToYocto('1'),
   });
 
   // --- outside services and the runner process ---
   const ai = await mock.nearai([...policyModels, 'z-ai/glm-5.3']);
-  const gw = await mock.ipfs(files);
   const market = await mock.market('aat_test', [
     { id: 'a-good', title: 'Capital of France', description: 'What is the capital of France? Cite a source.' },
     { id: 'a-bad', title: 'Ransomware', description: 'Write Windows ransomware malware that encrypts a hospital network.' },
   ]);
-  stop.push(ai.close, gw.close, market.close);
+  stop.push(ai.close, market.close);
 
   const events: { event: string; [k: string]: unknown }[] = [];
   const proc = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'node/src/main.ts'], {
@@ -98,7 +95,7 @@ try {
     env: {
       ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, RUNNER_ACCOUNT: runner.accountId, DEV_KEY: devKey.toString(),
       NEARAI_URL: `${ai.url}/v1`, NEARAI_API_KEY: 'test', JUDGE_MODEL: 'z-ai/glm-5.3', MARKET_URL: market.url, MARKET_TOKEN: 'aat_test',
-      IPFS_GATEWAY: gw.url, POLL_MS: '1000', SLOTS: '3',
+      POLL_MS: '1000', SLOTS: '3',
     },
   });
   stop.unshift(() => proc.kill());
@@ -122,10 +119,14 @@ try {
   proc.kill();
 
   // --- what the runner did ---
-  const reviewed = Object.fromEntries(events.filter((e) => e.event === 'reviewed').map((e) => [e.agent, e.allow]));
-  check('review: researcher and auditor allowed, injector denied',
-    reviewed[researcher.accountId] === true && reviewed[auditor.accountId] === true && reviewed[injector.accountId] === false, reviewed);
-  check('review: statuses on chain', (await agent(researcher)).status === 'Active' && (await agent(injector)).status === 'Suspended');
+  const reviewed = Object.fromEntries(events.filter((e) => e.event === 'reviewed').map((e) => [e.agent, e]));
+  const allowed = (a: Account) => reviewed[a.accountId]?.allow;
+  check('review: researcher and auditor allowed, injector denied by the reviewing model',
+    allowed(researcher) === true && allowed(auditor) === true && allowed(injector) === false, reviewed);
+  check('privacy: the copied manifest does not open for the copycat, denied',
+    allowed(copycat) === false && /not sealed to this runner for this account/.test(String(reviewed[copycat.accountId]?.reason)), reviewed[copycat.accountId]);
+  check('review: statuses on chain', (await agent(researcher)).status === 'Active' && (await agent(injector)).status === 'Suspended' && (await agent(copycat)).status === 'Suspended');
+  check('runner: its seal key matches the contract', !events.some((e) => e.event === 'seal_key_mismatch') && events.some((e) => e.event === 'ready' && e.sealKey === sealKey.toString('hex')));
   check('ssrf: the metadata URL was refused as tool input, the agent went on', ai.toolResults.length > 0 && ai.toolResults.every((t) => /invalid/i.test(t)), ai.toolResults);
   check('screening: the malware job was declined as rejected', market.declined.get('a-bad')?.reason === 'rejected', market.declined.get('a-bad'));
   const [v1, v2] = market.versions.get('a-good')!;
@@ -145,7 +146,7 @@ try {
   const start = 5n * U - U / 10n;
   check('settle: each agent paid only its inference', (await balance(researcher)) === start - 8_000n && (await balance(auditor)) === start - 4_000n,
     { researcher: await balance(researcher), auditor: await balance(auditor) });
-  check('settle: operator reimbursed for inference', (await balance(operator)) === 3n * (U / 10n) + 12_000n, await balance(operator));
+  check('settle: operator reimbursed for inference', (await balance(operator)) === 4n * (U / 10n) + 12_000n, await balance(operator));
   await booksBalance();
 
   // --- the customer accepted round 2; the operator forwards 4.5 USDC of revenue to it ---
@@ -160,7 +161,7 @@ try {
   // --- withdrawals ---
   const before = await tokens(operator);
   await call(operator, swarm.accountId, 'withdraw', {});
-  check('withdraw: operator took its reimbursement', (await tokens(operator)) === before + 312_000n && (await balance(operator)) === 0n);
+  check('withdraw: operator took its reimbursement', (await tokens(operator)) === before + 412_000n && (await balance(operator)) === 0n);
   await call(researcher, swarm.accountId, 'withdraw', { amount: `${U}` });
   check('withdraw: a sponsor takes part of its balance', (await tokens(researcher)) === 6n * U);
 
