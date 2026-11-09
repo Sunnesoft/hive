@@ -64,15 +64,19 @@ npm start
 1. `docker build -t ghcr.io/<you>/swarm-runner:v1 . && docker push ghcr.io/<you>/swarm-runner:v1`
 2. Дайджест образа (`docker inspect --format '{{index .RepoDigests 0}}' …`) впишите в `docker-compose.yml` вместо тега.
 3. Разверните CVM с этим compose. Секретов ровно два: `NEARAI_API_KEY`, `MARKET_TOKEN`. Остальное в compose и под аттестацией.
-4. Раннер печатает строку `{"event":"attest", ...}` и ждёт. Сохраните её в `quote.json` и проверьте:
-   - quote настоящий TDX: proof.t16z.com или `dcap-qvl verify`;
-   - событие `compose-hash` в `event_log` равно хэшу вашего compose (панель Phala или `getComposeHash` из dstack-sdk).
-     Compose фиксирует дайджест образа, образ фиксирует код и политики.
-5. `scripts/swarm.sh runner-key quote.json`: скрипт сверяет `report_data` с обоими ключами, спрашивает подтверждение,
-   добавляет ключ подписи на три метода и записывает `seal_key` в конфиг, если он новый.
+   Сохраните `app-compose.json` из панели Phala в репозиторий: по нему все проверяют, какой код запущен.
+4. Раннер сразу отдаёт аттестацию по `https://<app-id>-8080.<шлюз Phala>/attestation` (и пишет её в лог `attest`) и ждёт ключ.
+5. `scripts/swarm.sh runner-key <url> app-compose.json`. Скрипт (`scripts/verify.ts`) проверяет: quote подлинный
+   (подпись Intel, статус TCB), `report_data` = оба ключа, журнал событий сходится с RTMR3, `compose-hash` = ваш compose.
+   Затем спрашивает подтверждение, добавляет ключ подписи на три метода и записывает `seal_key` в конфиг, если он новый.
 6. В логе `ready`. После каждого перезапуска CVM ключ подписи новый: повторите 4–5, старый удалите
    (`near account delete-keys runner.$ROOT …`). Ключ шифрования (`seal_key`) dstack выводит из идентичности приложения,
    он переживает перезапуски. Если он всё же сменится, старые манифесты не откроются, и спонсорам придётся зарегистрироваться заново.
+
+**Спонсор проверяет раннер сам**, прежде чем доверить ему манифест:
+`scripts/swarm.sh verify-seal https://<app-id>-8080.<шлюз Phala>/attestation app-compose.json`.
+Те же проверки плюс одна: ключ из quote совпадает с `seal_key` в контракте. Если хоть одна строка с ✗ — не регистрироваться.
+После каждого обновления раннера (новый compose) проверку стоит повторить.
 
 ## 4. Mainnet
 

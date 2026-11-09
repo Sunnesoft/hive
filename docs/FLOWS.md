@@ -69,6 +69,7 @@ flowchart TB
 
 | Канал | Между кем | Доступ | Формат | Кто начинает |
 |---|---|---|---|---|
+| HTTP `GET /attestation` | кто угодно → раннер | нет: содержимое доказывает себя подписью Intel | JSON: ключи, quote, журнал событий | владелец, спонсор |
 | Транзакция NEAR | спонсор, оператор, владелец → токен или контракт | подпись аккаунта | JSON-аргументы метода | человек через `swarm.sh` |
 | Транзакция NEAR | раннер → контракт | function-call ключ на `review`, `assign`, `finish` | JSON-аргументы | раннер |
 | Квитанции между контрактами | токен ↔ контракт | система NEAR | `ft_on_transfer`, `ft_transfer`, `on_withdraw` | токен или контракт |
@@ -124,8 +125,9 @@ sequenceDiagram
   Note over R: секрет печати = sha256(key), sealKey = его публичная X25519-половина.<br/>Ключ подписи NEAR: новый ed25519 на каждый старт
   R->>D: getQuote(sha256(publicKey) ‖ sealKey)
   D-->>R: quote TDX с подписью Intel и event_log
-  R-->>O: лог attest: publicKey, sealKey, quote, event_log, хэш политик
-  Note over O: проверяет quote у Intel, compose-hash в event_log,<br/>report_data = sha256(publicKey) ‖ sealKey
+  Note over R: поднимает GET /attestation и ждёт ключ
+  O->>R: GET /attestation: publicKey, sealKey, quote, event_log, хэш политик
+  Note over O: swarm.sh runner-key → verify.ts: quote подлинный (Intel), report_data = оба ключа,<br/>журнал сходится с RTMR3, compose-hash = app-compose.json
   O->>RA: AddKey: function-call на swarm, методы review, assign, finish, 5 NEAR на газ
   O->>K: set_config(seal_key = sealKey), если ключ новый
   loop каждые 15 с, пока ключа нет
@@ -135,7 +137,8 @@ sequenceDiagram
   R-->>O: лог ready: sealKey, хэш политик
 ```
 
-Без TEE (локально и в testnet) оба ключа выводятся из `DEV_KEY`, quote нет, команда `swarm.sh dev-key` делает шаги 9–10.
+Без TEE (локально и в testnet) оба ключа выводятся из `DEV_KEY`, quote нет (`/attestation` отвечает `dev: true`),
+команда `swarm.sh dev-key` добавляет ключ и записывает `seal_key`.
 
 ## 5. Регистрация агента и ревью
 
@@ -151,6 +154,13 @@ sequenceDiagram
   participant R as Раннер в TEE
   participant L as NEAR AI, модель протокола
   participant H as Хостинг библиотеки
+  participant I as Intel PCCS
+  opt перед тем как доверить манифест
+    CLI->>R: GET /attestation
+    R-->>CLI: publicKey, sealKey, quote, event_log
+    CLI->>I: коллатерал для проверки подписи
+    Note over CLI: swarm.sh verify-seal → verify.ts: quote подлинный, report_data = ключи,<br/>журнал сходится с RTMR3, compose-hash = наш, sealKey = seal_key контракта
+  end
   opt большая база знаний
     S->>CLI: swarm.sh library notes.md
     Note over CLI: шифрует файл с associated data = аккаунт|library

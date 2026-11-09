@@ -4,7 +4,7 @@
 // fact in the manifest, the other deep in a big sealed library on some web host. The swarm answers,
 // pays both, and neither fact is visible on chain, on the host or to the other agent.
 // Build the wasm first: scripts/local.sh does both.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -112,6 +112,7 @@ try {
   ]);
   stop.push(ai.close, market.close);
 
+  const port = 20_000 + Math.floor(Math.random() * 20_000); // the runner's GET /attestation
   const events: { event: string; [k: string]: unknown }[] = [];
   const proc = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'node/src/main.ts'], {
     cwd: root, stdio: ['ignore', 'pipe', 'inherit'],
@@ -119,6 +120,7 @@ try {
       ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, RUNNER_ACCOUNT: runner.accountId, DEV_KEY: devKey.toString(),
       NEARAI_URL: `${ai.url}/v1`, NEARAI_API_KEY: 'test', PROTOCOL_MODEL: 'z-ai/glm-5.3', MARKET_URL: market.url, MARKET_TOKEN: 'aat_test',
       POLL_MS: '1000', SLOTS: '3', EMBED_MODEL: 'Qwen/Qwen3-Embedding-0.6B', FETCH_ALLOW: '127.0.0.1', // the mock web host is local
+      PORT: `${port}`,
     },
   });
   stop.unshift(() => proc.kill());
@@ -136,6 +138,10 @@ try {
     }
   }
   await until('first answer and the refusal', () => count('submitted', 'a-good') === 1 && count('declined', 'a-bad') === 1);
+  const attestation = await (await fetch(`http://127.0.0.1:${port}/attestation`)).json();
+  check('attestation: the runner serves its keys; without a TEE it says so', attestation.dev === true && attestation.sealKey === sealKey.toString('hex'), attestation);
+  const verifier = spawnSync(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'scripts/verify.ts', `http://127.0.0.1:${port}/attestation`], { cwd: root, encoding: 'utf8' });
+  check('attestation: verify.ts refuses a runner without a TEE', verifier.status === 1 && /no TEE/.test(verifier.stdout), verifier.stdout);
   // The customer sends the answer back. The swarm must run a second round by itself.
   market.requestChanges('a-good', 'Please also give the launch time.');
   await until('the reworked answer', () => count('submitted', 'a-good') === 2);

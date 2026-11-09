@@ -6,9 +6,10 @@
 #   test-token                      owner     testnet: deploy our own USDC at TOKEN (= usdc.<ROOT>), 1M to ROOT
 #   fund <account> <usdc>           owner     register an account with the token and send it USDC
 #   deploy                          owner     build, create swarm/runner/operator, deploy and init the contract
-#   runner-key <quote.json>         owner     check a TEE quote, give its key the runner methods, publish its seal key
+#   runner-key <url|file> [compose] owner     check the runner's attestation, give its key the runner methods, publish its seal key
 #   dev-key                         owner     runner keys without a TEE (testnet only); prints DEV_KEY for .env
 #   pause | resume                  owner     no key can act as the runner / the runner works again
+#   verify-seal <url|file> [compose] anyone   check the runner before trusting it: Intel quote, keys, event log, compose, seal_key
 #   library <file>                  sponsor   seal a big knowledge file (SPONSOR=); upload it anywhere, put url+hash in the manifest
 #   agent <manifest> <usdc> <cap>   sponsor   seal the manifest to the runner, register: deposit, cap per job (SPONSOR=)
 #   top-up <agent> <usdc>           anyone    add to an agent's budget (SPONSOR=<payer>)
@@ -51,6 +52,8 @@ runner_key() {
 }
 # set_cfg <field> <value>: change one config field (owner)
 set_cfg() { send "$C" set_config "$(view "$C" config | jq -c --arg k "$1" --arg v "$2" '{cfg: (.[$k] = $v)}')" "$ROOT"; }
+# verify <url|file> [app-compose.json]: the full check of a runner (scripts/verify.ts)
+verify() { node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/verify.ts "$@"; }
 # ts <js>: run JavaScript that may import the runner's TypeScript modules
 ts() { node --experimental-strip-types --disable-warning=ExperimentalWarning --input-type=module -e "$1"; }
 
@@ -79,14 +82,11 @@ deploy)
   for a in "$C" "operator.$ROOT" "$ROOT"; do # every payout receiver must be registered with the token
     send "$TOKEN" storage_deposit "$(jq -nc --arg a "$a" '{account_id:$a}')" "$ROOT" '0.00125 NEAR'
   done ;;
-runner-key)
-  pk=$(jq -r .publicKey "$2")
-  seal=$(jq -r .sealKey "$2")
-  want="$(printf %s "$pk" | shasum -a 256 | cut -c1-64)$seal"
-  got=$(jq -r '.quote | ltrimstr("0x")' "$2" | xxd -r -p | tail -c +569 | head -c 64 | xxd -p -c 128) # TDX v4: report_data at byte 568
-  [[ $got == "$want" ]] || { echo "report_data does not commit to these keys" >&2; exit 1; }
-  echo "report_data commits to signing key $pk and seal key $seal."
-  echo "Now check the quote and its compose-hash (docs/RUNBOOK.md, TEE)."
+runner-key) # the seal key may be new, so it is not compared with the contract's here
+  verify "$2" ${3:+"$3"} || { echo "the runner did not pass the checks" >&2; exit 1; }
+  if [[ $2 == http* ]]; then a=$(curl -fsS "$2"); else a=$(cat "$2"); fi
+  pk=$(jq -r .publicKey <<<"$a")
+  seal=$(jq -r .sealKey <<<"$a")
   read -rp "give these keys to runner.$ROOT? [y/N] " ok
   [[ $ok == y ]] || exit 1
   runner_key "$pk"
@@ -97,6 +97,8 @@ dev-key)
   runner_key "$pk"
   set_cfg seal_key "$seal"
   echo "DEV_KEY=$sk" ;;
+verify-seal)
+  RPC="$RPC" CONTRACT="$C" verify "$2" ${3:+"$3"} ;;
 pause) set_cfg runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
 resume) set_cfg runner "runner.$ROOT" ;;
 library)
@@ -149,5 +151,5 @@ status)
     view "$C" agent "$(jq -nc --arg a "$2" '{account:$a}')" | jq .
     echo "balance: $(view "$C" balance "$(jq -nc --arg a "$2" '{account:$a}')")"
   fi ;;
-*) sed -n '2,18p' "$0"; exit 1 ;;
+*) sed -n '2,19p' "$0"; exit 1 ;;
 esac

@@ -20,6 +20,7 @@ const Env = z.object({
   SLOTS: z.coerce.number().int().min(1).max(8).default(3),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
+  PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation
 });
 
 export const cfg = Env.parse(process.env);

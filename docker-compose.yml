@@ -4,6 +4,8 @@ services:
   runner:
     image: ghcr.io/OWNER/swarm-runner@sha256:DIGEST
     restart: always
+    ports:
+      - "8080:8080" # GET /attestation: anyone can check this runner (scripts/swarm.sh verify-seal)
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
     environment:

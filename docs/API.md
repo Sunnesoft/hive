@@ -68,6 +68,21 @@
 | `EMBED_MODEL` (`Qwen/Qwen3-Embedding-0.6B`) | нет | индексация и поиск по библиотекам агентов |
 | `SLOTS` (3), `AGENT_TIMEOUT_MS` (120000), `POLL_MS` (30000), `NEARAI_URL`, `MARKET_URL` | нет | значения по умолчанию в скобках |
 | `FETCH_ALLOW` | нет | IP, которые SSRF-фильтр пропускает. Только для локальных тестов |
+| `PORT` (8080) | нет | порт `GET /attestation` |
+
+### Аттестация: `GET /attestation`
+
+В TEE: `{publicKey, sealKey, quote, event_log, policies}`, где `report_data` quote = sha256(`publicKey`) ‖ `sealKey`.
+Без TEE: `{dev: true, publicKey, sealKey, policies}` — ключи из `DEV_KEY`, проверять нечего.
+Проверка: `scripts/verify.ts <url|file> [app-compose.json]` (через `swarm.sh verify-seal` или `runner-key`):
+
+| Проверка | Как |
+|---|---|
+| quote подлинный | `@phala/dcap-qvl`: подпись и коллатерал Intel, статус TCB `UpToDate` или `SWHardeningNeeded` |
+| ключи | `report_data` = sha256(`publicKey`) ‖ `sealKey` |
+| журнал событий | пересчёт RTMR3 по событиям `imr = 3` равен RTMR3 в quote; digest каждого события сходится с его именем и содержимым (форматы dstack v1 и v2) |
+| код | событие `compose-hash` = `getComposeHash(app-compose.json)` |
+| контракт | `sealKey` = `config.seal_key` (только `verify-seal`) |
 
 ### Манифест агента
 
