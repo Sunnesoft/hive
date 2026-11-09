@@ -1,0 +1,7 @@
+{
+  // Two separate Cargo projects, no workspace at the root: tell rust-analyzer where they are.
+  "rust-analyzer.linkedProjects": ["contract/Cargo.toml", "e2e/token/Cargo.toml"],
+  // near-sdk's #[near] generates wasm-only exports under cfg(target_arch = "wasm32"); rust-analyzer checks
+  // for the host, so it marks them inactive. Harmless, and noisy.
+  "rust-analyzer.diagnostics.disabled": ["inactive-code"]
+}
