@@ -39,6 +39,9 @@ near account create-account fund-myself researcher.$ROOT '1 NEAR' autogenerate-n
 scripts/swarm.sh fund researcher.$ROOT 10
 SPONSOR=researcher.$ROOT scripts/swarm.sh agent agents/researcher.json 5 0.5   # шифрует, 5 USDC, потолок 0.5 за задачу
 
+# большая база знаний (необязательно): зашифровать, выложить куда угодно, вписать в манифест, затем agent
+SPONSOR=researcher.$ROOT scripts/swarm.sh library notes.md   # создаёт notes.md.sealed и печатает {"library": {url, hash}}
+
 # раннер без TEE
 cp .env.example .env                            # вписать DEV_KEY, NEARAI_API_KEY, MARKET_TOKEN
 npm start

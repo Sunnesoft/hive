@@ -6,8 +6,9 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import * as chain from './chain.ts';
 import { cfg, log, policyHash } from './config.ts';
-import { compose, instructions, priceOf, refreshPrices, reviewManifest, route, runAgent, screenJob, type Verdict } from './llm.ts';
-import { InvalidManifest, load, useSecret, type Manifest } from './manifest.ts';
+import { CHUNK, NEAREST, search } from './library.ts';
+import { compose, instructions, priceOf, prompt, refreshPrices, reviewManifest, route, runAgent, screenJob, type Verdict } from './llm.ts';
+import { InvalidManifest, load, useSecret, type Loaded } from './manifest.ts';
 import * as market from './market.ts';
 import { candidates, NOTHING, outcomes, stepCeiling, type Agent } from './settle.ts';
 import { publicKeyOf } from './seal.ts';
@@ -17,7 +18,7 @@ import { bootKeys } from './tee.ts';
 async function review(a: Agent) {
   if (a.status !== 'Pending') return;
   const v = await load(a).then(
-    async (m) => ({ allow: (await reviewManifest(m)).allow }), // the model's reason may quote the private manifest: not logged
+    async ({ m }) => ({ allow: (await reviewManifest(m)).allow }), // the model's reason may quote the private manifest: not logged
     (e) => {
       if (e instanceof InvalidManifest) return { allow: false, reason: `invalid manifest: ${e.message}` }; // written by our code
       throw e; // chain trouble: stays Pending, retried next tick
@@ -59,18 +60,27 @@ const POOL = 30; // how many candidates the router sees at once
 /** Candidates the router may pick from: one per distinct manifest (clones never share a job), each with
  *  a cap that covers a worst-case first step. */
 async function pool(agents: Agent[], task: string) {
-  const crew: { id: string; m: Manifest; cap: bigint }[] = [];
+  const crew: (Loaded & { id: string; cap: bigint })[] = [];
   const seen = new Set<string>();
   for (const a of candidates(agents)) {
     if (crew.length === POOL) break;
-    const m = await load(a).catch(() => undefined);
-    const price = m && priceOf(m.model);
+    const x = await load(a).catch(() => undefined);
+    const price = x && priceOf(x.m.model);
     const cap = BigInt(a.max_cost);
-    if (!m || !price || cap < stepCeiling(instructions(m).length + task.length + 2_000, price) || seen.has(JSON.stringify(m))) continue;
-    seen.add(JSON.stringify(m));
-    crew.push({ id: a.account, m, cap });
+    const chars = x && instructions(x.m).length + task.length + 2_000 + (x.lib ? NEAREST * CHUNK : 0);
+    if (!x || !price || cap < stepCeiling(chars!, price) || seen.has(JSON.stringify(x.m))) continue;
+    seen.add(JSON.stringify(x.m));
+    crew.push({ ...x, id: a.account, cap });
   }
   return crew;
+}
+
+/** One agent's part: search its library for the question, then run it. Both are paid from its cap. */
+async function contribute(t: Loaded & { cap: bigint }, task: string, question: string) {
+  const found = t.lib ? await search(t.lib, question).catch(() => ({ chunks: [], cost: 0n })) : { chunks: [], cost: 0n };
+  const run = await runAgent(t.m, prompt(task, question), t.cap - found.cost, found.chunks);
+  const cost = run.cost + found.cost;
+  return { ...run, cost: cost < t.cap ? cost : t.cap };
 }
 
 const outbox = new Map<string, string>(); // settled answers the market has not taken yet
@@ -99,8 +109,7 @@ async function serve({ assignment: a, job }: market.Row, agents: Agent[]) {
   if (!a.startedAt) await market.start(id); // the customer can no longer cancel, so a cut round is always resumed here
   await chain.assign(key, crew.map((t) => t.id));
   // Each agent sees the task and its own question, never another agent's answer: its knowledge stays with it.
-  const ask = (q: string) => `${task}\n\n# Your part\n\n${q}\n\nAnswer only your part, from your instructions, knowledge and tools.`;
-  const runs = await Promise.all(crew.map((t) => runAgent(t.m, ask(t.question), t.cap)));
+  const runs = await Promise.all(crew.map((t) => contribute(t, task, t.question)));
   // Only the protocol's model sees the answer that was sent back: it holds every agent's knowledge.
   const previous = round > 1 ? (await market.delivered(id)).slice(0, 20_000) : '';
   const done = await compose(task, previous, crew.map((t, i) => ({ question: t.question, text: runs[i]!.text }))).catch(

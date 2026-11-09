@@ -9,6 +9,7 @@
 #   runner-key <quote.json>         owner     check a TEE quote, give its key the runner methods, publish its seal key
 #   dev-key                         owner     runner keys without a TEE (testnet only); prints DEV_KEY for .env
 #   pause | resume                  owner     no key can act as the runner / the runner works again
+#   library <file>                  sponsor   seal a big knowledge file (SPONSOR=); upload it anywhere, put url+hash in the manifest
 #   agent <manifest> <usdc> <cap>   sponsor   seal the manifest to the runner, register: deposit, cap per job (SPONSOR=)
 #   top-up <agent> <usdc>           anyone    add to an agent's budget (SPONSOR=<payer>)
 #   revenue <assignment> <usdc>     operator  forward an Agent Market payout to the accepted round's agents
@@ -98,6 +99,19 @@ dev-key)
   echo "DEV_KEY=$sk" ;;
 pause) set_cfg runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
 resume) set_cfg runner "runner.$ROOT" ;;
+library)
+  : "${SPONSOR:?account that sponsors the agent}"
+  key=$(view "$C" config | jq -r .seal_key)
+  [[ -n $key ]] || { echo "the contract has no seal key yet: run runner-key or dev-key first" >&2; exit 1; }
+  FILE="$2" KEY="$key" ts "import { readFileSync, writeFileSync } from 'node:fs'; import { createHash } from 'node:crypto';
+    import { libraryAad, seal } from './node/src/seal.ts';
+    const { FILE, KEY, SPONSOR } = process.env;
+    const sealed = seal(readFileSync(FILE), Buffer.from(KEY, 'hex'), libraryAad(SPONSOR));
+    if (sealed.length > 10_000_000) throw new Error('the sealed library must fit 10 MB');
+    writeFileSync(FILE + '.sealed', sealed);
+    const hash = createHash('sha256').update(sealed).digest('hex');
+    console.log('Upload ' + FILE + '.sealed anywhere (https or http), then add to the manifest:');
+    console.log(JSON.stringify({ library: { url: 'https://.../' + FILE.split('/').pop() + '.sealed', hash } }, null, 2));" ;;
 agent)
   : "${SPONSOR:?account that sponsors the agent}"
   key=$(view "$C" config | jq -r .seal_key)
@@ -135,5 +149,5 @@ status)
     view "$C" agent "$(jq -nc --arg a "$2" '{account:$a}')" | jq .
     echo "balance: $(view "$C" balance "$(jq -nc --arg a "$2" '{account:$a}')")"
   fi ;;
-*) sed -n '2,17p' "$0"; exit 1 ;;
+*) sed -n '2,18p' "$0"; exit 1 ;;
 esac

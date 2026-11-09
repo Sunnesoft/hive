@@ -2,7 +2,7 @@
 // no keys, no other agents, no memory between jobs. The protocol's own model reviews agents, screens
 // tasks, routes questions and composes the answer. Agents' output is data for it, never instructions.
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, isStepCount, Output } from 'ai';
+import { embedMany, generateText, isStepCount, Output } from 'ai';
 import { z } from 'zod';
 import { cfg, log, policy } from './config.ts';
 import type { Manifest } from './manifest.ts';
@@ -32,11 +32,29 @@ export async function refreshPrices() {
   prices = Object.fromEntries(models.map((m) => [m.modelId, { in: perMillion(m.inputCostPerToken), out: perMillion(m.outputCostPerToken) }]));
 }
 
-export const instructions = (m: Manifest) =>
-  m.knowledge ? `${m.system}\n\n<knowledge>\n${m.knowledge}\n</knowledge>` : m.system;
+/** What an agent is told: its prompt, its knowledge and the chunks of its library found for this question. */
+export const instructions = (m: Manifest, library: string[] = []) =>
+  [m.system, m.knowledge && `<knowledge>\n${m.knowledge}\n</knowledge>`, library.length && `<library>\n${library.join('\n---\n')}\n</library>`]
+    .filter(Boolean)
+    .join('\n\n');
+
+/** The user message of an agent: the task and its own part of it. */
+export const prompt = (task: string, question: string) =>
+  `${task}\n\n# Your part\n\n${question}\n\nAnswer only your part, from your instructions, knowledge and tools.`;
+
+/** Embeds texts with the protocol's embedding model, in parallel batches. */
+export async function embedTexts(values: string[], timeoutMs = cfg.AGENT_TIMEOUT_MS) {
+  const { embeddings, usage } = await embedMany({
+    model: nearai.embeddingModel(cfg.EMBED_MODEL),
+    values,
+    maxParallelCalls: 4,
+    abortSignal: AbortSignal.timeout(timeoutMs),
+  });
+  return { vectors: embeddings, tokens: usage.tokens };
+}
 
 /** Runs one agent. Spend is counted per step and the run stops at the cap; a failed run keeps what it spent. */
-export async function runAgent(m: Manifest, task: string, cap: bigint): Promise<Run> {
+export async function runAgent(m: Manifest, task: string, cap: bigint, library: string[] = []): Promise<Run> {
   const price = prices[m.model];
   if (!price) return { text: '', cost: 0n }; // the model left the catalog: no work, no charge
   let cost = 0n;
@@ -44,7 +62,7 @@ export async function runAgent(m: Manifest, task: string, cap: bigint): Promise<
   try {
     const r = await generateText({
       model: nearai(m.model),
-      instructions: instructions(m),
+      instructions: instructions(m, library),
       prompt: task,
       tools: Object.fromEntries(m.tools.map((t) => [t, tools[t]])),
       stopWhen: [isStepCount(m.maxSteps), () => cost >= cap],

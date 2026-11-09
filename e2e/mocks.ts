@@ -31,7 +31,19 @@ export async function nearai(models: string[]) {
   }] as [number, unknown];
   const cost = (amount: number) => ({ amount, scale: 9, currency: 'USD' });
 
+  // Embeddings: which words occur, hashed into 1024 buckets, so search works by shared words.
+  const bag = (text: string) => {
+    const v = new Array(1024).fill(0);
+    for (const w of text.toLowerCase().match(/[a-z0-9-]+/g) ?? []) v[[...w].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 1024] = 1;
+    return v;
+  };
+
   const server = await listen((method, path, body) => {
+    if (method === 'POST' && path === '/v1/embeddings') {
+      const input: string[] = Array.isArray(body.input) ? body.input : [body.input];
+      const data = input.map((t, index) => ({ object: 'embedding', index, embedding: bag(t) }));
+      return [200, { object: 'list', data, model: body.model, usage: { prompt_tokens: 10 * input.length, total_tokens: 10 * input.length } }];
+    }
     if (method === 'GET' && path.startsWith('/v1/model/list'))
       return [200, { models: models.map((modelId) => ({ modelId, inputCostPerToken: cost(PRICE.in), outputCostPerToken: cost(PRICE.out) })) }];
     const msgs: { role: string; content: string }[] = body.messages;
@@ -53,16 +65,19 @@ export async function nearai(models: string[]) {
       const score = (t: string) => (t.includes('2027-03-14') ? 6 : t.includes('BLUE-HERON') ? 4 : 0);
       return json({ answer, scores: contributions.map((c) => ({ id: c.id, score: score(c.text), violation: false })) });
     }
-    // An agent answers from its private knowledge. One with tools first tries the cloud metadata host.
+    // An agent answers from its private knowledge and the library chunks it was given.
+    // One with tools first tries the cloud metadata host.
     agentCalls.push(JSON.stringify(msgs));
     const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
+    const library = /<library>\n([\s\S]*?)\n<\/library>/.exec(system)?.[1] ?? '';
+    const found = library.split('\n').filter((l) => l.includes('Project Alpha')).join(' ');
     const tool = msgs.find((m) => m.role === 'tool');
     if (body.tools?.length && !tool) {
       const args = JSON.stringify({ url: 'http://169.254.169.254/latest/meta-data/' });
       return reply(null, [{ id: 'call_1', type: 'function', function: { name: 'fetch_url', arguments: args } }]);
     }
     if (tool) toolResults.push(JSON.stringify(tool.content));
-    return reply(`From my notes: ${knowledge}`);
+    return reply(`From my notes: ${knowledge} ${found}`.trim());
   });
   return { ...server, agentCalls, composed, toolResults };
 }
@@ -117,4 +132,12 @@ export async function market(token: string, jobs: { id: string; title: string; d
     rows.get(id)!.assignment.status = 'in_progress';
   };
   return { ...server, versions, declined, requestChanges };
+}
+
+/** Any web host: serves files by path, byte for byte. */
+export async function host(files: Map<string, Buffer>) {
+  return listen((_method, path) => {
+    const body = files.get(path);
+    return body ? [200, body] : [404, { error: 'not found' }];
+  });
 }

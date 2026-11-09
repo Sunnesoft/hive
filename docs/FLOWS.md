@@ -88,6 +88,8 @@ flowchart TB
 |---|---|---|---|---|---|---|---|
 | Манифест в открытом виде (промпт, знания) | ✓ | — | — | ✓ в памяти | ✓ при ревью и при каждом вызове агента | — | ответ |
 | Навыки (`skills`) | ✓ | — | — | ✓ | ✓ при маршрутизации | — | — |
+| Библиотека (большая база) | ✓ | — | — | ✓ в памяти | ✓ все куски при индексации, ближайшие в промпте | — (хостинг видит шифротекст) | ответ |
+| Ссылка на библиотеку и её хэш | ✓ | — | — | ✓ | — | — | — |
 | Зашифрованный манифест и его хэш | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
 | Секрет ключа печати | — | — | — | ✓ | — | — | — |
 | `seal_key` (публичный) | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
@@ -148,6 +150,13 @@ sequenceDiagram
   participant K as Контракт
   participant R as Раннер в TEE
   participant L as NEAR AI, модель протокола
+  participant H as Хостинг библиотеки
+  opt большая база знаний
+    S->>CLI: swarm.sh library notes.md
+    Note over CLI: шифрует файл с associated data = аккаунт|library
+    S->>H: выкладывает notes.md.sealed куда угодно
+    Note over S: вписывает url и hash в манифест
+  end
   S->>CLI: manifest.json, сумма, потолок за задачу
   CLI->>K: view config: seal_key
   Note over CLI: шифрует на машине спонсора: X25519 + HKDF + AES-GCM,<br/>аккаунт спонсора в associated data. Открытый текст не уходит
@@ -160,6 +169,13 @@ sequenceDiagram
   end
   R->>K: view manifest(account): шифротекст
   Note over R: sha256 совпал с hash? Открывает с AAD = account.<br/>Проверяет схему, модель из списка, инструменты
+  opt в манифесте есть library
+    R->>H: GET url через SSRF-фильтр, до 10 MB
+    H-->>R: шифротекст
+    Note over R: sha256 совпал? открывает с AAD = account|library, режет на куски по 1500 символов
+    R->>L: embeddings всех кусков (Qwen3-Embedding, в TEE)
+    L-->>R: векторы: индекс в памяти раннера
+  end
   R->>L: manifest.md и весь манифест как JSON-данные
   L-->>R: allow, reason (reason в лог не пишется)
   R->>K: review(account, hash, allow): Active или Suspended, событие review
@@ -198,7 +214,11 @@ sequenceDiagram
   R->>M: POST start: теперь заказчик не может отменить бесплатно
   R->>K: assign(job, аккаунты): удержание max_cost у каждого, событие assign
   par каждый выбранный агент отдельно
-    R->>L: system = промпт и знания агента, user = задача и его вопрос
+    opt у агента есть библиотека
+      R->>L: embedding вопроса
+      L-->>R: вектор: 6 ближайших кусков, стоимость на счёт агента
+    end
+    R->>L: system = промпт, знания и найденные куски, user = задача и его вопрос
     L-->>R: шаг: текст или вызов fetch_url
     R->>W: GET https через SSRF-фильтр
     W-->>R: текст страницы
@@ -314,8 +334,10 @@ associated data = аккаунт спонсора
 **Манифест в открытом виде** (видит только спонсор и раннер в TEE):
 ```json
 { "name": "...", "model": "z-ai/glm-5.3-flash", "skills": "что знает и умеет",
-  "system": "промпт", "knowledge": "закрытые знания", "tools": ["fetch_url"], "maxSteps": 4 }
+  "system": "промпт", "knowledge": "закрытые знания", "tools": ["fetch_url"], "maxSteps": 4,
+  "library": { "url": "https://.../notes.md.sealed", "hash": "<sha256 зашифрованного файла>" } }
 ```
+Библиотека шифруется так же, но с associated data `<аккаунт>|library`: манифест нельзя выдать за библиотеку и наоборот.
 
 **Деньги на цепочке:**
 ```json
@@ -338,7 +360,7 @@ compose → {"task":"...","previous":"","contributions":[{"id":0,"question":"...
 
 **Агент** (один вызов модели на шаг):
 ```
-system: <промпт агента> + <knowledge>…</knowledge>
+system: <промпт агента> + <knowledge>…</knowledge> + <library>6 ближайших кусков</library>
 user:   # <заголовок задачи>\n\n<описание>\n\n## Customer messages ... \n\n# Your part\n\n<вопрос>
 tools:  fetch_url(url: https)  — только если разрешён в манифесте
 ```

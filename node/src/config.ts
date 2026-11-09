@@ -12,6 +12,8 @@ const Env = z.object({
   NEARAI_URL: z.url().default('https://cloud-api.near.ai/v1'),
   NEARAI_API_KEY: z.string().min(1),
   PROTOCOL_MODEL: z.string().min(1), // reviews agents, screens tasks, routes questions, composes the answer
+  EMBED_MODEL: z.string().default('Qwen/Qwen3-Embedding-0.6B'), // indexes and searches agents' libraries
+  FETCH_ALLOW: z.string().default(''), // IPs reachable despite the SSRF filter, comma separated: local tests only
   MARKET_URL: z.url().default('https://market.near.ai'),
   MARKET_TOKEN: z.string().startsWith('aat_'),
   BID_USD: z.string().regex(/^\d+\.\d{2}$/).optional(), // set it to bid on board jobs; unset: direct hires only

@@ -10,6 +10,9 @@ const keyOf = (shared: Uint8Array, eph: Uint8Array, to: Uint8Array) =>
 
 export const publicKeyOf = (secret: Uint8Array) => Buffer.from(x25519.getPublicKey(secret));
 
+/** Associated data of a sponsor's library: a manifest's ciphertext never opens as a library, nor the reverse. */
+export const libraryAad = (sponsor: string) => `${sponsor}|library`;
+
 /** The runner's secret when there is no TEE: derived from its dev key, so one env var is enough. */
 export const devSecret = (devKey: string) => createHash('sha256').update(`swarm seal|${devKey}`).digest();
 
