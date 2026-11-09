@@ -1,0 +1,16 @@
+# Phala Cloud (dstack). Everything here is covered by the attestation; only the two secrets
+# come in as encrypted env. Pin the image by digest, never by tag.
+services:
+  runner:
+    image: ghcr.io/OWNER/swarm-runner@sha256:DIGEST
+    restart: always
+    volumes:
+      - /var/run/dstack.sock:/var/run/dstack.sock
+    environment:
+      NEAR_RPC: https://rpc.mainnet.fastnear.com
+      CONTRACT: swarm.sunnesoft.near
+      RUNNER_ACCOUNT: runner.sunnesoft.near
+      JUDGE_MODEL: z-ai/glm-5.3
+      SLOTS: "3"
+      NEARAI_API_KEY: ${NEARAI_API_KEY}
+      MARKET_TOKEN: ${MARKET_TOKEN}
