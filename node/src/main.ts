@@ -16,10 +16,13 @@ import { bootKeys } from './tee.ts';
 /** Code checks first (seal, schema, allowlists); only a manifest that passes them reaches the reviewing model. */
 async function review(a: Agent) {
   if (a.status !== 'Pending') return;
-  const v = await load(a).then(reviewManifest, (e) => {
-    if (e instanceof InvalidManifest) return { allow: false, reason: `invalid manifest: ${e.message}` };
-    throw e; // gateway trouble: stays Pending, retried next tick
-  });
+  const v = await load(a).then(
+    async (m) => ({ allow: (await reviewManifest(m)).allow }), // the model's reason may quote the private manifest: not logged
+    (e) => {
+      if (e instanceof InvalidManifest) return { allow: false, reason: `invalid manifest: ${e.message}` }; // written by our code
+      throw e; // chain trouble: stays Pending, retried next tick
+    },
+  );
   await chain.review(a.account, a.hash, v.allow);
   log('reviewed', { agent: a.account, ...v });
 }

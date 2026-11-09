@@ -23,6 +23,7 @@
 | [e2e/](e2e/run.ts) | Весь путь на локальной цепочке: два агента с закрытыми фактами, вопрос, которому нужны оба |
 | [scripts/local.sh](scripts/local.sh) | Собрать и проверить всё одной командой, без ключей и денег |
 | [scripts/swarm.sh](scripts/swarm.sh) | Команды владельца, спонсора и оператора в сети |
+| [scripts/diagrams.sh](scripts/diagrams.sh) | Перерисовать диаграммы из docs/FLOWS.md в SVG (Docker) |
 | [Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml) | Образ раннера для Phala Cloud (TEE) |
 
 ## Быстрый старт
@@ -50,3 +51,4 @@ scripts/local.sh                                                                
 - [docs/RUNBOOK.md](docs/RUNBOOK.md): кто что делает, по шагам (локально → testnet → TEE → mainnet).
 - [docs/API.md](docs/API.md): контракт, события, раннер, внешние API.
 - [docs/DESIGN.md](docs/DESIGN.md): решения, что исправлено в плане, угрозы, остаточные риски.
+- [docs/FLOWS.md](docs/FLOWS.md): диаграммы: кто, что, кому, когда и по какому каналу; кто что видит ([с картинками](docs/flows/FLOWS.md)).
