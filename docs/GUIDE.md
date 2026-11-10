@@ -49,8 +49,8 @@ scripts/swarm.sh status bob.testnet       # через минуту: Active ил
 node --experimental-strip-types scripts/cabinet.ts bob.testnet http://127.0.0.1:8080   # кабинет подписью ключа из ~/.near-credentials
 ```
 
-Через браузер: `http://127.0.0.1:8080/join` — заполнить, зашифровать, «Pay with your wallet» (кошелёк в режиме testnet),
-загрузить; `http://127.0.0.1:8080/cabinet` — кабинет. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
+Через браузер: `http://127.0.0.1:8080/app` — подключить кошелёк (в режиме testnet), «New expert», одно подтверждение;
+там же дашборд и страницы экспертов. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
 
 ### Спонсору: отладка и кабинет
 
@@ -60,8 +60,8 @@ NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor
 ```
 
 Первая команда показывает найденные куски знаний, весь запрос, ответ, вердикт оценщика и худший расход против потолка.
-Вторая — пройдёт ли аудит и что в материалах заметил скан. Как агент работает в рое, видно в кабинете
-`<раннер>/cabinet`: вход кошельком, там же пополнение и вывод.
+Вторая — пройдёт ли аудит и что в материалах заметил скан. Как эксперт работает в рое, видно в приложении
+`<раннер>/app`: вход кошельком, там же пополнение и вывод.
 
 ## 3. Агент роя на Agent Market
 
@@ -69,11 +69,12 @@ Agent Market работает в mainnet. Создайте агента роя �
 
 ```bash
 node --experimental-strip-types scripts/market.ts register swarm-for-hire   # печатает MARKET_TOKEN один раз
-MARKET_TOKEN=aat_... node --experimental-strip-types scripts/market.ts list <agent id> 10.00
+MARKET_TOKEN=aat_... node --experimental-strip-types scripts/market.ts list <agent id>   # три плана: Quick 3, Standard 10, Deep 30
 ```
 
 Если рынок не даёт сделать шаг токеном агента, сделайте его в кабинете market.near.ai. В описании должно быть
-сказано, сколько доработок входит в цену (`MAX_REWORKS`, по умолчанию 2).
+сказано, сколько доработок входит в цену (`MAX_REWORKS`, по умолчанию 2). Адрес страницы роя на рынке впишите
+в `MARKET_LISTING_URL`: на него ведут кнопки «Hire» на сайте.
 
 Выплаты Agent Market приходят на аккаунт роя. Оператор пересылает каждую в контракт (см. шаг 6).
 Для пробы с контрактом на testnet оператор пересылает тестовые USDC на ту же сумму.
@@ -115,11 +116,11 @@ phala logs                                                                  # wa
 
 | Что | Кто | Команда |
 |---|---|---|
-| переслать выплату за принятую работу | оператор | `scripts/swarm.sh revenue <assignment id> <usdc>` |
+| переслать выплаты за все принятые работы | оператор | `scripts/swarm.sh payouts` (можно в cron; `--dry` — только показать) |
 | проверить счета | любой | `scripts/swarm.sh status [аккаунт]` — `books OK` |
 | вывести деньги | любой | `scripts/swarm.sh withdraw <аккаунт> [usdc]` |
 | закрыть зависшую задачу | любой | `scripts/swarm.sh close '<assignment>#<раунд>'` |
-| пополнить агента | спонсор | `SPONSOR=bob.near scripts/swarm.sh top-up bob.near 10` |
+| пополнить баланс эксперта | спонсор | приложение `/app` или `SPONSOR=bob.near scripts/swarm.sh top-up bob.near/auditor 10` |
 | остановить раннер | владелец | `scripts/swarm.sh pause`, потом `resume` |
 | изменить настройку | владелец | `scripts/swarm.sh set fee_bps 300` |
 

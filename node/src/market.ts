@@ -15,7 +15,9 @@ async function request(path: string, body?: unknown) {
 }
 const api = async <T>(path: string, schema: z.ZodType<T>, body?: unknown) => schema.parse(await (await request(path, body)).json());
 
-const Brief = z.object({ jobId: z.string(), title: z.string(), description: z.string(), jobKind: z.string() });
+const Attachment = z.object({ filename: z.string(), contentType: z.string(), byteSize: z.number(), downloadUrl: z.string() });
+const Brief = z.object({ jobId: z.string(), title: z.string(), description: z.string(), jobKind: z.string(), attachments: z.array(Attachment).default([]) });
+export type Attachment = z.infer<typeof Attachment>;
 const Row = z.object({
   assignment: z.object({
     assignmentId: z.string(),
@@ -47,6 +49,13 @@ export const versions = (id: string) =>
   api(`${at(id)}/deliverable/versions`, z.object({ versions: z.array(z.object({ submittedAt: z.string() })) })).then((r) => r.versions);
 /** The latest delivered Markdown. */
 export const delivered = async (id: string) => (await request(`${at(id)}/deliverable/raw`)).text();
+/** A file the customer attached, as text: only text files, at most 2 MB. Fetched with our token, as the market asks. */
+export async function attachment(a: Attachment) {
+  const text = /^text\/|json|xml|csv|markdown/.test(a.contentType) || /\.(md|txt|csv|json|xml|ya?ml|sol|rs|ts|js|py)$/i.test(a.filename);
+  if (!text || a.byteSize > 2_000_000) return null;
+  const path = a.downloadUrl.startsWith('http') ? new URL(a.downloadUrl).pathname : a.downloadUrl; // only ever from the market
+  return (await request(path)).text();
+}
 
 export const bid = (jobId: string, amount: string, proposal: string) =>
   api(`/v1/jobs/${encodeURIComponent(jobId)}/bids`, z.unknown(), { amount, proposal });

@@ -12,8 +12,8 @@ import * as store from './store.ts';
 
 /** An admitted agent as the runner holds it, in memory only: its materials, their index and the links in them. */
 export type Expert = { m: Materials; lib: Library; digest: string; links: Set<string> };
-/** What the sponsor's cabinet shows about one registration. */
-export type AuditRecord = { registration: number; allow: boolean; category: string; reason: string; flags: Flag[] };
+/** What the sponsor's cabinet shows about one registration, its name and model included (the sponsor's own data). */
+export type AuditRecord = { registration: number; allow: boolean; category: string; reason: string; flags: Flag[]; name?: string; model?: string };
 
 const MB = 1024 * 1024;
 const TRIES = 3; // audits that fail on our side before the agent is denied, so that it cannot cost us forever
@@ -22,7 +22,7 @@ let secret: Uint8Array;
 export const useSeal = (s: Uint8Array) => (secret = s);
 
 /** One registration of one sponsor: a new registration, even with the same materials, is audited anew. */
-const cardOf = (a: Agent) => `${a.account}#${a.registration}`;
+const cardOf = (a: Agent) => `${a.id}#${a.registration}`;
 const experts = new Map<string, Expert>();
 export const expertOf = (a: Agent) => experts.get(cardOf(a));
 
@@ -30,7 +30,7 @@ async function open(a: Agent) {
   const sealed = await store.upload(a.hash);
   if (!sealed) return null; // not uploaded yet
   if (sealed.length > a.size_mb * MB) throw new Refused(`larger than the registered ${a.size_mb} MB`);
-  const m = unseal(sealed, secret, a.account);
+  const m = unseal(sealed, secret, a.id); // sealed for this very agent: a copy registered as any other does not open
   // Two accounts with the same materials are one expert: they never work on the same job.
   const digest = createHash('sha256').update(JSON.stringify(m)).digest('hex');
   return { m, docs: docsOf(m), digest };
@@ -52,7 +52,7 @@ export async function admit(a: Agent) {
       if (!opened) return null;
       const v = await audit(opened.m, a.skills, opened.docs);
       if (v.allow) experts.set(card, await expert(opened));
-      return { registration: a.registration, allow: v.allow, category: v.category, reason: v.reason, flags: v.flags };
+      return { registration: a.registration, allow: v.allow, category: v.category, reason: v.reason, flags: v.flags, name: opened.m.name, model: opened.m.model };
     })().catch((e) => {
       if (e instanceof Refused) return { registration: a.registration, allow: false, category: 'refused', reason: e.message, flags: [] };
       const n = (failures.get(card) ?? 0) + 1;
@@ -62,10 +62,10 @@ export async function admit(a: Agent) {
     }));
   if (!record) return;
   decided.set(card, record); // if the chain refuses now, only the review is retried, never the paid audit
-  await store.keepAudit(a.account, record);
-  await chain.review(a.account, a.registration, record.allow);
+  await store.keepAudit(a.id, record);
+  await chain.review(a.id, a.registration, record.allow);
   decided.delete(card);
-  log('reviewed', { agent: a.account, allow: record.allow, category: record.category });
+  log('reviewed', { agent: a.id, allow: record.allow, category: record.category });
 }
 
 /** After a restart: opens and indexes Active agents again, one at a time, in the background. */
@@ -78,9 +78,9 @@ export function warm(a: Agent) {
   queue = queue
     .then(async () => {
       const opened = await open(a);
-      if (!opened) return log('upload_missing', { agent: a.account });
+      if (!opened) return log('upload_missing', { agent: a.id });
       experts.set(key, await expert(opened));
     })
-    .catch((e) => log('load_failed', { agent: a.account, error: String(e) }))
+    .catch((e) => log('load_failed', { agent: a.id, error: String(e) }))
     .finally(() => loading.delete(key));
 }

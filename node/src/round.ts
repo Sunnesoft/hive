@@ -52,11 +52,16 @@ async function shortlist(task: string, pool: Member[]) {
   return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, SHORTLIST).map((x) => x.c);
 }
 
-/** The team for a task within a budget: the router's picks, most important first, as many as the money covers. */
+/** Did the customer name this expert in the brief, by its id from the public catalog (`alice.near/auditor`)? */
+const names = (task: string, id: string) => new RegExp(`(^|[^\\w.-])${id.replace(/[.]/g, '\\.')}(?![\\w-])`).test(task);
+
+/** The team for a task within a budget: the router's picks, most important first, as many as the money covers.
+ *  Experts the customer asked for come first and are marked: the router takes them unless they cannot help. */
 async function team(task: string, pool: Member[], net: bigint) {
-  const list = await shortlist(task, pool);
+  const asked = new Set(pool.filter((c) => names(task, c.agent.id)).map((c) => c.agent.id));
+  const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
   const units = (x: bigint) => Number(x) / 1e6;
-  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)) })));
+  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id) })));
   const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
   return { considered: list, picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
 }
@@ -77,20 +82,20 @@ async function contribute(task: string, t: Member & { question: string }, pages:
 function noteRound(key: string, topic: string, considered: Member[], members: Member[], parts: { outcome: Outcome; why: llm.Why }[]) {
   const at = new Date().toISOString();
   return Promise.all(considered.map((c) => {
-    const i = members.findIndex((m) => m.agent.account === c.agent.account);
+    const i = members.findIndex((m) => m.agent.id === c.agent.id);
     const part = parts[i];
     const line = part ? { at, job: key, topic, picked: true, ...part.outcome, why: part.why, pay: part.outcome.delivered ? c.agent.rate : '0' } : { at, job: key, topic, picked: false };
-    return store.note(c.agent.account, line);
+    return store.note(c.agent.id, line);
   })).catch((e) => log('note_failed', { job: key, error: String(e) }));
 }
 
 /** Takes the holds. An agent that stopped being ready since it was picked (withdrew, registered again) is left out. */
 async function commit(key: string, members: (Member & { question: string })[]) {
   for (let i = 0; i < 3 && members.length; i++) {
-    const now = await Promise.all(members.map((t) => chain.agent(t.agent.account)));
+    const now = await Promise.all(members.map((t) => chain.agent(t.agent.id)));
     members = members.filter((t, j) => now[j]?.registration === t.agent.registration && ready([now[j]!]).length === 1);
     if (!members.length) break;
-    const ok = await chain.assign(key, members.map((t) => t.agent.account)).then(() => true, (e) => (/agent not ready/.test(String(e)) ? false : Promise.reject(e)));
+    const ok = await chain.assign(key, members.map((t) => t.agent.id)).then(() => true, (e) => (/agent not ready/.test(String(e)) ? false : Promise.reject(e)));
     if (ok) return members;
   }
   return [];
@@ -127,8 +132,10 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const { considered, picked, members: planned, search: queries } = await team(task, pool, net);
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
-  const pages = await gather(task, queries);
-  const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url)])];
+  // Public materials: the customer's text attachments, the brief's links and, with a search key, search results.
+  const files = await Promise.all(job.attachments.slice(0, 5).map((f) => market.attachment(f).then((text) => text && { url: `attachment: ${f.filename}`, text: text.slice(0, PAGE_CHARS) }, () => null)));
+  const pages = [...files.filter((f): f is Page => !!f), ...(await gather(task, queries))].slice(0, PAGES);
+  const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await market.start(id);
@@ -137,7 +144,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
   const parts = await Promise.all(members.map((t) => contribute(task, t, pages)));
   const outcomes = parts.map((p) => p.outcome);
-  const agents = members.map((t) => t.agent.account);
+  const agents = members.map((t) => t.agent.id);
   await noteRound(key, screened.topic, considered, members, parts);
   void store.count(screened.topic, 'served');
 
@@ -148,7 +155,8 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
   const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);
   const answer = await gate(provenance(marked).text, known);
-  const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''}, round ${round}.*`;
+  const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
+  const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
   return { outcomes, submit: `${answer}\n\n${footer}`.slice(0, 250_000), provenance: { answer: marked, agents } };
 }
 

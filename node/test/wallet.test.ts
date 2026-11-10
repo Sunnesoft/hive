@@ -21,7 +21,7 @@ test('a stale, foreign or malformed sign-in is refused before asking the chain',
     const s = await new KeyPairSigner(by).signNep413Message(account, { message, recipient: 'swarm.test.near', nonce });
     return { accountId: account, publicKey: s.publicKey.toString(), signature: Buffer.from(s.signature).toString('base64'), message, nonce: nonce.toString('base64') };
   };
-  assert.equal(await signer(await signIn('alice.near', new Date(Date.now() - 3_600_000))), null); // an hour old
+  assert.equal(await signer(await signIn('alice.near', new Date(Date.now() - 13 * 3_600_000))), null); // thirteen hours old
   assert.equal(await signer({ ...(await signIn('alice.near', new Date())), accountId: 'bob.near' }), null); // someone else's message
   assert.equal(await signer({ ...(await signIn('alice.near', new Date())), signature: Buffer.alloc(64).toString('base64') }), null);
   assert.equal(await signer({ ...(await signIn('alice.near', new Date())), nonce: 'AA==' }), null);

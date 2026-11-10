@@ -19,14 +19,15 @@
 #   pause | resume                 no key can act as the runner / the runner works again
 # sponsor (SPONSOR=<account>)
 #   join <agent folder> <usdc>     check the runner (RUNNER_URL, COMPOSE), seal the folder to it, register, upload
-#   top-up <agent> <usdc>          add to an agent's balance
+#   top-up <owner/name> <usdc>     add to the balance behind an agent (its owner's)
 # operator
-#   revenue <assignment> <usdc>    forward an Agent Market payout to the round the customer accepted
+#   payouts                        forward every accepted assignment's payout to its round (cron-safe; OPERATOR_KEY or keychain)
+#   revenue <assignment#round> <usdc>  forward one payout by hand
 # anyone
 #   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
 #   withdraw <account> [usdc]      take a balance, all of it if no amount
 #   close <job>                    end a job past its timeout (SIGNER=<account>, default ROOT)
-#   status [account]               books, config, an agent and its balance
+#   status [account | owner/name]  books, config; an account's balance and agents, or one agent
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${NETWORK:=testnet}" "${ROOT:?owner account, e.g. alice.testnet}" "${TOKEN:?USDC contract on this network}"
@@ -48,6 +49,10 @@ view() {
   curl -fsS "$RPC" -H 'content-type: application/json' -d "$(jq -nc --arg c "$1" --arg m "$2" --arg a "$args" \
     '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"call_function",finality:"final",account_id:$c,method_name:$m,args_base64:$a}}')" |
     jq -r 'if .result.result then (.result.result | implode) else error(.error // .result.error | tostring) end'
+}
+# exists <account>: is it on chain?
+exists() {
+  curl -fsS "$RPC" -H 'content-type: application/json' -d "$(jq -nc --arg a "$1" '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"view_account",finality:"final",account_id:$a}}')" | jq -e .result >/dev/null
 }
 # send <contract> <method> <json-args> <signer> [deposit]
 send() {
@@ -82,6 +87,7 @@ fund)
 deploy)
   (cd contract && cargo near build non-reproducible-wasm) # not reproducible on purpose: the source stays private for now
   for a in "$C:${SWARM_NEAR:-5}" "runner.$ROOT:1" "operator.$ROOT:1"; do # full-access keys stay with the owner; the contract's NEAR pays its storage
+    exists "${a%:*}" && continue # deploy again: the runner keeps its keys, the operator its balance
     near account create-account fund-myself "${a%:*}" "${a#*:} NEAR" autogenerate-new-keypair save-to-$KC \
       sign-as "$ROOT" network-config "$NETWORK" sign-with-$KC send
   done
@@ -125,21 +131,19 @@ join) # COMPOSE: the app-compose.json the owner published; it binds the TEE to o
   (( deposit >= $(jq -r .least <<<"$out") )) || { echo "the deposit must be at least $(jq -r .least <<<"$out") units" >&2; exit 1; }
   pay "$SPONSOR" "$deposit" "$(jq -c .msg <<<"$out")"
   for try in 1 2 3 4 5 6; do # the runner sees a new registration within a minute
-    curl -fsS --data-binary "@$(jq -r .file <<<"$out")" -H 'content-type: application/octet-stream' "$RUNNER_URL/upload/$SPONSOR" && break
+    curl -fsS --data-binary "@$(jq -r .file <<<"$out")" -H 'content-type: application/octet-stream' "$RUNNER_URL/upload/$(jq -r .id <<<"$out")" && break
     (( try < 6 )) || exit 1
     sleep 15
   done
-  echo; echo "uploaded: the audit runs within a few minutes (scripts/swarm.sh status $SPONSOR)" ;;
+  echo; echo "uploaded: the audit runs within a few minutes (scripts/swarm.sh status $(jq -r .id <<<"$out"))" ;;
 top-up)
   pay "${SPONSOR:?account that pays}" "$(usdc "$3")" "$(jq -nc --arg a "$2" '{TopUp:{agent:$a}}')" ;;
-revenue) # the latest round on chain is the one the customer accepted
-  job=""
-  for k in $(seq 1 20); do
-    [[ $(view "$C" job "$(jq -nc --arg j "$2#$k" '{job:$j}')") != null ]] && job="$2#$k"
-  done
-  [[ -n $job ]] || { echo "no round of $2 is owed anything" >&2; exit 1; }
-  echo "paying $3 USDC to $job"
-  pay "operator.$ROOT" "$(usdc "$3")" "$(jq -nc --arg j "$job" '{Revenue:{job:$j}}')" ;;
+payouts) # needs the runner's env (.env.testnet or the like) for NEAR_RPC, CONTRACT, MARKET_TOKEN
+  ts --env-file="${ENV_FILE:-.env.$NETWORK}" scripts/payouts.ts "operator.$ROOT" "${@:2}" ;;
+revenue) # the round is in the accepted answer's footer: "round N"
+  [[ $2 == *#* ]] || { echo "give the round: <assignment>#<round>" >&2; exit 1; }
+  echo "paying $3 USDC to $2"
+  pay "operator.$ROOT" "$(usdc "$3")" "$(jq -nc --arg j "$2" '{Revenue:{job:$j}}')" ;;
 withdraw)
   args='{}'
   [[ -n ${3:-} ]] && args=$(jq -nc --arg a "$(usdc "$3")" '{amount:$a}')
@@ -152,9 +156,15 @@ status)
   if [[ $(jq -n "$total <= $held") == true ]]; then echo "books OK: owed $total <= held $held"
   else echo "BOOKS MISMATCH: owed $total > held $held. Run: scripts/swarm.sh pause"; fi
   view "$C" config | jq .
-  if [[ -n ${2:-} ]]; then
-    view "$C" agent "$(jq -nc --arg a "$2" '{account:$a}')" | jq .
+  if [[ ${2:-} == */* ]]; then
+    view "$C" agent "$(jq -nc --arg a "$2" '{id:$a}')" | jq .
+  elif [[ -n ${2:-} ]]; then
     echo "balance: $(view "$C" balance "$(jq -nc --arg a "$2" '{account:$a}')")"
+    for from in $(seq 0 100 10000); do # the agents it owns
+      page=$(view "$C" agents "$(jq -nc --argjson f "$from" '{from:$f, limit:100}')")
+      jq -c --arg o "$2" '.[] | select(.owner == $o) | {id, status, rate, max_cost, registration}' <<<"$page"
+      (( $(jq length <<<"$page") == 100 )) || break
+    done
   fi ;;
 *) sed -n '2,30p' "$0"; exit 1 ;;
 esac

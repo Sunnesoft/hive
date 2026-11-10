@@ -10,8 +10,8 @@
 
 | `msg` | Кто | Что |
 |---|---|---|
-| `{"Register":{"skills","rate","max_cost","hash","size_mb"}}` | спонсор | агент этого аккаунта: визитка, `Pending`. Плата за аудит оператору, остальное на баланс. Повторная регистрация заменяет визитку и снова `Pending` |
-| `{"TopUp":{"agent"}}` | любой | пополнить баланс агента |
+| `{"Register":{"name","skills","rate","max_cost","hash","size_mb"}}` | спонсор | эксперт `<аккаунт>/<name>` (name: 1–32 из a-z, 0-9, -): визитка, `Pending`. Плата за аудит оператору, остальное на баланс спонсора. Повторная регистрация того же имени заменяет визитку и снова `Pending` |
+| `{"TopUp":{"agent"}}` | любой | пополнить баланс владельца эксперта `agent` (`<аккаунт>/<имя>`) |
 | `{"Revenue":{"job"}}` | оператор | выручка завершённого раунда: комиссия, выплаты, остаток оператору; раунд удаляется |
 
 Ограничения: `skills` 1–500 байт, `hash` — sha256 в hex, `size_mb` 1–10, `max_cost` > 0, сумма ≥ плата за аудит + `min_deposit`.
@@ -21,7 +21,7 @@
 | Метод | Кто | Что |
 |---|---|---|
 | `review(agent, registration, allow)` | раннер | `Pending` с этим номером регистрации → `Active` или `Suspended` |
-| `assign(job, agents)` | раннер | новый раунд: id 1–64 символа, 1–32 разных агента, каждый `Active` с балансом ≥ `max_cost`; удерживает `max_cost`, записывает `rate` |
+| `assign(job, agents)` | раннер | новый раунд: id 1–64 символа, 1–32 разных эксперта (`<аккаунт>/<имя>`), каждый `Active`, у владельца баланс ≥ `max_cost`; удерживает `max_cost` с баланса владельца, записывает `rate` |
 | `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, delivered, violation}` по порядку агентов; `cost` ≤ удержания и кратен 0.01 (или равен удержанию) |
 | `close(job)` | любой | незавершённый раунд после `run_secs` (удержания назад) или неоплаченный после `pay_secs` |
 | `withdraw(amount?)` | любой | вывести свой баланс, весь без `amount` |
@@ -33,9 +33,9 @@
 |---|---|
 | `config()` | `{owner, runner, operator, fee_bps, audit_base, audit_per_mb, min_deposit, run_secs, pay_secs}` |
 | `token()` | аккаунт USDC |
-| `agent(account)` | `{account, skills, rate, max_cost, hash, size_mb, status, registration, balance}` или `null` |
+| `agent(id)` | `{id, owner, skills, rate, max_cost, hash, size_mb, status, registration, balance}` или `null`; `balance` — владельца |
 | `agents(from, limit)` | список, `limit` ≤ 100 |
-| `job(job)` | `{at, done, slots: [{agent, hold, pay}]}` или `null` |
+| `job(job)` | `{at, done, slots: [{agent, owner, hold, pay}]}` или `null` |
 | `balance(account)` | свободный баланс |
 | `total()` | всё, что контракт должен; не больше его баланса USDC |
 
@@ -56,24 +56,25 @@
 |---|---|
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
 | `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI |
-| `POST /upload/<account>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
-| `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, agent, audit, rounds}`; `401` подпись не подходит или старше 10 минут |
+| `GET /agents` | открытый каталог: активные эксперты `{id, owner, skills, rate, picked, delivered, earned, last}` |
+| `POST /upload/<account>/<name>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
+| `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, balance, agents: [{…визитка, audit, rounds}]}`; `401` подпись не подходит или старше 12 часов |
 | `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |
-| `GET /` | обзор: что за раннер, сколько экспертов, спрос по темам |
-| `GET /join` | вступление: материалы шифруются в браузере. На обзоре и здесь только наш код и связь только с раннером |
-| `GET /cabinet` | кабинет с кошельком (NEAR Connect, `npm run ui`); материалов не видит |
+| `GET /` | лендинг: зачем, три шага, живые цифры, планы для заказчиков, проверка раннера |
+| `GET /experts` | каталог экспертов и помощник брифа с оценкой цены. Здесь и на `/` только наш код и связь только с раннером |
+| `GET /app` | приложение эксперта: кошелёк (NEAR Connect, `npm run ui`, каждый кошелёк в песочнице без доступа к странице), шифрование в браузере, дашборд |
 | `GET /health` | `{ok, state}`: `starting`, `waiting_for_key`, `ready`, `paused` |
 
 `rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`.
-`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}]}` для текущей регистрации.
+`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model}` для текущей регистрации.
 Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
 `legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.
 Категории аудита: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
 `skills_unsupported`; от нашего кода `refused` (не открылось, не та форма, больше заявленного) и `not_audited`.
 
 Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
-соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = аккаунт спонсора.
-Внутри — JSON: `{name, model, expertise, method, knowledge: [{name, text}]}`.
+соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = id эксперта `<аккаунт>/<имя>`.
+Внутри — JSON: `{name, model, expertise, method, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт.
 
 ## Переменные раннера
 
@@ -89,7 +90,8 @@
 | `BRAVE_API_KEY` | — | поиск публичных страниц для задачи |
 | `OVERHEAD_USD`, `OVERHEAD_PER_AGENT_USD` | `0.50`, `0.10` | накладные раунда и на агента |
 | `MAX_REWORKS` | `2` | доработок в цене |
-| `BIDS` | `off` | `on`: ставить на задачи с доски |
+| `BIDS` | `on` | ставить на задачи с доски ровно в цену нужной команды; `off` — только прямой найм |
+| `MARKET_LISTING_URL` | — | страница роя на Agent Market, для кнопок «Hire» на сайте |
 | `AGENT_TIMEOUT_MS`, `POLL_MS` | `120000`, `30000` | таймаут вызова модели, период цикла |
 | `PORT`, `STORE_DIR` | `8080`, `./store` (`/data` в образе) | HTTP API, диск раннера |
 | `FETCH_ALLOW` | — | IP, доступные вопреки фильтру SSRF: только для локальных тестов |

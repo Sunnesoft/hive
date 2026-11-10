@@ -17,12 +17,12 @@ export const upload = (hash: string) => readFile(join(dir('uploads'), hash)).cat
 export const has = (hash: string) => access(join(dir('uploads'), hash)).then(() => true, () => false);
 
 /** What the sponsor's cabinet shows: the audit of each registration, and a line for each round the agent was considered for. */
-const agentFile = (account: string, kind: string) => join(dir('agents'), `${encodeURIComponent(account)}.${kind}`);
-export const keepAudit = (account: string, record: object) => writeFile(agentFile(account, 'audit.json'), JSON.stringify(record));
-export const auditOf = (account: string) => readFile(agentFile(account, 'audit.json'), 'utf8').then((s) => JSON.parse(s), () => null);
-export const note = (account: string, line: object) => appendFile(agentFile(account, 'rounds.jsonl'), `${JSON.stringify(line)}\n`);
-export const historyOf = async (account: string, last = 200) => {
-  const text = await readFile(agentFile(account, 'rounds.jsonl'), 'utf8').catch(() => '');
+const agentFile = (agent: string, kind: string) => join(dir('agents'), `${encodeURIComponent(agent)}.${kind}`);
+export const keepAudit = (agent: string, record: object) => writeFile(agentFile(agent, 'audit.json'), JSON.stringify(record));
+export const auditOf = (agent: string) => readFile(agentFile(agent, 'audit.json'), 'utf8').then((s) => JSON.parse(s), () => null);
+export const note = (agent: string, line: object) => appendFile(agentFile(agent, 'rounds.jsonl'), `${JSON.stringify(line)}\n`);
+export const historyOf = async (agent: string, last = 500) => {
+  const text = await readFile(agentFile(agent, 'rounds.jsonl'), 'utf8').catch(() => '');
   return text.split('\n').filter(Boolean).slice(-last).map((l) => JSON.parse(l));
 };
 

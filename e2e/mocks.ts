@@ -30,6 +30,7 @@ const bag = (text: string) => {
 export async function nearai(models: string[], port = 0) {
   const agentCalls: string[] = []; // everything each agent call saw: agents must stay isolated
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
+  const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -60,7 +61,8 @@ export async function nearai(models: string[], port = 0) {
     if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware', topic: 'research' });
     if (is('You put together a team')) {
       // An agent is picked when the task names the topic of its skills ("<topic>: <what>"), in the order of the list.
-      const { task, agents } = data() as { task: string; agents: { id: number; skills: string }[] };
+      const { task, agents } = data() as { task: string; agents: { id: number; skills: string; requested?: boolean }[] };
+      routed.push({ task, agents });
       const picks = agents.filter((a) => task.toLowerCase().includes(a.skills.split(':')[0]!)).map((a) => ({ id: a.id, question: `Project Alpha: ${a.skills}?` }));
       return reply({ picks, search: [] });
     }
@@ -88,15 +90,15 @@ export async function nearai(models: string[], port = 0) {
     const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
     return reply(knowledge.split(/\n+/).filter((l) => l.includes('Project Alpha')).join(' '));
   }, port);
-  return { ...server, agentCalls, composed };
+  return { ...server, agentCalls, composed, routed };
 }
 
 type Row = {
   assignment: { assignmentId: string; status: string; escrowAmount: string; startedAt: string | null; submittedAt: string | null; deliverableUrl: string | null };
-  job: { jobId: string; title: string; description: string; jobKind: string };
+  job: { jobId: string; title: string; description: string; jobKind: string; attachments: { filename: string; contentType: string; byteSize: number; downloadUrl: string }[] };
 };
 type Message = { body: string; origin: string; senderAgentId: string | null; createdAt: string };
-export type Hire = { id: string; title: string; description: string; escrow: string };
+export type Hire = { id: string; title: string; description: string; escrow: string; files?: { name: string; text: string }[] };
 
 /** Agent Market: an assignment queue with start, submit, decline, a thread and delivered versions. */
 export async function market(token: string, port = 0) {
@@ -105,12 +107,17 @@ export async function market(token: string, port = 0) {
   const threads = new Map<string, Message[]>(); // newest first, as the API returns
   const declined = new Map<string, { reason: string; detail: string }>();
   const now = () => new Date().toISOString();
+  const files = new Map<string, string>(); // download path -> text
 
   /** A customer hires the swarm directly: the escrow is already funded. */
   const hire = (h: Hire) => {
     rows.set(h.id, {
       assignment: { assignmentId: h.id, status: 'in_progress', escrowAmount: h.escrow, startedAt: null, submittedAt: null, deliverableUrl: null },
-      job: { jobId: `job-${h.id}`, title: h.title, description: h.description, jobKind: 'standard' },
+      job: { jobId: `job-${h.id}`, title: h.title, description: h.description, jobKind: 'standard', attachments: (h.files ?? []).map((f, i) => {
+        const downloadUrl = `/v1/files/${h.id}-${i}/raw`;
+        files.set(downloadUrl, f.text);
+        return { filename: f.name, contentType: 'text/markdown', byteSize: f.text.length, downloadUrl };
+      }) },
     });
     versions.set(h.id, []);
     threads.set(h.id, []);
@@ -119,9 +126,12 @@ export async function market(token: string, port = 0) {
   const server = await listen((method, url, body, auth) => {
     if (auth !== `Bearer ${token}`) return [401, { error: 'unauthorized' }];
     const path = url.split('?')[0]!;
-    if (method === 'GET' && path === '/v1/agents/me/assignments')
-      return [200, { assignments: [...rows.values()].filter((r) => r.assignment.status === 'in_progress') }];
+    if (method === 'GET' && path === '/v1/agents/me/assignments') {
+      const status = new URLSearchParams(url.split('?')[1] ?? '').get('status') ?? 'in_progress';
+      return [200, { assignments: [...rows.values()].filter((r) => status === 'all' || r.assignment.status === status) }];
+    }
     if (method === 'GET' && path === '/v1/jobs/board') return [200, { jobs: [] }];
+    if (method === 'GET' && files.has(path)) return [200, files.get(path)!];
     const [, , , rawId, ...rest] = path.split('/'); // /v1/assignments/{id}/{action...}
     const id = decodeURIComponent(rawId ?? '');
     const row = rows.get(id);
@@ -158,5 +168,7 @@ export async function market(token: string, port = 0) {
     rows.get(id)!.assignment.status = 'in_progress';
   };
   const delivered = (id: string) => versions.get(id)!.map((v) => v.markdown);
-  return { ...server, hire, delivered, declined, requestChanges, redo };
+  /** The customer accepts the last delivery; the market pays the agent. */
+  const accept = (id: string) => (rows.get(id)!.assignment.status = 'accepted');
+  return { ...server, hire, delivered, declined, requestChanges, redo, accept };
 }

@@ -1,7 +1,7 @@
 // Sign-in with a NEAR wallet (NEP-413). The wallet signs "Swarm-for-Hire cabinet <account> <time>" for this
 // contract with a full-access key of the account. We check the signature here first, so a forged request
 // costs nothing, and only then ask the chain whether the key is a full-access key of that account.
-// Nothing is stored: no sessions, no passwords. A signature is good for ten minutes.
+// Nothing is stored: no sessions, no passwords. A signature is good for twelve hours: it opens statistics, never money.
 import { createHash } from 'node:crypto';
 import { PublicKey } from 'near-api-js';
 import { z } from 'zod';
@@ -34,7 +34,7 @@ export async function signer(s: SignedIn): Promise<string | null> {
   const m = /^Swarm-for-Hire cabinet (\S+) (\S+)$/.exec(s.message);
   const age = m ? Date.now() - Date.parse(m[2]!) : NaN;
   const nonce = Buffer.from(s.nonce, 'base64');
-  if (!m || m[1] !== s.accountId || !(age > -60_000 && age < 600_000) || nonce.length !== 32) return null;
+  if (!m || m[1] !== s.accountId || !(age > -60_000 && age < 12 * 3_600_000) || nonce.length !== 32) return null;
   const signed = (() => {
     try {
       return PublicKey.fromString(s.publicKey).verify(nep413(s.message, nonce, cfg.CONTRACT, s.callbackUrl), Buffer.from(s.signature, 'base64'));

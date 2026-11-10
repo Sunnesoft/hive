@@ -34,12 +34,18 @@ let known = { at: 0, agents: [] as Agent[] };
 /** The agents as of the last listing (every tick): for counts on the pages, never for decisions. */
 export const listed = () => known.agents;
 /** An agent as of the last listing, listed again at most every 3 s: a request from outside costs us no more than that. */
-export async function recent(account: string) {
-  if (Date.now() - known.at > 3_000 && !known.agents.some((a) => a.account === account && a.status === 'Pending')) await agents();
-  return known.agents.find((a) => a.account === account) ?? null;
+export async function recent(id: string) {
+  if (Date.now() - known.at > 3_000 && !known.agents.some((a) => a.id === id && a.status === 'Pending')) await agents();
+  return known.agents.find((a) => a.id === id) ?? null;
+}
+/** A sponsor's agents, as of a listing at most 5 s old. */
+export async function ownedBy(owner: string) {
+  if (Date.now() - known.at > 5_000) await agents();
+  return known.agents.filter((a) => a.owner === owner);
 }
 
-export const agent = (account: string) => view<Agent | null>('agent', { account });
+export const agent = (id: string) => view<Agent | null>('agent', { id });
+export const balance = (account: string) => view<string>('balance', { account });
 export const job = (job: string) => view<Job | null>('job', { job });
 export const config = () => view<Config>('config');
 export const token = () => view<string>('token');

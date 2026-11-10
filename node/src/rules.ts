@@ -1,7 +1,8 @@
 // Pure rules: money, budgets, who may work, where each statement came from. No I/O; see test/rules.test.ts.
 
 export type Agent = {
-  account: string;
+  id: string; // `<owner>/<name>`
+  owner: string; // the sponsor's account: its balance holds and gets paid
   skills: string;
   rate: string;
   max_cost: string;

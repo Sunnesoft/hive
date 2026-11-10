@@ -19,7 +19,8 @@ const Env = z.object({
   OVERHEAD_USD: z.string().regex(USD).default('0.50'), // the protocol's own cost per job
   OVERHEAD_PER_AGENT_USD: z.string().regex(USD).default('0.10'),
   MAX_REWORKS: z.coerce.number().int().min(0).default(2), // included in the price; written in our listing
-  BIDS: z.enum(['on', 'off']).default('off'), // bid on board jobs, or take direct hires only
+  BIDS: z.enum(['on', 'off']).default('on'), // bid on board jobs at the price of the team each task needs
+  MARKET_LISTING_URL: z.url().optional(), // the swarm's page on Agent Market, for the site's "Hire" buttons
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)

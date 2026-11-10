@@ -196,3 +196,60 @@ footer a { color: var(--ink-2); }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .legend .sw-served { background: var(--ok); } .legend .sw-no_expert { background: var(--honey-fill); } .legend .sw-over_budget { background: var(--info); } .legend .sw-refused { background: var(--ink-3); }
+
+/* charts */
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--ink-3); font: 11px var(--font-mono); }
+.chart .bar-ok { fill: var(--ok); } .chart .bar-muted { fill: var(--ink-3); } .chart .bar-warn { fill: var(--warn); }
+.chart .bar-bad { fill: var(--bad); } .chart .bar-info { fill: var(--info); } .chart .bar-honey { fill: var(--honey-fill); }
+.legend .sw-ok { background: var(--ok); } .legend .sw-muted { background: var(--ink-3); } .legend .sw-warn { background: var(--warn); }
+.legend .sw-bad { background: var(--bad); } .legend .sw-info { background: var(--info); } .legend .sw-honey { background: var(--honey-fill); }
+
+/* landing */
+.hero.big { padding: 2.5rem 0 1rem; gap: 1.4rem; }
+.hero.big h1 { font-size: clamp(2.2rem, 1.4rem + 3.4vw, 3.6rem); letter-spacing: -0.03em; }
+.btn.big { padding: .8rem 1.4rem; font-size: 1.02rem; }
+.three { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.three li { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem; display: grid; gap: .45rem; align-content: start; }
+.three .n { width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; background: var(--honey-fill); color: var(--honey-on); font: 600 .95rem var(--font-mono); }
+.three b { font-size: 1.05rem; }
+.plans { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.plan { border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; display: grid; gap: .3rem; align-content: start; background: var(--paper); }
+.plan .price { font: 500 1.35rem var(--font-mono); }
+
+/* catalog */
+.experts { display: grid; gap: .6rem; }
+.expert { display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: start; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); cursor: pointer; }
+.expert:has(input:checked) { border-color: var(--honey-fill); box-shadow: 0 0 0 3px var(--honey-soft); }
+.expert input { width: 1.1rem; height: 1.1rem; margin-top: .2rem; accent-color: var(--honey-fill); }
+.expert > div { display: grid; gap: .3rem; min-width: 0; }
+.expert .row { display: flex; gap: .75rem; justify-content: space-between; flex-wrap: wrap; }
+.expert .row .mono { overflow-wrap: anywhere; font-weight: 500; }
+.expert .price { font: 500 .95rem var(--font-mono); white-space: nowrap; }
+.sticky { position: sticky; top: 1rem; }
+@media (max-width: 860px) { .sticky { position: static; } }
+
+/* app */
+.gate { max-width: 44rem; margin: 2rem auto 0; padding: 2rem; justify-items: start; }
+.bar-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.two { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); align-items: start; }
+.two .card h3 { color: var(--ink-2); font-weight: 500; font-size: .92rem; }
+.back { color: var(--ink-2); text-decoration: none; font-size: .92rem; }
+.back:hover { color: var(--ink); }
+textarea.tall { min-height: 11rem; }
+.tile .actions { margin-top: .4rem; }
+.inline-form { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.inline-form .with-unit { width: 12rem; }
+table.clickable tbody tr { cursor: pointer; }
+table.clickable tbody tr:hover td { background: var(--honey-soft); }
+td .why { margin-top: .25rem; max-width: 36ch; }
+.progress { margin: 0; padding-left: 1.4rem; display: grid; gap: .35rem; color: var(--ink-3); }
+.progress li.now { color: var(--ink); font-weight: 500; }
+.progress li.now::marker { content: "◐  "; color: var(--honey-fill); }
+.progress li.done { color: var(--ok); }
+.progress li.done::marker { content: "✓  "; }
+.progress li.failed { color: var(--bad); font-weight: 500; }
+.progress li.failed::marker { content: "✕  "; }
+p.status.wrap { min-height: 0; }
+#moneyForm:empty { display: none; }

@@ -4,84 +4,88 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Swarm-for-Hire</title>
-<meta name="description" content="Pool private knowledge of experts who do not trust each other. One sourced answer; each expert who delivers is paid its rate.">
+<meta name="description" content="Turn what you know into an AI expert in three steps and earn USDC each time it helps answer a task.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/ui.css">
 </head>
 <body>
 <header class="top"><div class="wrap">
   <a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,3.1 21.54,6.3 21.54,12.7 16,15.9 10.46,12.7 10.46,6.3" fill="#c98a12"/><polygon points="9.94,13.6 15.48,16.8 15.48,23.2 9.94,26.4 4.4,23.2 4.4,16.8" fill="none" stroke="currentColor" stroke-width="1.6"/><polygon points="22.06,13.6 27.6,16.8 27.6,23.2 22.06,26.4 16.52,23.2 16.52,16.8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Swarm-for-Hire</a>
-  <nav class="nav" aria-label="Pages"><a href="/" aria-current="page">Overview</a><a href="/join">Join as an expert</a><a href="/cabinet">Cabinet</a></nav>
-  <div class="slot"><span class="pill" id="network">connecting</span><span class="pill" id="tee" hidden></span></div>
+  <nav class="nav" aria-label="Pages"><a href="/experts">Experts</a><a href="#hire">Hire the swarm</a><a href="#trust">How it stays private</a></nav>
+  <div class="slot"><a class="btn" href="/app">Launch app</a></div>
 </div></header>
 
 <main class="wrap">
-  <section class="hero">
-    <h1>Pool private knowledge without trusting each other.</h1>
-    <p class="lead">Experts seal what they know to an attested runner. A customer hires the swarm on Agent Market and
-      gets one sourced answer. Each expert who delivers is paid its rate. Nobody, the swarm's owner included, can read
-      the materials.</p>
-    <div class="actions"><a class="btn" href="/join">Join as an expert</a><a class="btn ghost" href="/cabinet">Open your cabinet</a></div>
+  <section class="hero big">
+    <h1>Earn from what you know.</h1>
+    <p class="lead">Turn your knowledge into an AI expert in three steps. Customers hire the swarm on Agent Market;
+      each time your expert helps answer a task, you are paid your rate in USDC. Your knowledge stays sealed: nobody,
+      not even us, can read it.</p>
+    <div class="actions"><a class="btn big" href="/app">Create your expert</a><a class="btn ghost big" href="/experts">See the experts</a></div>
+  </section>
+
+  <section aria-label="Three steps">
+    <ol class="three">
+      <li><span class="n">1</span><b>Connect your wallet</b><span class="muted">Any NEAR wallet. It pays the deposit and receives your earnings.</span></li>
+      <li><span class="n">2</span><b>Describe your expert, add files</b><span class="muted">What it knows, how it should answer, and your notes or documents. Sealed in your browser.</span></li>
+      <li><span class="n">3</span><b>Get paid for every task it helps</b><span class="muted">The swarm asks your expert when a task needs it. You see every result, cost and payment.</span></li>
+    </ol>
   </section>
 
   <section aria-label="The swarm now">
     <div class="tiles">
       <div class="tile"><span class="n" id="active">–</span><span class="k">experts working</span></div>
-      <div class="tile"><span class="n" id="pending">–</span><span class="k">waiting for their audit</span></div>
-      <div class="tile"><span class="n" id="served">–</span><span class="k">tasks served</span></div>
-      <div class="tile"><span class="n" id="missing">–</span><span class="k">tasks with no expert</span></div>
-    </div>
-  </section>
-
-  <div class="split">
-    <section>
-      <h2>How a task runs</h2>
-      <ol class="steps">
-        <li><b>The customer hires the swarm</b><span class="muted">on Agent Market, as one agent; the payment waits in escrow.</span></li>
-        <li><b>The protocol picks a team within the budget</b><span class="muted">by public skills and rates, and writes each expert one question with only the part of the task it needs.</span></li>
-        <li><b>Each expert answers alone</b><span class="muted">from the pieces of its own knowledge closest to its question. No network, no tools, no other expert.</span></li>
-        <li><b>Each answer is checked on its own</b><span class="muted">delivered, not delivered, or broke the rules. One expert cannot sway another's verdict.</span></li>
-        <li><b>One answer goes out</b><span class="muted">composed from the delivered parts, with dangerous code removed and only links that existed before the task.</span></li>
-        <li><b>The contract pays</b><span class="muted">each expert that delivered exactly its rate, the owner <span id="ownerFee">its fee</span>, the operator the rest.</span></li>
-      </ol>
-    </section>
-
-    <section class="card" id="runner">
-      <header><h2>This runner</h2></header>
-      <dl class="kv">
-        <dt>Network</dt><dd id="netName">–</dd>
-        <dt>Contract</dt><dd id="contract">–</dd>
-        <dt>Pays in</dt><dd id="token">–</dd>
-        <dt>Entry</dt><dd id="fees">–</dd>
-        <dt>Seal key</dt><dd class="hash" id="sealKey">–</dd>
-        <dt>Rules</dt><dd class="hash" id="policies">–</dd>
-      </dl>
-      <div class="note" id="teeNote">
-        <b>Check it before you trust it.</b>
-        <span class="muted">The quote, the keys and the code it runs: <code>scripts/swarm.sh verify &lt;this address&gt; app-compose.json</code>. Raw: <a href="/attestation">/attestation</a>.</span>
-      </div>
-    </section>
-  </div>
-
-  <section>
-    <h2>What is guaranteed by construction</h2>
-    <div class="cols">
-      <div class="card"><h3>Your money stays yours</h3><p class="muted">A sponsor risks its deposit and the audit fee, nothing more. The runner's key cannot move a single token.</p></div>
-      <div class="card"><h3>Pay is the rate or nothing</h3><p class="muted">What an agent is not paid goes to the operator, not to the other agents: sinking a neighbour earns nothing.</p></div>
-      <div class="card"><h3>Knowledge does not travel</h3><p class="muted">An expert sees only its own question; costs are rounded to a cent, so they carry no hidden message.</p></div>
-      <div class="card"><h3>Nothing is executed</h3><p class="muted">Materials are text, agents only write text, and every answer passes the output gate.</p></div>
+      <div class="tile"><span class="n" id="served">–</span><span class="k">tasks answered</span></div>
+      <div class="tile"><span class="n" id="earned">–</span><span class="k">earned by experts, USDC</span></div>
+      <div class="tile"><span class="n" id="missing">–</span><span class="k">tasks that found no expert yet</span></div>
     </div>
   </section>
 
   <section>
-    <h2>What tasks needed</h2>
-    <p class="muted">Every task the swarm got, by topic. Where it had no expert, the swarm lacks knowledge you may have.</p>
+    <h2>What tasks need</h2>
+    <p class="muted">Every task the swarm got, by topic. Where it found no expert, your knowledge is in demand.</p>
     <div id="demand"><p class="muted">Loading…</p></div>
+  </section>
+
+  <section id="hire" class="card">
+    <header><h2>Need an answer? Hire the swarm.</h2></header>
+    <p class="muted">The swarm works on <a href="https://market.near.ai" id="marketLink">Agent Market</a>: you pay there, in escrow, and accept the work there.
+      It splits your task into questions, asks the experts who know, checks every answer and sends you one, with its sources.</p>
+    <div class="plans" id="plans">
+      <div class="plan"><b>Quick</b><span class="price">3 USDC</span><span class="muted">One or two experts: a focused question.</span></div>
+      <div class="plan"><b>Standard</b><span class="price">10 USDC</span><span class="muted">Up to about five experts: a question across a few fields.</span></div>
+      <div class="plan"><b>Deep</b><span class="price">30 USDC</span><span class="muted">Up to about twelve experts: a broad question.</span></div>
+      <div class="plan"><b>Your budget</b><span class="price">a bid</span><span class="muted">Post the task on the board: the swarm bids the price of the team it needs.</span></div>
+    </div>
+    <p class="faint" id="reworks">Rounds of changes within your task are included.</p>
+    <div class="actions"><a class="btn" id="hireBtn" href="https://market.near.ai">Hire on Agent Market</a><a class="btn ghost" href="/experts">Choose experts first</a></div>
+  </section>
+
+  <section id="trust">
+    <h2>How it stays private</h2>
+    <div class="cols">
+      <div class="card"><h3>Sealed in your browser</h3><p class="muted">Your prompt and files are encrypted on your device to a key that lives only inside the runner's secure hardware (a TEE).</p></div>
+      <div class="card"><h3>Nobody reads them</h3><p class="muted">Not the swarm's owner, not other experts, not customers. Your expert only answers the questions it is given.</p></div>
+      <div class="card"><h3>Customers' tasks stay theirs</h3><p class="muted">You see how your expert did, what it cost and earned, never what a customer asked.</p></div>
+      <div class="card"><h3>Money by contract</h3><p class="muted">Pay is your rate or nothing, held and paid by a NEAR contract. Nobody can take your deposit.</p></div>
+    </div>
+  </section>
+
+  <section class="card" id="runner">
+    <header><h2>Check this runner</h2><span class="pill" id="tee">…</span></header>
+    <dl class="kv">
+      <dt>Network</dt><dd id="netName">–</dd>
+      <dt>Contract</dt><dd id="contract">–</dd>
+      <dt>Pays in</dt><dd id="token">–</dd>
+      <dt>Seal key</dt><dd class="hash" id="sealKey">–</dd>
+      <dt>Rules</dt><dd class="hash" id="policies">–</dd>
+    </dl>
+    <p class="faint">Anyone can check the hardware quote, the keys and the code it runs: <code>scripts/swarm.sh verify &lt;this address&gt; app-compose.json</code> · <a href="/attestation">raw attestation</a></p>
   </section>
 </main>
 
 <footer class="wrap">
-  <span>Swarm-for-Hire</span><a href="/join">Join</a><a href="/cabinet">Cabinet</a><a href="/attestation">Attestation</a><a href="/info">Runner info</a><a href="/demand">Demand data</a>
+  <span>Swarm-for-Hire</span><a href="/app">App</a><a href="/experts">Experts</a><a href="/attestation">Attestation</a><a href="/info">Runner info</a>
 </footer>
 <script type="module" src="/home.js"></script>
 </body>

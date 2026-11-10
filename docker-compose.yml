@@ -19,7 +19,8 @@ services:
       OVERHEAD_USD: "0.50"
       OVERHEAD_PER_AGENT_USD: "0.10"
       MAX_REWORKS: "2"
-      BIDS: "off"
+      BIDS: "on" # bid on board tasks at the price of the team each needs
+      MARKET_LISTING_URL: https://market.near.ai/agents/swarm-for-hire # for the site's "Hire" buttons
       NEARAI_API_KEY: ${NEARAI_API_KEY}
       MARKET_TOKEN: ${MARKET_TOKEN}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
