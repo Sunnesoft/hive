@@ -15,9 +15,9 @@ export const linksOf = (m: Materials) =>
 export type Flag = { reason: string; excerpt: string };
 
 export async function audit(m: Materials, skills: string, docs: string[]) {
-  const all = [skills, m.expertise, m.method, ...docs]; // the public skills go into the router's prompt: scanned too
+  const all = [skills, ...m.examples, m.expertise, m.method, ...docs]; // the public profile goes into the router's prompt: scanned too
   const found = [...all.flatMap((text, id) => dangers(text).map((reason) => ({ id, reason }))), ...(await scan(all))];
   const flags: Flag[] = found.slice(0, 50).map((f) => ({ reason: f.reason, excerpt: all[f.id]?.slice(0, 600) ?? '' }));
-  const verdict = await verdictOnMaterials({ name: m.name, skills, model: m.model, expertise: m.expertise, method: m.method, knowledge: m.knowledge.map((k) => k.name), flags });
+  const verdict = await verdictOnMaterials({ name: m.name, skills, examples: m.examples, topics: m.topics, model: m.model, expertise: m.expertise, method: m.method, knowledge: m.knowledge.map((k) => k.name), flags });
   return { ...verdict, flags };
 }

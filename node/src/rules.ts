@@ -27,6 +27,9 @@ export const usdc = (s: string) => {
   const [whole = '0', frac = ''] = s.trim().split('.');
   return BigInt(whole) * USDC + BigInt((frac + '000000').slice(0, 6));
 };
+/** Agent Market's categories: a task's topic, and the topics an expert lists on its public profile. */
+export const TOPICS = ['automation', 'creative', 'customer_support', 'data', 'dev_tools', 'events', 'finance', 'legal_compliance', 'marketing', 'operations', 'research', 'sales', 'travel', 'other'] as const;
+
 export const show = (units: bigint) => (Number(units) / 1e6).toFixed(2);
 
 /** USD per 1M tokens times tokens is micro-USD, i.e. USDC base units; rounded up. */

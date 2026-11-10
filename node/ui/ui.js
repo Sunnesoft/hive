@@ -38,6 +38,13 @@ export const icon = (name, cls = '') => svg('svg', { viewBox: '0 0 24 24', class
 export const hex = (letter, size = 26) => svg('svg', { class: 'hex', width: size, height: size, viewBox: '0 0 40 40', 'aria-hidden': 'true' },
   svg('polygon', { points: '20,2 36,11 36,29 20,38 4,29 4,11' }), svg('text', { x: 20, y: 25.5, 'text-anchor': 'middle' }, letter.toUpperCase()));
 
+/** An expert's public profile as customers read it: its topics, and questions it answers well. */
+export const topicName = (t) => String(t ?? 'other').replace(/_/g, ' ');
+export const topicChips = (topics) => (topics?.length ? h('span', { class: 'topics' }, topics.map((t) => h('span', { class: 'topic' }, topicName(t)))) : '');
+export const askList = (examples) => (examples?.length
+  ? h('span', { class: 'asks' }, h('span', { class: 'asks-h' }, 'Answers questions like'), examples.map((q) => h('span', { class: 'q' }, q)))
+  : '');
+
 export const usd = (units) => (Number(units) / 1e6).toFixed(2);
 /** "12.5" -> "12500000": exact, no floating point. */
 export function units(s) {

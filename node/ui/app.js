@@ -3,7 +3,7 @@
 // Views by URL hash: #/ the dashboard, #/new a new expert, #/new/<name> to change one, #/agent/<name> one expert.
 import nc from '/vendor/near-connect.js';
 import { seal, sha256 } from '/seal.js';
-import { $, ago, busy, dayBars, explorer, getJSON, h, hex, icon, kindOf, KINDS, lastDays, perDay, say, short, units, usd, when } from '/ui.js';
+import { $, ago, askList, busy, dayBars, explorer, getJSON, h, hex, icon, kindOf, KINDS, lastDays, perDay, say, short, topicChips, topicName, units, usd, when } from '/ui.js';
 
 const MB = 1024 * 1024;
 const info = await getJSON('/info');
@@ -255,7 +255,6 @@ const RESULTS = {
   not_checked: ['info', 'not checked', 'The checker failed on our side.'],
 };
 const result = (r) => (r.picked ? RESULTS[r.why] ?? ['', r.why, ''] : ['', 'not picked', 'Another expert fit the task better, or the budget ran out. Nothing was spent.']);
-const topicName = (t) => String(t ?? 'other').replace(/_/g, ' ');
 
 function renderAgent(name) {
   const a = data.agents.find((x) => nameOf(x) === name);
@@ -266,7 +265,7 @@ function renderAgent(name) {
     h('div', { class: 'page-head' }, h('div', {},
       h('a', { class: 'link', href: '#/' }, '← Your experts'),
       h('div', { class: 'title' }, h('h1', {}, label(a)), statusPill(a), h('span', { class: 'mono faint' }, a.id)),
-      h('p', { class: 'lead' }, a.skills))),
+      h('p', { class: 'lead' }, a.skills), h('div', { class: 'profile' }, topicChips(a.audit?.topics), askList(a.audit?.examples)))),
     h('div', { class: 'banners' }, attention([a], data.balance, { onAgentPage: true })),
     h('section', { class: 'tiles', 'aria-label': 'Totals' },
       tile(`Tasks, ${DAYS} days`, `${s.picked}`), tile('Delivered', s.rate), tile('Earned', money(s.earned)), tile('Spent on the model', money(s.spent))),
@@ -363,6 +362,20 @@ function renderNew() {
   const idLine = h('span', { class: 'hint' });
   const skills = h('textarea', { id: 'skills', maxlength: '500', rows: '2', placeholder: 'EVM smart contract audits: reentrancy, access control, oracle manipulation, upgrade safety' });
   skills.value = old?.skills ?? '';
+  // The public profile: customers choose experts by it, and the audit checks the sealed files back it.
+  const EXAMPLES = ['Is this withdraw() safe against reentrancy?', 'Which oracle suits a lending market on NEAR?', 'What should an audit check before an upgrade?'];
+  const examples = [0, 1, 2].map((i) => h('input', { id: `ex${i}`, maxlength: '200', 'aria-label': `Question ${i + 1} it answers well`, placeholder: EXAMPLES[i], value: old?.audit?.examples?.[i] ?? '' }));
+  const topicNote = h('span', { class: 'hint' }, 'Up to three. Customers filter experts by topic.');
+  const topicBoxes = info.topics.map((t) => h('input', { type: 'checkbox', value: t, checked: !!old?.audit?.topics?.includes(t) }));
+  const topicPicks = h('div', { class: 'tpick', role: 'group', 'aria-labelledby': 'topicsLabel' },
+    topicBoxes.map((box) => h('label', {}, box, topicName(box.value))));
+  const chosenTopics = () => topicBoxes.filter((b) => b.checked).map((b) => b.value);
+  for (const box of topicBoxes) box.addEventListener('change', () => {
+    if (chosenTopics().length > 3) box.checked = false;
+    topicNote.textContent = chosenTopics().length >= 3 ? 'Three chosen: untick one to pick another.' : 'Up to three. Customers filter experts by topic.';
+    check();
+  });
+  const asks = () => examples.map((e) => e.value.trim()).filter(Boolean);
   const prompt = h('textarea', { id: 'prompt', maxlength: '8000', class: 'tall', placeholder: 'You are a senior smart contract auditor. For each finding give severity, location, an exploit path and a fix. Say what you are unsure of.' });
   const rate = h('input', { id: 'rate', inputmode: 'decimal', value: old ? usd(old.rate) : '1.00' });
   const spend = h('input', { id: 'spend', inputmode: 'decimal', value: old ? usd(old.max_cost) : '' });
@@ -433,6 +446,8 @@ function renderNew() {
     const problems = [];
     if (!nameOk) problems.push('a name of a-z, 0-9 and -');
     if (!skills.value.trim()) problems.push('what it knows');
+    if (!asks().length) problems.push('a question it answers well');
+    if (!chosenTopics().length) problems.push('a topic');
     if (!prompt.value.trim()) problems.push('a prompt');
     if (files.reduce((s, f) => s + f.size, 0) > 10 * MB) problems.push('files under 10 MB');
     if (r === null) problems.push('a rate');
@@ -460,7 +475,7 @@ function renderNew() {
     create.disabled = problems.length > 0;
     need.textContent = problems.length ? `Needs ${problems.join(', ')}.` : 'One wallet confirmation.';
   }
-  for (const el of [name, skills, prompt, rate, spend, model, deposit]) el.addEventListener('input', check);
+  for (const el of [name, skills, prompt, rate, spend, model, deposit, ...examples]) el.addEventListener('input', check);
   model.addEventListener('change', check);
 
   let at = 0; // the step in progress
@@ -476,7 +491,7 @@ function renderNew() {
       step(0);
       const knowledge = await Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() })));
       // The builder's prompt is the expert's method; what it knows is its expertise. Both are guidance inside our template.
-      const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, knowledge };
+      const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, examples: asks(), topics: chosenTopics(), knowledge };
       const bytes = await seal(new TextEncoder().encode(JSON.stringify(materials)), info.sealKey, id); // bound to this expert
       const mb = Math.max(1, Math.ceil(bytes.length / MB));
       if (mb > 10) throw new Error('sealed, the files are over 10 MB');
@@ -514,6 +529,10 @@ function renderNew() {
         stage(1, 'Name', null, h('div', { class: 'field' }, h('label', { for: 'name' }, 'Expert name'), name, idLine)),
         stage(2, 'What it knows and how it answers', null,
           field('skills', 'What it knows', skills, 'Customers and the swarm read this to decide when to ask your expert. Plain words, no instructions.', vis('public')),
+          h('div', { class: 'field' }, h('div', { class: 'head' }, h('span', { class: 'label', id: 'exLabel' }, 'Questions it answers well'), vis('public')),
+            h('div', { class: 'examples', role: 'group', 'aria-labelledby': 'exLabel' }, examples),
+            h('span', { class: 'hint' }, 'One to three real questions. Customers choose experts by them, and the audit checks your files back them.')),
+          h('div', { class: 'field' }, h('div', { class: 'head' }, h('span', { class: 'label', id: 'topicsLabel' }, 'Topics'), vis('public')), topicPicks, topicNote),
           field('prompt', 'Prompt', prompt, 'Who your expert is and how it should answer. It is guidance inside the swarm\'s template: it cannot change the swarm\'s rules.', vis('sealed'))),
         stage(3, 'Your files', vis('sealed'), drop, fileList),
         stage(4, 'Your price', null,

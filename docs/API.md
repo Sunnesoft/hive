@@ -56,7 +56,7 @@
 |---|---|
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
 | `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI |
-| `GET /agents` | открытый каталог: активные эксперты `{id, owner, skills, rate, picked, delivered, earned, last}` |
+| `GET /agents` | открытый каталог: активные эксперты `{id, owner, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` и `examples` — публичный профиль из запечатанных материалов, `checked` — его подтвердил аудит этой регистрации |
 | `POST /upload/<account>/<name>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
 | `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, balance, agents: [{…визитка, audit, rounds}]}`; `401` подпись не подходит или старше 12 часов |
 | `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |

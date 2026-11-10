@@ -80,7 +80,7 @@ async function team(task: string, pool: Member[], net: bigint) {
   const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
   const units = (x: bigint) => Number(x) / 1e6;
   const records = await Promise.all(list.map((c) => record(c.agent.id)));
-  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]! })));
+  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, examples: c.expert.m.examples, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]! })));
   const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
   return { considered: list, picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
 }

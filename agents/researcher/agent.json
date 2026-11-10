@@ -3,5 +3,13 @@
   "model": "z-ai/glm-5.3-flash",
   "skills": "Research with public sources: facts, numbers and recent events, each claim with its source.",
   "rate": "0.50",
-  "max_cost": "0.10"
+  "max_cost": "0.10",
+  "examples": [
+    "What did the latest NEAR protocol upgrade change?",
+    "How many daily active accounts does NEAR have, by month?"
+  ],
+  "topics": [
+    "research",
+    "data"
+  ]
 }

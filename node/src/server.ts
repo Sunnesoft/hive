@@ -15,7 +15,7 @@ import { CHUNK, NEAREST } from './library.ts';
 import { priceOf } from './llm.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
-import { MAX_OUT } from './rules.ts';
+import { MAX_OUT, TOPICS } from './rules.ts';
 import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
@@ -67,14 +67,20 @@ async function upload(owner: string, name: string, req: IncomingMessage): Promis
 }
 
 let catalog: { at: number; reply: Promise<Reply> } | undefined;
-/** Active experts as customers see them: the public card and the record, never a task. Cached for a minute. */
+/** Active experts as customers see them: the public card, the profile its audit checked and the record, never a task.
+ *  Cached for a minute. */
 function agents(): Promise<Reply> {
   if (catalog && Date.now() - catalog.at < 60_000) return catalog.reply;
   const reply = Promise.all(chain.listed().filter((a) => a.status === 'Active').map(async (a) => {
-    const picked = (await store.historyOf(a.id)).filter((r) => r.picked);
+    const [history, audit] = await Promise.all([store.historyOf(a.id), store.auditOf(a.id)]);
+    const picked = history.filter((r) => r.picked);
     const delivered = picked.filter((r) => r.delivered);
     const earned = delivered.reduce((s, r) => s + BigInt(r.pay), 0n);
-    return { id: a.id, owner: a.owner, skills: a.skills, rate: a.rate, picked: picked.length, delivered: delivered.length, earned: `${earned}`, last: picked.at(-1)?.at ?? null };
+    const ours = audit?.registration === a.registration && audit.allow; // the audit of this very card admitted it
+    return {
+      id: a.id, owner: a.owner, skills: a.skills, rate: a.rate, topics: ours ? (audit.topics ?? []) : [], examples: ours ? (audit.examples ?? []) : [],
+      checked: !!ours, picked: picked.length, delivered: delivered.length, earned: `${earned}`, last: picked.at(-1)?.at ?? null,
+    };
   })).then((list): Reply => [200, list.sort((x, y) => y.delivered - x.delivered)]);
   catalog = { at: Date.now(), reply };
   return reply;
@@ -94,7 +100,7 @@ function info(sealKey: string): Promise<Reply> {
     const stats = { active: agents.filter((a) => a.status === 'Active').length, pending: agents.filter((a) => a.status === 'Pending').length };
     // How a price is made, so the site can quote a team the way the runner bids: rates + overhead, then both fees.
     const pricing = { market_fee_bps: 500, overhead: cfg.OVERHEAD_USD, per_agent: cfg.OVERHEAD_PER_AGENT_USD, reworks: cfg.MAX_REWORKS, listing: cfg.MARKET_LISTING_URL ?? null, plans: PLANS };
-    return [200, { contract: cfg.CONTRACT, token, network, sealKey, models, fees, limits, stats, pricing }];
+    return [200, { contract: cfg.CONTRACT, token, network, sealKey, models, fees, limits, stats, pricing, topics: TOPICS }];
   });
   cached = { at: Date.now(), reply };
   reply.catch(() => (cached = undefined));

@@ -1,6 +1,6 @@
 // Hiring, the customer's way: write the task, pick experts if you like, see the price, then hire the swarm on
 // Agent Market with the brief copied and the steps spelled out. Payment and acceptance happen there.
-import { $, ago, getJSON, h, quote, units, usd } from '/ui.js';
+import { $, account, ago, askList, getJSON, h, icon, quote, topicChips, topicName, units, usd } from '/ui.js';
 
 const [info, experts] = await Promise.all([getJSON('/info'), getJSON('/agents')]);
 const { pricing } = info;
@@ -20,7 +20,19 @@ function cross() {
   return svg;
 }
 
-function card(e) {
+// How well an expert's public profile matches the task, in shared words: a hint for the customer, free, in the
+// browser. The swarm's own choice is made by its router, with the whole task in view.
+const STOP = new Set('about after also because been before being could does doing done each from have here into just know like make many more most much need only other over please same should some such tell than that their them then there these they this those very want what when where which while will with would your'.split(' '));
+const stem = (w) => (w.length > 5 ? w.slice(0, 5) : w);
+const words = (text) => new Set((text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter((w) => !STOP.has(w)));
+function match(e, asked) {
+  if (!asked.size) return [];
+  const mine = new Map([...words(`${e.skills} ${e.examples.join(' ')} ${e.topics.map(topicName).join(' ')}`)].map((w) => [stem(w), w]));
+  return [...new Set([...asked].map(stem))].filter((s) => mine.has(s)).map((s) => mine.get(s));
+}
+let topic = ''; // the topic filter, '' for all
+
+function card(e, hits) {
   const box = h('input', { type: 'checkbox', id: `x-${e.id}`, checked: picked.has(e.id), onchange: () => (box.checked ? picked.add(e.id) : picked.delete(e.id), compose()) });
   const record = e.picked
     ? [h('span', {}, h('b', {}, e.picked), e.picked === 1 ? ' task' : ' tasks'), h('span', {}, h('b', {}, `${Math.round((100 * e.delivered) / e.picked)}%`), ' delivered'), h('span', {}, `last ${ago(e.last)}`)]
@@ -28,21 +40,38 @@ function card(e) {
   return h('li', {}, h('label', { class: 'expert', for: `x-${e.id}` },
     box,
     h('span', { class: 'body' },
-      h('span', { class: 'idline' }, h('span', { class: 'mono' }, e.id)),
+      h('span', { class: 'idline' }, h('span', { class: 'mono' }, e.id), topicChips(e.topics)),
+      hits.length ? h('span', { class: 'fits' }, icon('check'), `Fits your task: ${hits.slice(0, 4).join(', ')}`) : '',
       h('span', { class: 'skills' }, e.skills),
-      h('span', { class: 'stats' }, record)),
+      askList(e.examples),
+      h('span', { class: 'stats' }, record,
+        e.checked ? h('span', { class: 'checked', title: 'The audit read its sealed files: they back this profile.' }, icon('check'), 'profile checked by the audit') : '',
+        h('span', {}, 'by ', account(info.network, e.owner)))),
     h('span', { class: 'rate' }, h('b', {}, usd(e.rate)), h('span', {}, 'USDC a task'))));
+}
+
+function filters() {
+  const counts = new Map();
+  for (const e of experts) for (const t of e.topics) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const chip = (t, label, n) => h('button', { type: 'button', 'aria-pressed': String(topic === t), onclick: () => ((topic = t), filters(), list()) }, label, h('span', { class: 'n' }, n));
+  $('topics').replaceChildren(...(counts.size ? [chip('', 'All', experts.length), ...[...counts].sort((a, b) => b[1] - a[1]).map(([t, n]) => chip(t, topicName(t), n))] : []));
 }
 
 function list() {
   const q = $('search').value.trim().toLowerCase();
-  const shown = experts.filter((e) => !q || `${e.id} ${e.skills}`.toLowerCase().includes(q));
-  $('count').textContent = `${shown.length} of ${experts.length} expert${experts.length === 1 ? '' : 's'} · most delivered first`;
-  $('list').replaceChildren(...(shown.length ? shown.map(card) : [h('li', { class: 'muted' },
+  const asked = words(task());
+  const shown = experts
+    .filter((e) => (!topic || e.topics.includes(topic)) && (!q || `${e.id} ${e.skills} ${e.examples.join(' ')} ${e.topics.map(topicName).join(' ')}`.toLowerCase().includes(q)))
+    .map((e) => ({ e, hits: match(e, asked) }))
+    .sort((a, b) => b.hits.length - a.hits.length); // stable: most delivered first among equals
+  $('count').textContent = `${shown.length} of ${experts.length} expert${experts.length === 1 ? '' : 's'} · ${asked.size ? 'best fit for your task first' : 'most delivered first'}`;
+  $('list').replaceChildren(...(shown.length ? shown.map(({ e, hits }) => card(e, hits)) : [h('li', { class: 'muted' },
     experts.length ? 'No expert knows that yet. Hire anyway: the swarm tells builders what customers need.' : 'No experts yet. ', experts.length ? '' : h('a', { href: '/builders' }, 'Be the first'))]));
 }
 
-const task = () => $('task').value.trim();
+function task() {
+  return $('task').value.trim();
+}
 const briefText = () => {
   const chosen = experts.filter((e) => picked.has(e.id));
   const body = task() || '<your task>';
@@ -130,7 +159,7 @@ async function hire() {
 }
 
 $('search').addEventListener('input', list);
-$('task').addEventListener('input', compose);
+$('task').addEventListener('input', () => (compose(), list()));
 $('next').addEventListener('click', hire);
 $('barNext').addEventListener('click', hire);
 $('back').addEventListener('click', () => {
@@ -147,5 +176,6 @@ $('copyAgain').addEventListener('click', async () => {
   if (!ok) select($('brief2'));
   setTimeout(() => ($('copyAgain').textContent = 'Copy the brief again'), 2000);
 });
+filters();
 list();
 compose();

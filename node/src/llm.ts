@@ -6,7 +6,7 @@ import { embedMany, generateText, Output } from 'ai';
 import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, MAX_OUT, microUsd, type Price } from './rules.ts';
+import { ceiling, MAX_OUT, microUsd, TOPICS, type Price } from './rules.ts';
 import type { Page } from './web.ts';
 
 const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true });
@@ -53,7 +53,7 @@ const Verdict = z.object({ allow: z.boolean(), reason: z.string() });
 export type Verdict = z.infer<typeof Verdict>;
 
 /** Topics of tasks: Agent Market's own categories. Coarse on purpose: they tell sponsors where demand is, not what was asked. */
-export const TOPICS = ['automation', 'creative', 'customer_support', 'data', 'dev_tools', 'events', 'finance', 'legal_compliance', 'marketing', 'operations', 'research', 'sales', 'travel', 'other'] as const;
+export { TOPICS };
 export type Topic = (typeof TOPICS)[number];
 
 // ---- entry: audit of a sponsor's materials ----
@@ -94,7 +94,7 @@ const Plan = z.object({
   search: z.array(z.string()).default([]),
 });
 /** Which agents the task needs, most important first, each with its own question; and web searches, if any. */
-export async function plan(task: string, budget: number, agents: { id: number; skills: string; rate: number; requested?: boolean; record?: string | null }[]) {
+export async function plan(task: string, budget: number, agents: { id: number; skills: string; examples?: string[]; rate: number; requested?: boolean; record?: string | null }[]) {
   const { picks, search } = await protocol(policy.route, { task, budget, agents }, Plan);
   const seen = new Set<number>();
   const valid = picks.filter((p) => agents.some((a) => a.id === p.id) && p.question.trim() && !seen.has(p.id) && !!seen.add(p.id));

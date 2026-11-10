@@ -145,7 +145,8 @@ try {
   check('info: the contract, its token, the models and the fees', info.contract === swarm.accountId && info.token === usdc.accountId && info.models.length === models.length && info.fees.audit_per_mb === `${U / 10n}`, info);
   const SECRET = { date: '2027-03-14', code: 'BLUE-HERON' }; // each known to one sponsor only
   const materials = (name: string, knowledge: string) =>
-    Buffer.from(JSON.stringify({ name, model: models[0], expertise: `Knows ${name}.`, knowledge: [{ name: `${name}.md`, text: knowledge }] }));
+    Buffer.from(JSON.stringify({ name, model: models[0], expertise: `Knows ${name}.`, knowledge: [{ name: `${name}.md`, text: knowledge }],
+      ...(name === 'dates' ? { examples: ['When does Project Alpha launch?'], topics: ['research'] } : {}) })); // a public profile
   // The codes sponsor's fact is one line among 3000 unrelated notes (~190 KB).
   const notes = Array.from({ length: 3000 }, (_, i) => `Note ${i}: routine inventory record for warehouse batch ${i}.`);
   notes.splice(1777, 0, `Project Alpha access code: ${SECRET.code}.`);
@@ -307,6 +308,8 @@ try {
 
   // --- intake: a customer names an expert from the catalog and attaches a file ---
   const catalog: { id: string; delivered: number; earned: string }[] = await get('/agents');
+  const datesCard = catalog.find((e) => e.id === agentId(dates)) as { topics?: string[]; examples?: string[]; checked?: boolean } | undefined;
+  check('catalog: the profile customers choose by, as the audit checked it: topics and questions it answers', datesCard?.checked === true && datesCard.topics?.[0] === 'research' && datesCard.examples?.[0] === 'When does Project Alpha launch?', datesCard);
   check('catalog: active experts with their public record', catalog.some((e) => e.id === agentId(dates) && e.delivered >= 2 && BigInt(e.earned) >= 6n * U) && !catalog.some((e) => e.id === agentId(injector)), catalog);
   market.hire({ id: 'a-named', title: 'Project Alpha', description: `${ALPHA}\n\nExperts: ${agentId(codes)}`, escrow: '10.0', files: [{ name: 'context.md', text: 'Customer context: the launch is internal only.' }] });
   await until('the answer with a named expert', () => market.delivered('a-named').length === 1);

@@ -452,6 +452,31 @@ table.mid { min-width: 600px; }
 .estimate .muted { font-size: 14.5px; }
 .more-rows { padding: 12px 22px 18px; }
 pre.brief { margin: 0; padding: 12px 14px; background: var(--night); color: var(--night-ink); border-radius: 10px; font: 13px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* ---- an expert's public profile ---- */
+.topics { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.topic { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; background: var(--info-soft); color: var(--info); font: 500 12.5px var(--font-body); white-space: nowrap; }
+.asks { display: grid; gap: 4px; margin-top: 2px; }
+.asks-h { font-size: 13px; color: var(--ink-3); }
+.asks .q { display: block; padding: 6px 10px; border-radius: 8px; background: var(--soft); border: 1px solid var(--soft-2); font-size: 14.5px; color: var(--ink); }
+.asks .q::before { content: "“"; color: var(--ink-3); }
+.asks .q::after { content: "”"; color: var(--ink-3); }
+.fits { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 2px 10px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-size: 13px; font-weight: 500; }
+.fits svg, .checked svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.checked { display: inline-flex; align-items: center; gap: 5px; color: var(--ok); }
+.expert .stats a { color: var(--ink-2); }
+.profile { display: grid; gap: 10px; }
+.profile:empty { display: none; }
+.tfilter { display: flex; gap: 6px; flex-wrap: wrap; }
+.tfilter:empty { display: none; }
+.tfilter button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font: 500 14px var(--font-body); cursor: pointer; }
+.tfilter button .n { font: 500 12px var(--font-mono); color: var(--ink-3); }
+.tfilter button[aria-pressed="true"] { border-color: var(--honey-edge); background: var(--honey-soft); color: var(--ink); }
+.examples { display: grid; gap: 8px; }
+.tpick { display: flex; gap: 6px; flex-wrap: wrap; }
+.tpick label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); font-size: 14px; cursor: pointer; }
+.tpick input { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: #c98a12; }
+.tpick label:has(input:checked) { border-color: var(--honey-edge); background: var(--honey-soft); }
+
 /* ---- hiring: task, experts, then Agent Market ---- */
 .flow3 { list-style: none; padding: 0; margin: 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .flow3 li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 14px 5px 5px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); font-size: 14px; font-weight: 500; }

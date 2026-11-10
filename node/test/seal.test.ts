@@ -13,7 +13,7 @@ const sealFor = (sponsor: string, json: unknown) => seal(Buffer.from(JSON.string
 test('sealed materials open only in the runner, only for their sponsor', () => {
   const sealed = sealFor('alice.near', good);
   assert.equal(sealed.includes(Buffer.from('2027-03-14')), false);
-  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '' });
+  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', examples: [], topics: [] });
   assert.throws(() => unseal(sealed, runner, 'copycat.near'), Refused); // a copy registered by someone else
   assert.throws(() => unseal(sealed, devSecret('ed25519:other'), 'alice.near'), Refused); // another runner
   const tampered = Buffer.from(sealed);
@@ -23,7 +23,7 @@ test('sealed materials open only in the runner, only for their sponsor', () => {
 
 test('the browser seals exactly like the runner expects', async () => {
   const sealed: Uint8Array = await sealInBrowser(Buffer.from(JSON.stringify(good)), publicKeyOf(runner).toString('hex'), 'alice.near');
-  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '' });
+  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', examples: [], topics: [] });
 });
 
 test('materials are text with a known shape: no extra fields, an allowed model, invisible characters removed', () => {
@@ -31,4 +31,7 @@ test('materials are text with a known shape: no extra fields, an allowed model, 
   assert.throws(() => unseal(sealFor('a.near', { ...good, model: 'evil/model' }), runner, 'a.near'), Refused);
   assert.throws(() => unseal(seal(Buffer.from('not json'), publicKeyOf(runner), 'a.near'), runner, 'a.near'), Refused);
   assert.equal(unseal(sealFor('a.near', { ...good, expertise: 'Knows\u200b dates.' }), runner, 'a.near').expertise, 'Knows dates.');
+  assert.throws(() => unseal(sealFor('a.near', { ...good, topics: ['astrology'] }), runner, 'a.near'), Refused); // only Agent Market's topics
+  assert.throws(() => unseal(sealFor('a.near', { ...good, examples: ['a', 'b', 'c', 'd'] }), runner, 'a.near'), Refused); // three at most
+  assert.deepEqual(unseal(sealFor('a.near', { ...good, examples: ['When does it launch?'], topics: ['research'] }), runner, 'a.near').topics, ['research']);
 });

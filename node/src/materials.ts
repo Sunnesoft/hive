@@ -3,6 +3,7 @@
 // and these materials are reference data inside it. Only text is accepted, and nothing in it is ever run.
 import { z } from 'zod';
 import { allowedModels } from './config.ts';
+import { TOPICS } from './rules.ts';
 import { clean } from './safety.ts';
 import { open } from './seal.ts';
 
@@ -13,6 +14,9 @@ export const Materials = z.strictObject({
   model: z.string().refine((m) => allowedModels.includes(m), 'model not allowed'),
   expertise: Text(2_000).pipe(z.string().min(1)), // who the expert is and what they know
   method: Text(8_000).default(''), // how they work: a checklist, an approach
+  // Public, shown in the catalog so customers can choose; audited like the rest: the material must back them.
+  examples: z.array(Text(200).pipe(z.string().min(1))).max(3).default([]), // questions it answers well
+  topics: z.array(z.enum(TOPICS)).max(3).default([]), // where customers find it
   knowledge: z.array(z.strictObject({ name: Text(200), text: Text(10_000_000) })).max(1_000).default([]),
 });
 export type Materials = z.infer<typeof Materials>;
