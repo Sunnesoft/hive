@@ -1,4 +1,5 @@
-//! Test USDC: the stock NEP-141 implementation, nothing else. Local sandbox only.
+//! Test USDC: the stock NEP-141 implementation and its metadata (wallets show it). Local sandbox and testnet only.
+use near_contract_standards::fungible_token::metadata::{FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC};
 use near_contract_standards::fungible_token::{FungibleToken, FungibleTokenCore, FungibleTokenResolver};
 use near_contract_standards::storage_management::{StorageBalance, StorageBalanceBounds, StorageManagement};
 use near_sdk::json_types::U128;
@@ -72,5 +73,20 @@ impl StorageManagement for Contract {
     }
     fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
         self.token.storage_balance_of(account_id)
+    }
+}
+
+#[near]
+impl FungibleTokenMetadataProvider for Contract {
+    fn ft_metadata(&self) -> FungibleTokenMetadata {
+        FungibleTokenMetadata {
+            spec: FT_METADATA_SPEC.to_string(),
+            name: "Test USDC".to_string(),
+            symbol: "USDC".to_string(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals: 6,
+        }
     }
 }

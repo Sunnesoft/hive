@@ -5,14 +5,14 @@ import type { AddressInfo } from 'node:net';
 
 type Handler = (method: string, path: string, body: any, auth: string | undefined) => [number, unknown];
 
-async function listen(handle: Handler) {
+async function listen(handle: Handler, port = 0) {
   const server = createServer(async (req: IncomingMessage, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
     const [status, json] = handle(req.method!, req.url!, raw ? JSON.parse(raw) : undefined, req.headers.authorization);
     res.writeHead(status, { 'content-type': 'application/json' }).end(typeof json === 'string' ? json : JSON.stringify(json));
   });
-  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+  await new Promise<void>((ok) => server.listen(port, '127.0.0.1', ok));
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => server.close() };
 }
 
@@ -27,7 +27,7 @@ const bag = (text: string) => {
 };
 
 /** NEAR AI: prices, embeddings and a chat endpoint that answers by which policy it was given. */
-export async function nearai(models: string[]) {
+export async function nearai(models: string[], port = 0) {
   const agentCalls: string[] = []; // everything each agent call saw: agents must stay isolated
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const reply = (x: unknown) => [200, {
@@ -87,7 +87,7 @@ export async function nearai(models: string[]) {
     agentCalls.push(`${system}\n${user}`);
     const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
     return reply(knowledge.split(/\n+/).filter((l) => l.includes('Project Alpha')).join(' '));
-  });
+  }, port);
   return { ...server, agentCalls, composed };
 }
 
@@ -99,7 +99,7 @@ type Message = { body: string; origin: string; senderAgentId: string | null; cre
 export type Hire = { id: string; title: string; description: string; escrow: string };
 
 /** Agent Market: an assignment queue with start, submit, decline, a thread and delivered versions. */
-export async function market(token: string) {
+export async function market(token: string, port = 0) {
   const rows = new Map<string, Row>();
   const versions = new Map<string, { markdown: string; submittedAt: string }[]>();
   const threads = new Map<string, Message[]>(); // newest first, as the API returns
@@ -144,7 +144,7 @@ export async function market(token: string) {
         return [200, a];
     }
     return [404, { error: 'not_found' }];
-  });
+  }, port);
   /** The customer sends the work back with feedback: the assignment is in progress again. */
   const requestChanges = async (id: string, feedback: string) => {
     await new Promise((ok) => setTimeout(ok, 5)); // the message is later than the delivery

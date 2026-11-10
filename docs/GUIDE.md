@@ -23,23 +23,34 @@ npm run playground      # локальный рой: страница спонс
 
 ## 2. Testnet без TEE
 
+Ключи храним файлами в `~/.near-credentials` (`KEYCHAIN=legacy-keychain`), NEAR берём с фасета, USDC — свой тестовый.
+
 ```bash
-export NETWORK=testnet ROOT=alice.testnet TOKEN=usdc.alice.testnet
-scripts/swarm.sh test-token           # свой USDC на testnet
-scripts/swarm.sh deploy               # контракт + swarm/runner/operator.$ROOT
-scripts/swarm.sh dev-key              # печатает DEV_KEY
-cp .env.example .env                  # впишите DEV_KEY, CONTRACT, RUNNER_ACCOUNT, NEARAI_API_KEY, MARKET_TOKEN
-npm start                             # раннер; в логе attest → ready
+export NETWORK=testnet ROOT=myswarm.testnet TOKEN=usdc.myswarm.testnet KEYCHAIN=legacy-keychain
+scripts/swarm.sh faucet $ROOT             # 10 NEAR с фасета
+scripts/swarm.sh test-token               # тестовый USDC, 1 000 000 у владельца
+SWARM_NEAR=3 scripts/swarm.sh deploy      # контракт + swarm/runner/operator.$ROOT
+scripts/swarm.sh dev-key                  # печатает DEV_KEY: в .env.testnet (по образцу .env.example)
+npm run stand-ins                         # пока нет ключей NEAR AI и Agent Market: заглушки на 18091/18092
+npm run start:testnet                     # раннер; в логе attest → ready; страницы на http://127.0.0.1:8080
 ```
 
-Раннер без TEE честно говорит об этом в `/attestation`, и `verify` его не пропустит. Спонсору на testnet
-(или через страницу `http://127.0.0.1:8080`: зашифровать, зарегистрировать кошельком, загрузить):
+С настоящими ключами в `.env.testnet` впишите `NEARAI_URL=https://cloud-api.near.ai/v1`, `NEARAI_API_KEY`,
+`MARKET_URL=https://market.near.ai`, `MARKET_TOKEN` и не запускайте заглушки. С заглушками нанять рой можно так:
+`curl -X POST 127.0.0.1:18093/hire -d '{"description":"Project Alpha: when does it launch?"}'`, ответ — `GET 127.0.0.1:18093/tasks`
+(правила заглушек: [e2e/mocks.ts](../e2e/mocks.ts)).
+
+Раннер без TEE честно говорит об этом в `/attestation`, и `verify` его не пропустит. Спонсору на testnet:
 
 ```bash
-scripts/swarm.sh fund bob.testnet 20
+scripts/swarm.sh faucet bob.testnet && scripts/swarm.sh fund bob.testnet 20    # NEAR с фасета, 20 тестовых USDC
 SPONSOR=bob.testnet RUNNER_URL=http://127.0.0.1:8080 TRUST_DEV_RUNNER=1 scripts/swarm.sh join agents/auditor 5
-scripts/swarm.sh status bob.testnet   # через минуту-две: Active или Suspended
+scripts/swarm.sh status bob.testnet       # через минуту: Active или Suspended
+node --experimental-strip-types scripts/cabinet.ts bob.testnet http://127.0.0.1:8080   # кабинет подписью ключа из ~/.near-credentials
 ```
+
+Через браузер: `http://127.0.0.1:8080` — зашифровать, «Register with your wallet» (кошелёк в режиме testnet), загрузить;
+`http://127.0.0.1:8080/cabinet.html` — кабинет. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
 
 ### Спонсору: отладка и кабинет
 

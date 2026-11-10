@@ -11,7 +11,9 @@
     "check": "tsc --noEmit",
     "e2e": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts",
     "playground": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/playground.ts",
-    "ui": "esbuild node_modules/@hot-labs/near-connect/build/index.js --bundle --format=esm --platform=browser --target=es2022 --legal-comments=inline --outfile=node/ui/vendor/near-connect.js --log-level=warning"
+    "ui": "esbuild node_modules/@hot-labs/near-connect/build/index.js --bundle --format=esm --platform=browser --target=es2022 --legal-comments=inline --outfile=node/ui/vendor/near-connect.js --log-level=warning",
+    "start:testnet": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet node/src/main.ts",
+    "stand-ins": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stand-ins.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.82",

@@ -48,7 +48,12 @@ function rebuild(nodes: Node[], allowed: Set<string>, removed: Map<Code, string>
         return [removed.has(n) ? note(`Code removed: ${removed.get(n)}.`) : n];
       case 'paragraph': {
         const [danger] = dangers(toString(n)); // an instruction split over several pieces of text
-        return [danger ? note(`Removed: ${danger}.`) : { ...n, children: again(n) as typeof n.children }];
+        if (danger) return [note(`Removed: ${danger}.`)];
+        const children = again(n) as typeof n.children;
+        const [first, last] = [children[0], children.at(-1)]; // what was cut may leave a space at an edge
+        if (first?.type === 'text') first.value = first.value.trimStart();
+        if (last?.type === 'text') last.value = last.value.trimEnd();
+        return [{ ...n, children }];
       }
       default:
         return ['children' in n ? ({ ...n, children: again(n) } as Node) : n];

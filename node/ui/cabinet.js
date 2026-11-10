@@ -31,11 +31,13 @@ const act = (what, f) => async () => {
   }
 };
 
-connector.on('wallet:signIn', (e) => {
-  account = e.accounts[0].accountId;
+const signedIn = (id) => {
+  account = id;
   $('who').textContent = account;
   $('money').hidden = $('cabinet').hidden = false;
-});
+};
+connector.on('wallet:signIn', (e) => signedIn(e.accounts[0].accountId));
+connector.wallet().then((w) => w.getAccounts()).then((a) => a?.[0] && signedIn(a[0].accountId), () => {}); // connected before
 connector.on('wallet:signOut', () => location.reload());
 $('connect').onclick = act('Connecting', () => connector.connect());
 

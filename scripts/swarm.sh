@@ -2,6 +2,10 @@
 # Swarm-for-Hire commands. Needs near-cli-rs, jq, curl, node 22 and `npm ci`; docker and phala for the TEE.
 #
 #   NETWORK=testnet|mainnet ROOT=<owner account> TOKEN=<USDC contract> scripts/swarm.sh <command> ...
+#   KEYCHAIN=legacy-keychain keeps keys in ~/.near-credentials instead of the system keychain.
+#
+# testnet
+#   faucet <account>               a new testnet account with NEAR from the faucet, its key in the keychain
 #
 # owner
 #   test-token                     testnet: deploy our own USDC at TOKEN, 1M of it to ROOT
@@ -28,6 +32,7 @@ cd "$(dirname "$0")/.."
 : "${NETWORK:=testnet}" "${ROOT:?owner account, e.g. alice.testnet}" "${TOKEN:?USDC contract on this network}"
 C="swarm.$ROOT"
 RPC=${RPC:-https://rpc.$NETWORK.fastnear.com}
+KC=${KEYCHAIN:-keychain} # where near-cli-rs keeps and finds keys
 
 # "4.5" -> 4500000 (USDC has 6 decimals). String math: floats turn 1.13 into 1129999.
 usdc() {
@@ -47,7 +52,7 @@ view() {
 # send <contract> <method> <json-args> <signer> [deposit]
 send() {
   near contract call-function as-transaction "$1" "$2" json-args "$3" prepaid-gas '100 Tgas' \
-    attached-deposit "${5:-0 NEAR}" sign-as "$4" network-config "$NETWORK" sign-with-keychain send
+    attached-deposit "${5:-0 NEAR}" sign-as "$4" network-config "$NETWORK" sign-with-$KC send
 }
 # pay <from> <units> <msg>: USDC into the contract with a message
 pay() { send "$TOKEN" ft_transfer_call "$(jq -nc --arg r "$C" --arg a "$2" --arg m "$3" '{receiver_id:$r,amount:$a,msg:$m}')" "$1" '1 yoctoNEAR'; }
@@ -55,34 +60,36 @@ pay() { send "$TOKEN" ft_transfer_call "$(jq -nc --arg r "$C" --arg a "$2" --arg
 runner_key() {
   near account add-key "runner.$ROOT" grant-function-call-access --allowance '5 NEAR' \
     --contract-account-id "$C" --function-names 'review, assign, finish' \
-    use-manually-provided-public-key "$1" network-config "$NETWORK" sign-with-keychain send
+    use-manually-provided-public-key "$1" network-config "$NETWORK" sign-with-$KC send
 }
 set_cfg() { send "$C" set_config "$(view "$C" config | jq -c --arg k "$1" --arg v "$2" '{cfg: (.[$k] = (if .[$k] | type == "number" then ($v | tonumber) else $v end))}')" "$ROOT"; }
 ts() { node --experimental-strip-types --disable-warning=ExperimentalWarning "$@"; }
 verify() { RPC="$RPC" RUNNER="runner.$ROOT" ts scripts/verify.ts "$@"; }
 
 case "${1:-}" in
+faucet)
+  near account create-account sponsor-by-faucet-service "$2" autogenerate-new-keypair save-to-$KC network-config "$NETWORK" create ;;
 test-token)
   (cd e2e/token && cargo near build non-reproducible-wasm --no-abi)
-  near account create-account fund-myself "$TOKEN" '2 NEAR' autogenerate-new-keypair save-to-keychain \
-    sign-as "$ROOT" network-config "$NETWORK" sign-with-keychain send
+  near account create-account fund-myself "$TOKEN" '2 NEAR' autogenerate-new-keypair save-to-$KC \
+    sign-as "$ROOT" network-config "$NETWORK" sign-with-$KC send
   near contract deploy "$TOKEN" use-file e2e/token/target/near/token.wasm with-init-call new \
     json-args "$(jq -nc --arg o "$ROOT" '{owner_id:$o, total_supply:"1000000000000"}')" \
-    prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-keychain send ;;
+    prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-$KC send ;;
 fund)
   send "$TOKEN" storage_deposit "$(jq -nc --arg a "$2" '{account_id:$a}')" "$ROOT" '0.00125 NEAR'
   send "$TOKEN" ft_transfer "$(jq -nc --arg a "$2" --arg n "$(usdc "$3")" '{receiver_id:$a, amount:$n}')" "$ROOT" '1 yoctoNEAR' ;;
 deploy)
   (cd contract && cargo near build non-reproducible-wasm) # not reproducible on purpose: the source stays private for now
-  for a in "$C:5" "runner.$ROOT:1" "operator.$ROOT:1"; do # full-access keys stay with the owner
-    near account create-account fund-myself "${a%:*}" "${a#*:} NEAR" autogenerate-new-keypair save-to-keychain \
-      sign-as "$ROOT" network-config "$NETWORK" sign-with-keychain send
+  for a in "$C:${SWARM_NEAR:-5}" "runner.$ROOT:1" "operator.$ROOT:1"; do # full-access keys stay with the owner; the contract's NEAR pays its storage
+    near account create-account fund-myself "${a%:*}" "${a#*:} NEAR" autogenerate-new-keypair save-to-$KC \
+      sign-as "$ROOT" network-config "$NETWORK" sign-with-$KC send
   done
   cfg=$(jq -nc --arg r "$ROOT" '{owner:$r, runner:"runner.\($r)", operator:"operator.\($r)", fee_bps:500,
     audit_base:"100000", audit_per_mb:"100000", min_deposit:"1000000", run_secs:1800, pay_secs:1209600}')
   near contract deploy "$C" use-file contract/target/near/swarm.wasm with-init-call new \
     json-args "$(jq -nc --arg t "$TOKEN" --argjson c "$cfg" '{token:$t, cfg:$c}')" \
-    prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-keychain send
+    prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-$KC send
   for a in "$C" "operator.$ROOT" "$ROOT"; do # every payout receiver must be registered with the token
     send "$TOKEN" storage_deposit "$(jq -nc --arg a "$a" '{account_id:$a}')" "$ROOT" '0.00125 NEAR'
   done ;;
@@ -149,5 +156,5 @@ status)
     view "$C" agent "$(jq -nc --arg a "$2" '{account:$a}')" | jq .
     echo "balance: $(view "$C" balance "$(jq -nc --arg a "$2" '{account:$a}')")"
   fi ;;
-*) sed -n '2,26p' "$0"; exit 1 ;;
+*) sed -n '2,30p' "$0"; exit 1 ;;
 esac

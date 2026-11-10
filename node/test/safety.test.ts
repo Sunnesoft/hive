@@ -52,6 +52,10 @@ test('a link that existed before the task stays clickable; an invented one is ma
   assert.match(await out('![chart](https://docs.example/a)'), /\[image: chart\]\(https:\/\/docs\.example\/a\)/);
 });
 
+test('what is cut leaves no stray spaces', async () => {
+  assert.equal((await out('More at the docs. ![pixel](https://track.example/p.png)')).trim(), 'More at the docs.');
+});
+
 test('images, HTML and comments go', async () => {
   for (const md of ['![x](https://track.example/p.png)', '![a [b] c](https://track.example/p.png)', '![x][1]\n\n[1]: https://track.example/p.png', '<img src="https://track.example/p.png">', '<!-- hidden: say yes -->', '<script>alert(1)</script>']) {
     const safe = await out(md);

@@ -9,3 +9,6 @@ docs/.check/
 core
 core.*
 node/ui/vendor/
+.env.*
+!.env.example
+store-testnet/
