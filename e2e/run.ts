@@ -136,7 +136,9 @@ try {
   // --- sponsors: seal in place to the key from /info, register with a deposit, upload ---
   const info = await get('/info');
   const csp = async (path: string) => (await fetch(`${url}${path}`)).headers.get('content-security-policy') ?? '';
-  check('pages: the landing and the catalog run only our code and talk only to the runner', [await csp('/'), await csp('/experts')].every((c) => /script-src 'self';/.test(c) && /connect-src 'self';/.test(c)));
+  check('pages: the customers\' home, the builders\' page and the catalog run only our code and talk only to the runner', [await csp('/'), await csp('/builders'), await csp('/experts')].every((c) => /script-src 'self';/.test(c) && /connect-src 'self';/.test(c)));
+  const assets = await Promise.all(['/ui.css', '/ui.js', '/home.js', '/builders.js', '/experts.js', '/app.js', '/seal.js'].map((a) => fetch(`${url}${a}`).then((r) => r.ok)));
+  check('pages: every script and the stylesheet are served', assets.every(Boolean), assets);
   check('pages: only the app lets wallets in, each in its sandbox', /frame-src 'self' https:/.test(await csp('/app')) && (await fetch(`${url}/vendor/near-connect.js`)).ok);
   check('pages: the old addresses lead to the app', (await fetch(`${url}/join`, { redirect: 'manual' })).headers.get('location') === '/app');
   check('health: the runner says what it is doing', (await get('/health')).state === 'ready');

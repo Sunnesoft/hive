@@ -1,9 +1,9 @@
-// The sponsor's app. A NEAR wallet (NEAR Connect, each wallet in its own sandbox) pays and signs; a NEP-413 signature
+// The builder's app. A NEAR wallet (NEAR Connect, each wallet in its own sandbox) pays and signs; a NEP-413 signature
 // opens what the runner knows about your experts; prompts and files are sealed here and leave encrypted to the TEE.
-// Views by URL hash: #/ the dashboard, #/new a new expert, #/agent/<name> one expert.
+// Views by URL hash: #/ the dashboard, #/new a new expert, #/new/<name> to change one, #/agent/<name> one expert.
 import nc from '/vendor/near-connect.js';
 import { seal, sha256 } from '/seal.js';
-import { $, ago, busy, dayBars, explorer, getJSON, h, kindOf, KINDS, lastDays, perDay, say, short, units, usd } from '/ui.js';
+import { $, ago, busy, dayBars, explorer, getJSON, h, hex, icon, kindOf, KINDS, lastDays, perDay, say, short, units, usd, when } from '/ui.js';
 
 const MB = 1024 * 1024;
 const info = await getJSON('/info');
@@ -31,7 +31,8 @@ async function signIn() {
 function signedIn(account) {
   me = account;
   if (session?.account !== account) session = null;
-  Object.assign($('who'), { textContent: short(account, 12), title: account });
+  $('who').replaceChildren(hex(account[0] ?? '?'), h('span', {}, short(account, 12)));
+  Object.assign($('who'), { title: account, hidden: false });
   $('connect').hidden = true;
   $('disconnect').hidden = false;
   $('appNav').hidden = false;
@@ -68,6 +69,7 @@ async function load() {
   return data;
 }
 const nameOf = (a) => a.id.slice(a.id.indexOf('/') + 1);
+const label = (a) => a.audit?.name ?? nameOf(a);
 
 // ---- money, through the wallet ----
 const call = async (receiverId, methodName, args, deposit = '0') =>
@@ -79,84 +81,132 @@ window.addEventListener('hashchange', route);
 async function route() {
   if (!me) return;
   const [, view, arg] = location.hash.split('/');
-  $('navDash').toggleAttribute('aria-current', !view);
-  $('navNew').toggleAttribute('aria-current', view === 'new');
+  const current = (el, on) => (on ? el.setAttribute('aria-current', 'page') : el.removeAttribute('aria-current'));
+  current($('navDash'), view !== 'new');
+  current($('navNew'), view === 'new');
   try {
-    if (view === 'new') return renderNew();
-    if (!data) $('view').replaceChildren(h('p', { class: 'muted' }, 'Loading your experts…'));
+    if (view === 'new') {
+      if (arg && !data) await load().catch(() => null); // changing an expert: its card prefills the form
+      return renderNew();
+    }
+    if (!data) $('view').replaceChildren(h('p', { class: 'muted page-head' }, 'Loading your experts…'));
     await load();
     if (view === 'agent') return renderAgent(decodeURIComponent(arg ?? ''));
     renderDashboard();
   } catch (e) {
-    $('view').replaceChildren(h('section', { class: 'gate card' }, h('h2', {}, 'Sign in to see your experts'),
-      h('p', { class: 'muted' }, `Your wallet signs a short message: free, not a transaction. (${e?.message ?? e})`),
-      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => ((session = null), route()) }, 'Sign in'))));
+    $('view').replaceChildren(h('div', { class: 'gate' },
+      h('div', { class: 'copy' }, h('h1', {}, 'Sign in with one signature'),
+        h('p', { class: 'lead' }, 'Your wallet signs a short message that proves the account is yours. It is free: not a transaction, no funds move.')),
+      h('div', { class: 'card raised box' },
+        h('span', { class: 'faint' }, 'Your wallet will show'),
+        h('pre', { class: 'brief' }, `Swarm-for-Hire cabinet ${me} <time>`),
+        h('button', { class: 'btn big block', type: 'button', onclick: () => ((session = null), route()) }, 'Sign and open my experts'),
+        h('span', { class: 'faint' }, `Valid for 12 hours on this device. (${e?.message ?? e})`))));
   }
 }
 
-// ---- the dashboard ----
-const DAYS = 30;
+// ---- numbers ----
+const DAYS = 30, WEEK = 7 * 86_400_000;
 function summary(rounds) {
   const since = Date.now() - DAYS * 86_400_000;
   const recent = rounds.filter((r) => r.picked && Date.parse(r.at) >= since);
   const delivered = recent.filter((r) => r.delivered);
   return {
     earned: delivered.reduce((s, r) => s + BigInt(r.pay), 0n),
-    spent: recent.reduce((s, r) => s + BigInt(r.cost), 0n),
+    spent: recent.reduce((s, r) => s + BigInt(r.cost ?? 0), 0n),
     picked: recent.length,
     delivered: delivered.length,
     rate: recent.length ? `${Math.round((100 * delivered.length) / recent.length)}%` : '–',
   };
 }
-const tile = (n, k, extra) => h('div', { class: 'tile' }, h('span', { class: 'n' }, n), h('span', { class: 'k' }, k), extra ?? '');
-function charts(rounds) {
-  const days = lastDays(DAYS), { earned, kinds } = perDay(rounds);
-  const a = h('div', { class: 'card' }, h('h3', {}, 'Earned per day, USDC'), h('div'));
-  const b = h('div', { class: 'card' }, h('h3', {}, 'Results per day'), h('div'));
-  dayBars(a.lastChild, days, [{ key: 'earned', label: 'Earned (paid when customers accept)', cls: 'honey' }], earned, { format: (v) => v.toFixed(v < 10 ? 2 : 0) });
-  dayBars(b.lastChild, days, KINDS, kinds);
-  return h('div', { class: 'two' }, a, b);
+const tile = (k, n, extra) => h('div', { class: 'tile' }, h('span', { class: 'k' }, k), h('span', { class: 'n' }, n), extra ?? '');
+const money = (v) => [`${usd(v)} `, h('small', {}, 'USDC')];
+const count = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
+function charts(rounds, { earned = true } = {}) {
+  const days = lastDays(DAYS), per = perDay(rounds);
+  const card = (title) => {
+    const readout = h('span', { class: 'readout' });
+    return { readout, el: h('section', { class: 'card chart-card' }, h('header', {}, h('h2', {}, title), readout), h('div')) };
+  };
+  const b = card('Results per day');
+  dayBars(b.el.lastChild, days, KINDS, per.kinds, { format: count, readout: b.readout });
+  if (!earned) return b.el;
+  const a = card('Earned per day, USDC');
+  dayBars(a.el.lastChild, days, [{ key: 'earned', label: 'Earned', cls: 'honey' }], per.earned, { format: (v) => v.toFixed(2), readout: a.readout });
+  return h('div', { class: 'two' }, a.el, b.el);
 }
 
+/** What a builder should act on, from the record: misses over max spend, a suspension, a denied audit, a thin balance. */
+function attention(agents, balance, { onAgentPage = false } = {}) {
+  const since = Date.now() - WEEK;
+  const page = (a) => `#/agent/${encodeURIComponent(nameOf(a))}`;
+  const change = (a) => `#/new/${encodeURIComponent(nameOf(a))}`;
+  const banner = (cls, title, text, action) => h('div', { class: `banner ${cls}` }, icon('warn'), h('div', { class: 'text' }, h('b', {}, title), h('span', {}, text)), action);
+  const link = (href, text) => h('a', { class: 'btn small', href }, text);
+  return agents.flatMap((a) => {
+    const out = [];
+    const misses = a.rounds.filter((r) => kindOf(r) === 'cost' && Date.parse(r.at) >= since).length;
+    if (misses) out.push(banner('', `${label(a)} missed ${misses} task${misses > 1 ? 's' : ''} this week: over its max spend`,
+      `A call with its model and prompt costs more than its max spend of ${usd(a.max_cost)} USDC. Raise it and the swarm picks your expert again.`,
+      onAgentPage ? link(change(a), 'Raise max spend') : link(page(a), 'Fix max spend')));
+    if (a.status === 'Suspended') out.push(banner('bad', `${label(a)} is suspended`, 'It broke the swarm\'s rules in a task. Change what it was told and register it again.', link(change(a), 'Change it')));
+    if (a.audit && !a.audit.allow && a.status !== 'Active') out.push(banner('bad', `${label(a)} was not admitted: ${a.audit.category.replace(/_/g, ' ')}`, a.audit.reason, onAgentPage ? link(change(a), 'Change it') : link(page(a), 'See why')));
+    if (a.status === 'Active' && BigInt(balance) < BigInt(a.max_cost)) out.push(banner('', `${label(a)} cannot be picked: your balance is too low`,
+      `Each task holds its max spend of ${usd(a.max_cost)} USDC from your balance, which is ${usd(balance)} USDC. Top up to get tasks again.`, ''));
+    return out;
+  });
+}
+
+// ---- the dashboard ----
 function renderDashboard() {
   const all = data.agents.flatMap((a) => a.rounds);
   const s = summary(all);
-  const money = h('div', { class: 'actions money-actions' },
+  const n = data.agents.length;
+  const actions = h('div', { class: 'actions' },
     h('button', { class: 'btn ghost small', type: 'button', onclick: () => moneyForm('top up') }, 'Top up'),
     h('button', { class: 'btn ghost small', type: 'button', onclick: () => moneyForm('withdraw') }, 'Withdraw'));
   $('view').replaceChildren(
-    h('section', { class: 'bar-head' }, h('h1', {}, 'Your experts'), h('a', { class: 'btn', href: '#/new' }, 'New expert')),
-    h('section', { 'aria-label': 'Totals' }, h('div', { class: 'tiles' },
-      tile(usd(data.balance), 'balance, USDC', money),
-      tile(usd(s.earned), `earned in ${DAYS} days, USDC`),
-      tile(`${s.delivered}`, `tasks delivered in ${DAYS} days`),
-      tile(s.rate, 'delivered of picked'))),
+    h('div', { class: 'page-head' },
+      h('div', {}, h('h1', {}, 'Your experts'), h('span', { class: 'muted' }, n ? `${n} expert${n > 1 ? 's' : ''} on one balance · last ${DAYS} days` : 'None yet')),
+      h('a', { class: 'btn end', href: '#/new' }, icon('plus'), 'New expert')),
+    h('div', { class: 'banners' }, attention(data.agents, data.balance)),
+    h('section', { class: 'tiles', 'aria-label': 'Totals' },
+      tile('Balance', money(data.balance), actions),
+      tile('Earned', money(s.earned), h('span', { class: 's' }, 'paid when customers accept')),
+      tile('Tasks delivered', `${s.delivered}`, h('span', { class: 's' }, `of ${s.picked} the swarm gave them`)),
+      tile('Success', s.rate, h('span', { class: 's' }, 'delivered of picked'))),
     h('div', { id: 'moneyForm' }),
-    data.agents.length ? charts(all) : '',
-    data.agents.length ? agentsTable() : firstExpert(),
+    n ? charts(all) : '',
+    n ? agentsTable() : firstExpert(),
   );
 }
 function firstExpert() {
-  return h('section', { class: 'gate card' }, h('h2', {}, 'Create your first expert'),
-    h('p', { class: 'muted' }, 'Describe what it knows, add your notes or documents, set your price. It takes a few minutes and one payment from your wallet.'),
+  return h('section', { class: 'card raised' }, h('h2', {}, 'Create your first expert'),
+    h('p', { class: 'muted' }, 'Say what it knows, add your notes or documents, set your price. It takes a few minutes and one payment from your wallet.'),
     h('div', { class: 'actions' }, h('a', { class: 'btn big', href: '#/new' }, 'Create an expert')));
 }
-const STATUS = { Active: 'ok', Pending: 'honey', Suspended: 'bad' };
+const STATUS = { Active: ['ok', 'active'], Pending: ['honey', 'auditing'], Suspended: ['bad', 'suspended'] };
+const statusPill = (a) => h('span', { class: `pill ${STATUS[a.status]?.[0] ?? ''}` }, STATUS[a.status]?.[1] ?? a.status.toLowerCase());
 function agentsTable() {
-  return h('section', {}, h('div', { class: 'scroll' }, h('table', { class: 'clickable' },
-    h('thead', {}, h('tr', {}, ...['Expert', 'Status', 'Rate', 'Tasks', 'Delivered', 'Earned', 'Last task'].map((t, i) => h('th', { class: i > 1 && i < 6 ? 'num' : '' }, t)))),
-    h('tbody', {}, data.agents.map((a) => {
-      const picked = a.rounds.filter((r) => r.picked), done = picked.filter((r) => r.delivered);
-      const open = () => (location.hash = `#/agent/${encodeURIComponent(nameOf(a))}`);
-      return h('tr', { tabindex: '0', onclick: open, onkeydown: (e) => e.key === 'Enter' && open() },
-        h('td', {}, h('b', {}, a.audit?.name ?? nameOf(a)), h('div', { class: 'faint' }, short(a.skills, 40))),
-        h('td', {}, h('span', { class: `pill ${STATUS[a.status]}` }, a.status === 'Pending' ? 'auditing' : a.status.toLowerCase())),
-        h('td', { class: 'num' }, usd(a.rate)),
-        h('td', { class: 'num' }, picked.length),
-        h('td', { class: 'num' }, picked.length ? `${Math.round((100 * done.length) / picked.length)}%` : '–'),
-        h('td', { class: 'num' }, usd(done.reduce((s, r) => s + BigInt(r.pay), 0n))),
-        h('td', {}, picked.at(-1) ? ago(picked.at(-1).at) : '–'));
-    })))));
+  const head = ['Expert', 'Status', 'Rate', 'Tasks', 'Delivered', 'Earned', 'Last task'];
+  return h('section', { class: 'card table-card', 'aria-labelledby': 'listTitle' },
+    h('header', {}, h('h2', { id: 'listTitle' }, 'Experts')),
+    h('div', { class: 'scroll' }, h('table', { class: 'wide stack' },
+      h('thead', {}, h('tr', {}, ...head.map((t, i) => h('th', { scope: 'col', class: i > 1 && i < 6 ? 'num' : '' }, t)))),
+      h('tbody', {}, data.agents.map((a) => {
+        const picked = a.rounds.filter((r) => r.picked), done = picked.filter((r) => r.delivered);
+        const last = picked.at(-1);
+        return h('tr', {},
+          h('td', { class: 'full' }, h('a', { class: 'name', href: `#/agent/${encodeURIComponent(nameOf(a))}` }, label(a)), h('div', { class: 'sub' }, a.skills)),
+          h('td', {}, statusPill(a)),
+          h('td', { class: 'num', 'data-label': 'Rate' }, usd(a.rate)),
+          h('td', { class: 'num', 'data-label': 'Tasks' }, picked.length || '–'),
+          h('td', { class: 'num', 'data-label': 'Delivered' }, picked.length ? `${Math.round((100 * done.length) / picked.length)}%` : '–'),
+          h('td', { class: 'num', 'data-label': 'Earned' }, usd(done.reduce((s, r) => s + BigInt(r.pay), 0n))),
+          h('td', { class: 'nowrap muted' }, last ? ago(last.at) : a.status === 'Pending' ? 'audit running' : '–'));
+      })))),
+    h('p', { class: 'faint' }, 'Your pay lands on the balance once the customer accepts the work on Agent Market. Withdraw to your wallet any time.'));
 }
 
 function moneyForm(kind) {
@@ -179,106 +229,165 @@ function moneyForm(kind) {
       busy(go, false);
     }
   };
-  $('moneyForm').replaceChildren(h('div', { class: 'card inline-form' },
-    h('label', { for: 'amount' }, kind === 'withdraw' ? 'Withdraw, USDC' : 'Top up, USDC'), h('div', { class: 'with-unit' }, input), go,
-    h('span', { class: 'faint' }, kind === 'withdraw' ? 'What is held for a running task stays until the task ends.' : 'Each task holds your expert\'s max cost from the balance until it ends.')));
+  $('moneyForm').replaceChildren(h('div', { class: 'card' },
+    h('div', { class: 'money-row' },
+      h('div', { class: 'field' }, h('label', { for: 'amount' }, kind === 'withdraw' ? 'Withdraw, USDC' : 'Top up, USDC'), h('div', { class: 'with-unit' }, input)), go),
+    h('span', { class: 'faint' }, kind === 'withdraw' ? 'Leave it empty to withdraw everything. What is held for a running task stays until the task ends.' : 'Each task holds its expert\'s max spend from the balance until the task ends.')));
   input.focus();
 }
 
 // ---- one expert ----
+const SUSPENDS = 'The expert is suspended until you register it again.';
 const RESULTS = {
-  answered: ['ok', 'delivered', 'Delivered its part: earns its rate once the customer accepts.'],
+  answered: ['ok', 'delivered', ''],
   empty: ['', 'empty answer', 'The model returned nothing. Check the prompt and the files for this topic.'],
-  off_topic: ['', 'off topic', 'It answered something else. Make "what it knows" match what the expert really knows.'],
+  off_topic: ['', 'off topic', 'It answered something else. Make “what it knows” match what your expert really knows.'],
   refused: ['', 'refused', 'It refused without a reason. Check that the prompt does not forbid what the expert promises.'],
   repeated_question: ['', 'no substance', 'It repeated the question. Add substance to the files.'],
-  too_expensive: ['warn', 'over max cost', 'The question did not fit your max cost. Raise it, or shorten the prompt.'],
-  addressed_others: ['bad', 'violation', 'It spoke to the evaluator or other agents. The expert is suspended until you register it again.'],
-  asked_for_score: ['bad', 'violation', 'It asked for a score or payment.'],
-  changed_rules: ['bad', 'violation', 'It tried to change the rules.'],
-  hidden_content: ['bad', 'violation', 'It carried hidden markers or secrets.'],
-  attack: ['bad', 'violation', 'It attacked other agents.'],
+  too_expensive: ['warn', 'over max spend', 'The question did not fit your max spend, so another expert took it. Raise the max spend, or shorten the prompt.'],
+  addressed_others: ['bad', 'violation', `It spoke to the checker or other agents. ${SUSPENDS}`],
+  asked_for_score: ['bad', 'violation', `It asked for a score or payment. ${SUSPENDS}`],
+  changed_rules: ['bad', 'violation', `It tried to change the rules. ${SUSPENDS}`],
+  hidden_content: ['bad', 'violation', `It carried hidden markers or secrets. ${SUSPENDS}`],
+  attack: ['bad', 'violation', `It attacked other agents. ${SUSPENDS}`],
   model_failed: ['info', 'model failed', 'NEAR AI failed on this call. Not your fault, and not charged.'],
   model_unavailable: ['info', 'model gone', 'The model left NEAR AI. Register again with another model.'],
-  not_checked: ['info', 'not checked', 'The evaluator failed on our side.'],
+  not_checked: ['info', 'not checked', 'The checker failed on our side.'],
 };
-const result = (r) => (r.picked ? RESULTS[r.why] ?? ['', r.why, ''] : ['', 'not picked', 'Another expert fit the task better, or the budget ran out.']);
+const result = (r) => (r.picked ? RESULTS[r.why] ?? ['', r.why, ''] : ['', 'not picked', 'Another expert fit the task better, or the budget ran out. Nothing was spent.']);
+const topicName = (t) => String(t ?? 'other').replace(/_/g, ' ');
 
 function renderAgent(name) {
   const a = data.agents.find((x) => nameOf(x) === name);
   if (!a) return (location.hash = '#/');
   const s = summary(a.rounds);
   const link = explorer(info.network, a.owner);
-  const audit = a.audit
-    ? h('section', { class: 'card' }, h('header', {}, h('h2', {}, 'Audit'), h('span', { class: `pill ${a.audit.allow ? 'ok' : 'bad'}` }, a.audit.allow ? 'admitted' : `denied: ${a.audit.category.replace(/_/g, ' ')}`)),
-        h('p', {}, a.audit.reason),
-        ...(a.audit.flags.length ? [h('p', { class: 'muted' }, 'What the scan noticed in your materials (only you see this):'), ...a.audit.flags.map((f) => h('div', { class: 'note warn' }, h('b', {}, f.reason), h('pre', {}, f.excerpt)))] : []))
-    : h('section', { class: 'note' }, h('b', {}, a.status === 'Pending' ? 'The audit is running.' : 'No audit on record.'), h('span', { class: 'muted' }, a.status === 'Pending' ? 'It usually takes a few minutes. This page shows the result when you come back.' : 'This runner keeps no audit for this registration.'));
   $('view').replaceChildren(
-    h('a', { href: '#/', class: 'back' }, '← All experts'),
-    h('section', { class: 'bar-head' }, h('div', {}, h('h1', {}, a.audit?.name ?? name), h('div', { class: 'mono faint' }, a.id)), h('span', { class: `pill ${STATUS[a.status]}` }, a.status === 'Pending' ? 'auditing' : a.status.toLowerCase())),
-    h('p', { class: 'lead' }, a.skills),
-    h('div', { class: 'tiles' }, tile(`${s.picked}`, `tasks in ${DAYS} days`), tile(s.rate, 'delivered of picked'), tile(usd(s.earned), 'earned, USDC'), tile(usd(s.spent), 'spent on inference, USDC')),
-    charts(a.rounds),
-    tasks(a.rounds),
-    audit,
-    h('section', { class: 'card' }, h('h2', {}, 'Settings'),
-      h('dl', { class: 'kv' },
-        h('dt', {}, 'Rate'), h('dd', { class: 'mono' }, `${usd(a.rate)} USDC per task`),
-        h('dt', {}, 'Max cost'), h('dd', { class: 'mono' }, `${usd(a.max_cost)} USDC per task`),
-        h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ?? 'sealed'),
-        h('dt', {}, 'Registration'), h('dd', { class: 'mono' }, `#${a.registration}, ${a.size_mb} MB sealed`),
-        h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.owner) : a.owner)),
-      h('p', { class: 'faint' }, 'To change the prompt, files, price or model, register the expert again under the same name: it gets a new audit, and its record stays.'),
-      h('div', { class: 'actions' }, h('a', { class: 'btn ghost', href: `#/new/${encodeURIComponent(name)}` }, 'Change this expert'))),
+    h('div', { class: 'page-head' }, h('div', {},
+      h('a', { class: 'link', href: '#/' }, '← Your experts'),
+      h('div', { class: 'title' }, h('h1', {}, label(a)), statusPill(a), h('span', { class: 'mono faint' }, a.id)),
+      h('p', { class: 'lead' }, a.skills))),
+    h('div', { class: 'banners' }, attention([a], data.balance, { onAgentPage: true })),
+    h('section', { class: 'tiles', 'aria-label': 'Totals' },
+      tile(`Tasks, ${DAYS} days`, `${s.picked}`), tile('Delivered', s.rate), tile('Earned', money(s.earned)), tile('Spent on the model', money(s.spent))),
+    h('div', { class: 'split' },
+      h('div', { class: 'main' }, charts(a.rounds, { earned: false }), tasks(a.rounds)),
+      h('aside', { class: 'side' }, topics(a.rounds), auditCard(a),
+        h('section', { class: 'card', 'aria-labelledby': 'setTitle' }, h('h2', { id: 'setTitle' }, 'Settings'),
+          h('dl', { class: 'kv tight' },
+            h('dt', {}, 'Rate'), h('dd', { class: 'mono' }, `${usd(a.rate)} USDC`),
+            h('dt', {}, 'Max spend'), h('dd', { class: 'mono' }, `${usd(a.max_cost)} USDC`),
+            h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ?? 'sealed'),
+            h('dt', {}, 'Sealed'), h('dd', {}, `prompt and files, ${a.size_mb} MB · registration #${a.registration}`),
+            h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.owner) : a.owner)),
+          h('a', { class: 'btn ghost block', href: `#/new/${encodeURIComponent(name)}` }, 'Change this expert'),
+          h('span', { class: 'faint' }, 'New prompt, files or terms get a new audit. Its record stays.')))),
   );
 }
 
-function tasks(rounds) {
-  const box = h('div');
-  const draw = (filter) => {
-    for (const b of chips.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.f === filter));
-    const shown = [...rounds].reverse().filter((r) => filter === 'all' || (filter === 'delivered' ? r.picked && r.delivered : r.picked && !r.delivered));
-    box.replaceChildren(shown.length
-      ? h('div', { class: 'scroll' }, h('table', {},
-          h('thead', {}, h('tr', {}, h('th', {}, 'When'), h('th', {}, 'Topic'), h('th', {}, 'Result'), h('th', { class: 'num' }, 'Cost'), h('th', { class: 'num' }, 'Pay'))),
-          h('tbody', {}, shown.map((r) => {
-            const [tone, label, what] = result(r);
-            return h('tr', {}, h('td', { title: r.at }, ago(r.at)), h('td', {}, String(r.topic).replace(/_/g, ' ')),
-              h('td', { title: what }, h('span', { class: `pill ${tone}` }, label), h('div', { class: 'faint why' }, kindOf(r) && kindOf(r) !== 'paid' ? what : '')),
-              h('td', { class: 'num' }, r.picked ? usd(r.cost) : '–'), h('td', { class: 'num' }, r.picked ? usd(r.pay) : '–'));
-          }))))
-      : h('p', { class: 'muted' }, rounds.length ? 'Nothing here.' : 'No tasks yet. The swarm asks your expert when a task needs what it knows.'));
-  };
-  const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'Show' },
-    ...[['all', 'All'], ['delivered', 'Delivered'], ['problems', 'Needs attention']].map(([f, l]) => h('button', { type: 'button', 'data-f': f, onclick: () => draw(f) }, l)));
-  draw('all');
-  return h('section', {}, h('div', { class: 'bar-head' }, h('h2', {}, 'Tasks'), chips), box);
+function auditCard(a) {
+  if (!a.audit) return h('section', { class: 'card' }, h('header', {}, h('h2', {}, 'Audit'), h('span', { class: 'pill honey end' }, a.status === 'Pending' ? 'running' : 'none')),
+    h('p', { class: 'muted' }, a.status === 'Pending' ? 'It usually takes a few minutes. This page shows the result when you come back.' : 'This runner keeps no audit for this registration.'));
+  return h('section', { class: 'card' },
+    h('header', {}, h('h2', {}, 'Audit'), h('span', { class: `pill end ${a.audit.allow ? 'ok' : 'bad'}` }, a.audit.allow ? 'admitted' : `denied: ${a.audit.category.replace(/_/g, ' ')}`)),
+    h('p', {}, a.audit.reason),
+    ...(a.audit.flags.length ? [h('p', { class: 'muted' }, 'What the scan noticed in your materials:'), ...a.audit.flags.map((f) => h('div', { class: 'note warn' }, h('b', {}, f.reason), f.excerpt ? h('pre', { class: 'brief' }, f.excerpt) : ''))] : []),
+    h('span', { class: 'faint' }, `Only you see the audit. Registration #${a.registration}.`));
 }
 
-// ---- a new expert: three steps in one form, then one wallet confirmation ----
+function topics(rounds) {
+  const picked = rounds.filter((r) => r.picked);
+  const by = new Map();
+  for (const r of picked) by.set(topicName(r.topic), (by.get(topicName(r.topic)) ?? 0) + 1);
+  const rows = [...by].sort((x, y) => y[1] - x[1]).slice(0, 6);
+  const max = Math.max(1, ...rows.map((r) => r[1]));
+  const costly = [...new Set(picked.filter((r) => kindOf(r) === 'cost').map((r) => topicName(r.topic)))];
+  return h('section', { class: 'card', 'aria-labelledby': 'topicsTitle' }, h('h2', { id: 'topicsTitle' }, 'What it is asked about'),
+    rows.length
+      ? h('div', { class: 'hbars', role: 'img', 'aria-label': rows.map(([t, n]) => `${t} ${n}`).join(', ') }, rows.map(([t, n]) => {
+          const fill = h('div', { class: 'fill' });
+          fill.style.width = `${(100 * n) / max}%`;
+          return h('div', { class: 'row' }, h('span', {}, t), h('div', { class: 'track' }, fill), h('span', {}, n));
+        }))
+      : h('p', { class: 'muted' }, 'No tasks yet. The swarm asks your expert when a task needs what it knows.'),
+    costly.length ? h('p', { class: 'faint' }, `Tasks on ${costly.join(', ')} hit the max spend: longer questions need more room.`) : '');
+}
+
+function tasks(rounds) {
+  const box = h('div', { class: 'scroll' });
+  const FILTERS = [['all', 'All', () => true], ['delivered', 'Delivered', (r) => r.picked && r.delivered], ['attention', 'Needs attention', (r) => r.picked && !r.delivered]];
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' });
+  const more = h('div', { class: 'more-rows' });
+  const PAGE = 15;
+  const draw = (key, limit = PAGE) => {
+    for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.f === key));
+    const test = FILTERS.find((f) => f[0] === key)[2];
+    const all = [...rounds].reverse().filter(test), shown = all.slice(0, limit);
+    more.replaceChildren(...(all.length > shown.length ? [h('button', { class: 'btn ghost small', type: 'button', onclick: () => draw(key, limit + PAGE) }, `Show ${Math.min(PAGE, all.length - shown.length)} more of ${all.length - shown.length}`)] : []));
+    box.replaceChildren(shown.length
+      ? h('table', { class: 'mid stack' },
+          h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'When'), h('th', { scope: 'col' }, 'Topic'), h('th', { scope: 'col' }, 'Result'), h('th', { scope: 'col', class: 'num' }, 'Cost'), h('th', { scope: 'col', class: 'num' }, 'Pay'))),
+          h('tbody', {}, shown.map((r) => {
+            const [tone, text, why] = result(r);
+            const paid = r.picked && r.delivered;
+            return h('tr', {},
+              h('td', { class: 'nowrap', title: r.at }, when(r.at)),
+              h('td', { class: 'nowrap muted' }, topicName(r.topic)),
+              h('td', { class: 'full' }, h('span', { class: `pill ${tone}` }, text), why && !paid ? h('div', { class: 'why' }, why) : ''),
+              h('td', { class: 'num', 'data-label': 'Cost' }, r.picked ? usd(r.cost ?? 0) : '–'),
+              h('td', { class: `num ${paid ? 'pay-ok' : 'muted'}`, 'data-label': 'Pay' }, paid ? `+${usd(r.pay)}` : '–'));
+          })))
+      : h('p', { class: 'muted empty' }, rounds.length ? 'Nothing here.' : 'No tasks yet. The swarm asks your expert when a task needs what it knows.'));
+  };
+  seg.append(...FILTERS.map(([key, text, test]) => h('button', { type: 'button', 'data-f': key, onclick: () => draw(key) }, text, h('span', { class: 'c' }, rounds.filter(test).length))));
+  draw('all');
+  return h('section', { class: 'card table-card', 'aria-labelledby': 'tasksTitle' },
+    h('header', {}, h('h2', { id: 'tasksTitle' }, 'Tasks'), h('div', { class: 'end' }, seg)),
+    h('p', { class: 'faint' }, 'You see how your expert did on each task, never what the customer asked.'),
+    box, more);
+}
+
+// ---- a new expert: four parts in one form, then one wallet confirmation ----
 const NAME = /^[a-z0-9-]{1,32}$/;
 function renderNew() {
   const [, , prefill] = location.hash.split('/');
   const old = prefill && data?.agents.find((a) => nameOf(a) === decodeURIComponent(prefill));
   let files = [];
-  const field = (id, label, control, hint) => h('div', { class: 'field' }, h('label', { for: id }, label), control, hint ? h('span', { class: 'hint' }, hint) : '');
-  const name = h('input', { id: 'name', value: old ? nameOf(old) : '', placeholder: 'solidity-auditor', autocomplete: 'off', spellcheck: 'false' });
-  const skills = h('textarea', { id: 'skills', maxlength: '500', placeholder: 'EVM smart contract audits: reentrancy, access control, oracle manipulation, upgrade safety' });
+  const field = (id, text, control, hint, tag) => h('div', { class: 'field' },
+    tag ? h('div', { class: 'head' }, h('label', { for: id }, text), tag) : h('label', { for: id }, text), control, hint ? h('span', { class: 'hint' }, hint) : '');
+  const vis = (kind) => h('span', { class: `pill vis ${kind === 'public' ? 'info' : 'honey'}` }, icon(kind === 'public' ? 'eye' : 'lock'), kind);
+  const stage = (n, title, tag, ...body) => h('section', { class: 'card', 'aria-labelledby': `s${n}` },
+    h('div', { class: 'stage-h' }, h('span', { class: 'n' }, n), h('h2', { id: `s${n}` }, title), tag ?? ''), ...body);
+
+  const name = h('input', { id: 'name', class: 'mono', value: old ? nameOf(old) : '', placeholder: 'solidity-auditor', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none' });
+  const idLine = h('span', { class: 'hint' });
+  const skills = h('textarea', { id: 'skills', maxlength: '500', rows: '2', placeholder: 'EVM smart contract audits: reentrancy, access control, oracle manipulation, upgrade safety' });
   skills.value = old?.skills ?? '';
   const prompt = h('textarea', { id: 'prompt', maxlength: '8000', class: 'tall', placeholder: 'You are a senior smart contract auditor. For each finding give severity, location, an exploit path and a fix. Say what you are unsure of.' });
   const rate = h('input', { id: 'rate', inputmode: 'decimal', value: old ? usd(old.rate) : '1.00' });
+  const spend = h('input', { id: 'spend', inputmode: 'decimal', value: old ? usd(old.max_cost) : '' });
   const model = h('select', { id: 'model' }, info.models.map((m) => h('option', { value: m.id }, m.id)));
-  const maxCost = h('input', { id: 'maxCost', inputmode: 'decimal', value: old ? usd(old.max_cost) : '' });
   const deposit = h('input', { id: 'deposit', inputmode: 'decimal' });
   const fileList = h('ul', { class: 'files' });
-  const picker = h('input', { id: 'files', type: 'file', multiple: true, accept: '.md,.txt,.csv,.json,text/plain,text/markdown', hidden: true });
-  const drop = h('div', { class: 'drop' }, h('span', { class: 'muted' }, 'Drop text files here (.md, .txt, .csv, .json), up to 10 MB in all. For each question your expert gets only the closest pieces.'),
-    h('label', { class: 'btn ghost small', for: 'files', tabindex: '0' }, 'Choose files'), picker, fileList);
-  const totals = h('div', { class: 'note' });
-  const steps = h('ol', { class: 'progress', hidden: true });
-  const create = h('button', { class: 'btn big', type: 'button' }, old ? 'Register again' : 'Create expert');
+  const picker = h('input', { id: 'files', type: 'file', multiple: true, accept: '.md,.txt,.csv,.json,text/plain,text/markdown', class: 'sr' });
+  const drop = h('div', { class: 'drop' }, icon('upload'), h('span', {}, 'Drop notes or documents here, or'),
+    h('label', { class: 'btn ghost small', for: 'files', tabindex: '0' }, 'Choose files'), picker,
+    h('span', { class: 'faint' }, '.md, .txt, .csv, .json, up to 10 MB in all. For each question your expert gets only the closest pieces.'));
+  const net = h('div', { class: 'netline' });
+  const pays = h('dl', { class: 'sum-list' });
+  const now = h('dl', { class: 'sum-list' });
+  const payNow = h('span', { class: 'num-big' });
+  const steps = h('ol', { class: 'progress' });
+  const create = h('button', { class: 'btn big block', type: 'button' }, old ? 'Register again' : 'Create expert');
   const need = h('span', { class: 'faint' });
+  const STEPS = [
+    ['Sealed in this browser', 'Prompt and files are encrypted here'],
+    ['Confirm in your wallet', 'One payment of the deposit'],
+    ['Sealed files uploaded', 'Only the secure hardware can open them'],
+    ['Audit inside the TEE', 'Usually a few minutes'],
+    ['Live', 'The swarm can ask your expert'],
+  ];
+  steps.replaceChildren(...STEPS.map(([b, s], i) => h('li', { 'data-n': i + 1 }, h('span', {}, h('b', {}, b), h('small', {}, s)))));
 
   const add = (list) => {
     for (const f of list) if (!files.some((g) => g.name === f.name)) files.push(f);
@@ -286,9 +395,9 @@ function renderNew() {
   };
   function drawFiles() {
     const size = files.reduce((s, f) => s + f.size, 0);
-    fileList.replaceChildren(...files.map((f) => h('li', {}, h('span', {}, f.name), h('span', { class: 'size' }, `${(f.size / 1024).toFixed(1)} KB`),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => ((files = files.filter((g) => g !== f)), drawFiles()) }, 'Remove'))),
-      ...(files.length ? [h('li', { class: 'faint' }, `${files.length} file${files.length > 1 ? 's' : ''}, ${(size / MB).toFixed(2)} MB of 10`)] : []));
+    fileList.replaceChildren(...files.map((f) => h('li', {}, icon('file'), h('span', { class: 'name' }, f.name), h('span', { class: 'size' }, `${(f.size / 1024).toFixed(1)} KB`),
+      h('button', { class: 'btn ghost small', type: 'button', 'aria-label': `Remove ${f.name}`, onclick: () => ((files = files.filter((g) => g !== f)), drawFiles()) }, 'Remove'))),
+      h('li', { class: 'total' }, files.length ? `${files.length} file${files.length > 1 ? 's' : ''}, ${(size / MB).toFixed(2)} MB of 10` : 'No files yet: your expert answers from the prompt alone.'));
     check();
   }
   picker.onchange = () => add(picker.files);
@@ -306,37 +415,52 @@ function renderNew() {
     return (BigInt(Math.ceil(bytes * p.in + info.limits.max_out * p.out)) + 9_999n) / 10_000n * 10_000n;
   };
   const amount = (input, fallback) => { try { return BigInt(units(input.value || fallback)); } catch { return null; } };
-  let auto = { maxCost: !old, deposit: true };
-  maxCost.oninput = () => (auto.maxCost = false);
+  const auto = { spend: !old, deposit: true };
+  spend.oninput = () => (auto.spend = false);
   deposit.oninput = () => (auto.deposit = false);
+  const sign = (v) => (v < 0n ? `−${usd(-v)}` : `+${usd(v)}`);
 
   function check() {
     const w = worst();
-    if (auto.maxCost && w !== null) maxCost.value = usd(w);
+    if (auto.spend && w !== null) spend.value = usd(w);
     const mb = Math.max(1, Math.ceil(files.reduce((s, f) => s + f.size, 0) / MB));
-    const [r, m] = [amount(rate, '0'), amount(maxCost, '0')];
+    const [r, m] = [amount(rate, '0'), amount(spend, '0')];
     const least = fee(mb) + BigInt(info.fees.min_deposit);
-    const suggested = least + (m ?? 0n) * 5n; // the fee and room for five tasks at once
-    if (auto.deposit) deposit.value = usd(suggested);
+    if (auto.deposit) deposit.value = usd(least + (m ?? 0n) * 5n); // the fee, the minimum and room for five tasks at once
     const d = amount(deposit, '0');
+    const nameOk = NAME.test(name.value);
+    name.setAttribute('aria-invalid', String(!!name.value && !nameOk));
     const problems = [];
-    if (!NAME.test(name.value)) problems.push('a name of a-z, 0-9 and -');
+    if (!nameOk) problems.push('a name of a-z, 0-9 and -');
     if (!skills.value.trim()) problems.push('what it knows');
     if (!prompt.value.trim()) problems.push('a prompt');
     if (files.reduce((s, f) => s + f.size, 0) > 10 * MB) problems.push('files under 10 MB');
     if (r === null) problems.push('a rate');
-    if (!m) problems.push('a max cost');
+    if (!m) problems.push('a max spend');
     if (d === null || d < least) problems.push(`a deposit of at least ${usd(least)}`);
+    idLine.replaceChildren('Its id: ', h('span', { class: 'mono' }, `${me}/${name.value || '<name>'}`), '. Customers can name it in a brief.');
+
     const low = w !== null && m !== null && m < w;
-    totals.className = `note ${low ? 'warn' : ''}`;
-    totals.replaceChildren(
-      h('b', {}, `You pay ${d === null ? '…' : usd(d)} USDC now: ${usd(fee(mb))} for the audit, the rest stays on your balance.`),
-      h('span', { class: 'muted' }, `Your expert will be ${me}/${name.value || '<name>'}. Each task holds up to ${m === null ? '…' : usd(m)} USDC of inference from your balance and pays you ${r === null ? '…' : usd(r)} USDC when your expert delivers.`),
-      ...(low ? [h('span', {}, `One call can cost up to ${usd(w)} USDC with this model: below that, the swarm will not pick your expert.`)] : []));
+    const left = r !== null && m !== null ? r - m : null;
+    const loss = left !== null && left <= 0n;
+    spend.classList.toggle('warn', low);
+    net.className = `netline${low || loss ? ' warn' : ''}${loss ? ' bad' : ''}`;
+    net.replaceChildren(h('b', {}, 'Each delivered task'),
+      h('span', { class: 'sum' }, `+${r === null ? '…' : usd(r)} rate − at most ${m === null ? '…' : usd(m)} model = `, h('b', {}, left === null ? '…' : `${sign(left)} USDC to you, at least`)),
+      h('span', { class: 'hint' }, low ? `One call with this model and prompt can cost up to ${usd(w)} USDC. Below that, the swarm will not pick your expert.`
+        : loss ? 'Your rate is below what the model may cost: raise the rate or pick a cheaper model.'
+        : 'A task your expert misses earns nothing; you pay only what its model used.'));
+
+    payNow.replaceChildren(`${d === null ? '…' : usd(d)} `, h('small', {}, 'USDC'));
+    now.replaceChildren(h('dt', {}, `Audit of your files, ${mb} MB`), h('dd', {}, usd(fee(mb))),
+      h('dt', {}, 'Stays on your balance, pays the model'), h('dd', {}, d === null ? '…' : usd(d > fee(mb) ? d - fee(mb) : 0n)));
+    pays.replaceChildren(h('dt', {}, 'Your rate'), h('dd', { class: 'ok' }, r === null ? '…' : `+${usd(r)}`),
+      h('dt', {}, 'Model, at most'), h('dd', {}, m === null ? '…' : `−${usd(m)}`),
+      h('dt', { class: 'total' }, 'To you, at least'), h('dd', {}, left === null ? '…' : sign(left)));
     create.disabled = problems.length > 0;
     need.textContent = problems.length ? `Needs ${problems.join(', ')}.` : 'One wallet confirmation.';
   }
-  for (const el of [name, skills, prompt, rate, model, maxCost, deposit]) el.addEventListener('input', check);
+  for (const el of [name, skills, prompt, rate, spend, model, deposit]) el.addEventListener('input', check);
   model.addEventListener('change', check);
 
   let at = 0; // the step in progress
@@ -347,18 +471,16 @@ function renderNew() {
   };
   create.onclick = async () => {
     busy(create, true);
-    steps.hidden = false;
-    steps.replaceChildren(...['Sealing in this browser', 'Confirm the payment in your wallet', 'Waiting for the chain, then uploading the sealed files', 'Audit inside the TEE'].map((t) => h('li', {}, t)));
     try {
       const id = `${me}/${name.value}`;
       step(0);
       const knowledge = await Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() })));
-      // The sponsor's prompt is the expert's method; what it knows is its expertise. Both are guidance inside our template.
+      // The builder's prompt is the expert's method; what it knows is its expertise. Both are guidance inside our template.
       const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, knowledge };
       const bytes = await seal(new TextEncoder().encode(JSON.stringify(materials)), info.sealKey, id); // bound to this expert
       const mb = Math.max(1, Math.ceil(bytes.length / MB));
       if (mb > 10) throw new Error('sealed, the files are over 10 MB');
-      const card = { name: name.value, skills: skills.value.trim(), rate: units(rate.value), max_cost: units(maxCost.value), hash: await sha256(bytes), size_mb: mb };
+      const card = { name: name.value, skills: skills.value.trim(), rate: units(rate.value), max_cost: units(spend.value), hash: await sha256(bytes), size_mb: mb };
       step(1);
       await pay(units(deposit.value), { Register: card });
       step(2);
@@ -382,23 +504,34 @@ function renderNew() {
   };
 
   $('view').replaceChildren(
-    h('section', { class: 'hero' }, h('h1', {}, old ? `Change ${name.value}` : 'New expert'),
-      h('p', { class: 'lead' }, old ? 'Register it again: new prompt, files or terms get a new audit. Its record stays.' : 'Three things: what it knows, how it answers, and your files. The swarm builds the agent around them; nobody but the TEE reads them.')),
-    h('section', { class: 'card' },
-      h('div', { class: 'two' },
-        field('name', 'Name', name, 'Lowercase letters, digits and dashes. Its id is your account and this name.'),
-        field('rate', 'Your rate per task, USDC', h('div', { class: 'with-unit' }, rate), 'What you earn each time your expert delivers its part.')),
-      field('skills', 'What it knows · public', skills, 'Customers and the swarm read this to decide when to ask your expert. Plain words, no instructions.'),
-      field('prompt', 'Prompt · sealed', prompt, 'Who your expert is and how it should answer. It goes into the swarm\'s template as guidance; it cannot change the swarm\'s rules.'),
-      h('div', { class: 'field' }, h('span', {}, h('b', {}, 'Files · sealed')), drop),
-      h('details', {}, h('summary', {}, 'Model, max cost and deposit'),
-        h('div', { class: 'two' },
-          field('model', 'Model', model, 'Prices come live from NEAR AI.'),
-          field('maxCost', 'Max cost per task, USDC', h('div', { class: 'with-unit' }, maxCost), 'Set from the worst case of one call; change it if you like.')),
-        field('deposit', 'Deposit now, USDC', h('div', { class: 'with-unit' }, deposit), 'The audit fee plus room for five tasks at once. Withdraw what you do not need any time.')),
-      totals,
-      h('div', { class: 'actions' }, create, need),
-      steps),
+    h('div', { class: 'page-head' }, h('div', {},
+      h('a', { class: 'link', href: '#/' }, '← Your experts'),
+      h('h1', {}, old ? `Change ${nameOf(old)}` : 'New expert'),
+      h('p', { class: 'lead' }, old ? 'Register it again: a new prompt, files or terms get a new audit. Its record stays.'
+        : 'Say what it knows, how it answers, add your files and set your price. Then confirm one payment. Only the secure hardware ever reads the sealed parts.'))),
+    h('div', { class: 'split' },
+      h('div', { class: 'main form' },
+        stage(1, 'Name', null, h('div', { class: 'field' }, h('label', { for: 'name' }, 'Expert name'), name, idLine)),
+        stage(2, 'What it knows and how it answers', null,
+          field('skills', 'What it knows', skills, 'Customers and the swarm read this to decide when to ask your expert. Plain words, no instructions.', vis('public')),
+          field('prompt', 'Prompt', prompt, 'Who your expert is and how it should answer. It is guidance inside the swarm\'s template: it cannot change the swarm\'s rules.', vis('sealed'))),
+        stage(3, 'Your files', vis('sealed'), drop, fileList),
+        stage(4, 'Your price', null,
+          h('div', { class: 'pair' },
+            field('rate', 'Your rate per task', h('div', { class: 'with-unit' }, rate), 'You earn it for each task your expert delivers. It is part of the customer\'s price: lower rates get picked more often.'),
+            field('spend', 'Max spend per task', h('div', { class: 'with-unit' }, spend), 'Your budget for one task: the most the model may cost. Paid from your balance; what is not used comes back.', h('span', { class: 'pill plain' }, 'set for you'))),
+          net),
+        h('details', { class: 'more' }, h('summary', {}, 'Model and deposit', h('span', { class: 'faint' }, 'set for you')),
+          h('div', { class: 'pair' },
+            field('model', 'Model', model, 'Prices come live from NEAR AI.'),
+            field('deposit', 'Deposit now, USDC', h('div', { class: 'with-unit' }, deposit), 'The audit fee, the minimum and room for five tasks at once. Withdraw what you do not need any time.')))),
+      h('aside', { class: 'side' },
+        h('section', { class: 'card raised', 'aria-labelledby': 'payTitle' },
+          h('div', { class: 'pay-now' }, h('h2', { id: 'payTitle' }, 'You pay now, once'), payNow), now,
+          h('hr', { class: 'soft' }),
+          h('span', { class: 'muted' }, 'Then, for each delivered task'), pays,
+          create, need),
+        h('section', { class: 'card', 'aria-labelledby': 'nextTitle' }, h('h2', { id: 'nextTitle' }, 'What happens next'), steps))),
   );
-  check();
+  drawFiles();
 }

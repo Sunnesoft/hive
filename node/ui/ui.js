@@ -14,6 +14,30 @@ export function h(tag, props = {}, ...children) {
   return el;
 }
 
+const SVG = 'http://www.w3.org/2000/svg';
+/** An SVG element: svg('rect', { x: 1, y: 2 }). */
+export const svg = (tag, attrs = {}, ...kids) => {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  el.append(...kids);
+  return el;
+};
+const PATHS = {
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  warn: 'M12 3l10 18H2z M12 10v5 M12 18v.5',
+  file: 'M6 3h8l4 4v14H6z M14 3v4h4',
+  upload: 'M12 16V4 M7 9l5-5 5 5 M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3',
+  lock: 'M8 11V8a4 4 0 0 1 8 0v3 M7 11h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z',
+  plus: 'M12 5v14 M5 12h14',
+  wallet: 'M5 6h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z M16 12.5h2 M3 9h13a2 2 0 0 0 2-2V6',
+};
+/** A stroke icon by name; `cls` picks its colour (see svg.icon in ui.css). */
+export const icon = (name, cls = '') => svg('svg', { viewBox: '0 0 24 24', class: `icon ${cls}`, 'aria-hidden': 'true' }, svg('path', { d: PATHS[name] }));
+/** The hexagon avatar with a letter. */
+export const hex = (letter, size = 26) => svg('svg', { class: 'hex', width: size, height: size, viewBox: '0 0 40 40', 'aria-hidden': 'true' },
+  svg('polygon', { points: '20,2 36,11 36,29 20,38 4,29 4,11' }), svg('text', { x: 20, y: 25.5, 'text-anchor': 'middle' }, letter.toUpperCase()));
+
 export const usd = (units) => (Number(units) / 1e6).toFixed(2);
 /** "12.5" -> "12500000": exact, no floating point. */
 export function units(s) {
@@ -53,37 +77,7 @@ export function ago(iso) {
   if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
-
-/** Buttons with data-copy="<id>" copy that element's text. */
-export function copyButtons(root = document) {
-  for (const b of root.querySelectorAll('[data-copy]')) {
-    b.addEventListener('click', async () => {
-      await navigator.clipboard.writeText($(b.dataset.copy).textContent);
-      b.textContent = 'Copied';
-      setTimeout(() => (b.textContent = 'Copy'), 1500);
-    });
-  }
-}
-
-const OUTCOMES = [['served', 'Served'], ['no_expert', 'No expert'], ['over_budget', 'Over budget'], ['refused', 'Refused']];
-/** Tasks by topic: a stacked bar and the counts. */
-export function demandTable(el, demand) {
-  const rows = Object.entries(demand).map(([topic, n]) => ({ topic, n, total: OUTCOMES.reduce((s, [k]) => s + (n[k] ?? 0), 0) })).sort((a, b) => b.total - a.total);
-  if (!rows.length) return el.replaceChildren(h('p', { class: 'muted' }, 'No tasks yet. Counts appear here as the swarm gets hired.'));
-  const max = Math.max(...rows.map((r) => r.total));
-  const bar = (r) => {
-    const b = h('div', { class: 'bar', role: 'img', 'aria-label': OUTCOMES.map(([k, l]) => `${l} ${r.n[k] ?? 0}`).join(', ') });
-    b.style.width = `${Math.max(12, (100 * r.total) / max)}%`;
-    for (const [k] of OUTCOMES) if (r.n[k]) { const s = h('span', { class: k }); s.style.flex = String(r.n[k]); b.append(s); }
-    return b;
-  };
-  el.replaceChildren(
-    h('div', { class: 'scroll' }, h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Topic'), h('th', {}, ''), ...OUTCOMES.map(([, l]) => h('th', { class: 'num' }, l)))),
-      h('tbody', {}, rows.map((r) => h('tr', {}, h('td', {}, r.topic.replace(/_/g, ' ')), h('td', {}, bar(r)), ...OUTCOMES.map(([k]) => h('td', { class: 'num' }, r.n[k] ?? 0))))))),
-    h('div', { class: 'legend' }, OUTCOMES.map(([k, l]) => h('span', {}, h('i', { class: `sw-${k}` }), l))),
-  );
-}
+export const when = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 // ---- prices, as the runner bids: the team's rates and the overhead, then the owner's fee, then the market's ----
 export function quote(rates, pricing, feeBps) {
@@ -93,55 +87,59 @@ export function quote(rates, pricing, feeBps) {
 }
 
 // ---- days and charts: SVG drawn from data, colours from the theme ----
-const SVG = 'http://www.w3.org/2000/svg';
-const s = (tag, attrs = {}, ...kids) => {
-  const el = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-  el.append(...kids);
-  return el;
-};
 /** The last `n` days as YYYY-MM-DD, oldest first. */
 export const lastDays = (n) => Array.from({ length: n }, (_, i) => new Date(Date.now() - (n - 1 - i) * 86_400_000).toISOString().slice(0, 10));
 const dayLabel = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 /**
  * Stacked bars per day. `series`: [{ key, label, cls }], `data`: { [day]: { [key]: number } }.
- * One scale, a faint grid, the max labelled, the first and last day under the axis; each bar says its numbers.
+ * One scale, a faint grid, the max labelled, the first and last day under the axis; each day says its numbers in a
+ * tooltip and, on hover, in `readout` (the last day until then). The legend carries each series' total.
  */
-export function dayBars(el, days, series, data, { format = (v) => String(v), unit = '' } = {}) {
-  const [W, H, L, B, T] = [640, 180, 44, 22, 10];
+export function dayBars(el, days, series, data, { format = (v) => String(v), readout = null } = {}) {
+  const W = innerWidth < 600 ? 360 : 640, [H, L, B, T] = [W < 600 ? 170 : 190, 40, 22, 10]; // narrow screens: fewer units, so the labels stay readable
   const totals = days.map((d) => series.reduce((sum, x) => sum + (data[d]?.[x.key] ?? 0), 0));
   const max = Math.max(...totals, 0);
-  const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': `${series.map((x) => x.label).join(', ')} per day` });
+  const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': `${series.map((x) => x.label).join(', ')} per day, last ${days.length} days` });
   const y = (v) => T + (H - T - B) * (1 - (max ? v / max : 0));
-  for (const v of max ? [0, max / 2, max] : [0]) {
-    svg.append(s('line', { x1: L, x2: W, y1: y(v), y2: y(v), class: 'grid' }));
-    svg.append(s('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'axis' }, format(v)));
+  for (const v of max ? [max / 2, max] : []) {
+    chart.append(svg('line', { x1: L, x2: W, y1: y(v), y2: y(v), class: 'grid' }), svg('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'axis' }, format(v)));
   }
+  chart.append(svg('line', { x1: L, x2: W, y1: y(0), y2: y(0), class: 'base' }), svg('text', { x: L - 6, y: y(0) + 4, 'text-anchor': 'end', class: 'axis' }, format(0)));
   const step = (W - L) / days.length;
-  days.forEach((d, i) => {
+  const say = (d) => {
+    if (!readout) return;
+    const parts = series.filter((x) => data[d]?.[x.key]).map((x) => `${format(data[d][x.key])} ${x.label.toLowerCase()}`);
+    readout.replaceChildren(`${dayLabel(d)} · `, h('b', {}, parts.length ? parts.join(', ') : 'nothing'));
+  };
+  const groups = days.map((d, i) => {
+    const tip = [dayLabel(d), ...series.map((x) => `${x.label}: ${format(data[d]?.[x.key] ?? 0)}`)].join('\n');
+    const g = svg('g', { class: 'day' }, svg('title', {}, tip), svg('rect', { x: L + i * step, y: T, width: step, height: H - T - B, rx: 3, class: 'hit' }));
     let base = 0;
-    const tip = [dayLabel(d), ...series.map((x) => `${x.label}: ${format(data[d]?.[x.key] ?? 0)}${unit}`)].join('\n');
-    const g = s('g', {}, s('title', {}, tip));
     for (const x of series) {
       const v = data[d]?.[x.key] ?? 0;
       if (!v) continue;
-      g.append(s('rect', { x: L + i * step + step * 0.18, width: step * 0.64, y: y(base + v), height: Math.max(1, y(base) - y(base + v)), rx: 2, class: `bar-${x.cls}` }));
+      const top = y(base + v), bottom = y(base);
+      g.append(svg('rect', { x: L + i * step + step * 0.16, width: step * 0.68, y: top, height: Math.max(1, bottom - top - (base ? 1.5 : 0)), rx: 2, class: `bar-${x.cls}` }));
       base += v;
     }
-    svg.append(g);
+    g.addEventListener('mouseenter', () => { for (const o of groups) o.classList.remove('on'); g.classList.add('on'); say(d); });
+    return g;
   });
-  svg.append(s('text', { x: L, y: H - 4, class: 'axis' }, dayLabel(days[0])), s('text', { x: W, y: H - 4, 'text-anchor': 'end', class: 'axis' }, dayLabel(days.at(-1))));
-  el.replaceChildren(svg, h('div', { class: 'legend' }, series.map((x) => h('span', {}, h('i', { class: `sw-${x.cls}` }), x.label))));
+  chart.append(...groups, svg('text', { x: L, y: H - 4, class: 'axis' }, dayLabel(days[0])), svg('text', { x: W, y: H - 4, 'text-anchor': 'end', class: 'axis' }, dayLabel(days.at(-1))));
+  chart.addEventListener('mouseleave', () => { for (const o of groups) o.classList.remove('on'); say(days.at(-1)); });
+  say(days.at(-1));
+  const sum = (key) => days.reduce((t, d) => t + (data[d]?.[key] ?? 0), 0);
+  el.replaceChildren(chart, h('ul', { class: 'legend', 'aria-label': 'Legend' }, series.map((x) => h('li', {}, h('i', { class: `sw-${x.cls}` }), x.label, h('b', {}, format(sum(x.key)))))));
 }
 
-/** What became of an agent's rounds, in five kinds a sponsor can act on. */
+/** What became of an agent's rounds, in five kinds a sponsor can act on; stacked in this order. */
 export const KINDS = [
   { key: 'paid', label: 'Delivered', cls: 'ok' },
   { key: 'nopay', label: 'Not delivered', cls: 'muted' },
-  { key: 'cost', label: 'Over max cost', cls: 'warn' },
-  { key: 'violation', label: 'Violation', cls: 'bad' },
+  { key: 'cost', label: 'Over max spend', cls: 'warn' },
   { key: 'ours', label: 'Failed on our side', cls: 'info' },
+  { key: 'violation', label: 'Violation', cls: 'bad' },
 ];
 export function kindOf(r) {
   if (!r.picked) return null;

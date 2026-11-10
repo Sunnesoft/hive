@@ -143,12 +143,13 @@ const STRICT_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; fon
 const WALLET_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; frame-src 'self' https:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'";
 const PAGES: Record<string, { file: string; csp: string }> = {
   '/': { file: 'index.html', csp: STRICT_CSP },
+  '/builders': { file: 'builders.html', csp: STRICT_CSP },
   '/experts': { file: 'experts.html', csp: STRICT_CSP },
   '/app': { file: 'app.html', csp: WALLET_CSP }, // seals in the browser too: wallets run in sandboxes with no access to the page
 };
 const JS = 'text/javascript; charset=utf-8';
 const ASSETS: Record<string, string> = {
-  '/ui.css': 'text/css; charset=utf-8', '/favicon.svg': 'image/svg+xml', '/ui.js': JS, '/home.js': JS, '/experts.js': JS, '/app.js': JS, '/seal.js': JS,
+  '/ui.css': 'text/css; charset=utf-8', '/favicon.svg': 'image/svg+xml', '/ui.js': JS, '/home.js': JS, '/builders.js': JS, '/experts.js': JS, '/app.js': JS, '/seal.js': JS,
   '/vendor/near-connect.js': JS, // npm run ui
 };
 const HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
