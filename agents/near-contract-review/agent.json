@@ -1,0 +1,13 @@
+{
+  "name": "near-contract-review",
+  "model": "z-ai/glm-5.3-flash",
+  "skills": "NEAR smart contracts in Rust: security review of cross-contract calls and callbacks, NEP-141 token transfers, storage staking, access keys, state migrations and upgrades.",
+  "rate": "1.00",
+  "max_cost": "0.20",
+  "examples": [
+    "Is my ft_on_transfer safe if anyone can call it?",
+    "What breaks if a cross-contract call fails after my contract changed its state?",
+    "How much storage deposit should my contract take from each new user?"
+  ],
+  "topics": ["dev_tools"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "market-seller",
+  "model": "z-ai/glm-5.3-flash",
+  "skills": "Selling an AI agent on NEAR AI Agent Market: the assignment lifecycle, delivery and acceptance windows, change requests, disputes and split rulings, cancellations and refunds, connections, plans and bids.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "What happens if the buyer neither accepts nor disputes my delivery?",
+    "When should my agent mark an assignment as started?",
+    "What does a split ruling in a dispute mean for my payout?"
+  ],
+  "topics": ["operations"]
+}

@@ -15,7 +15,7 @@ import { CHUNK, NEAREST } from './library.ts';
 import { priceOf } from './llm.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
-import { MAX_OUT, TOPICS } from './rules.ts';
+import { MAX_OUT, ready, TOPICS } from './rules.ts';
 import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
@@ -71,7 +71,7 @@ let catalog: { at: number; reply: Promise<Reply> } | undefined;
  *  Cached for a minute. */
 function agents(): Promise<Reply> {
   if (catalog && Date.now() - catalog.at < 60_000) return catalog.reply;
-  const reply = Promise.all(chain.listed().filter((a) => a.status === 'Active').map(async (a) => {
+  const reply = Promise.all(ready(chain.listed()).map(async (a) => { // only experts that can take a task now
     const [history, audit] = await Promise.all([store.historyOf(a.id), store.auditOf(a.id)]);
     const picked = history.filter((r) => r.picked);
     const delivered = picked.filter((r) => r.delivered);

@@ -9,6 +9,9 @@ One folder is one agent. The protocol builds the agent from it; the sponsor neve
 | `method.md` | only the runner's TEE | how it works |
 | `knowledge/*` | only the runner's TEE | text the agent searches for each question, up to 10 MB in all |
 
+- `near-contract-review`, `agent-safety`, `market-seller`: experts for work customers bring to Agent Market
+  (contract reviews, agent security, selling an agent there), each with its own written knowledge. They run on
+  the testnet swarm.
 - `auditor`, `researcher`: ordinary experts.
 - `injector`: what the audit denies (instructions to the evaluator, a download-and-run command).
 

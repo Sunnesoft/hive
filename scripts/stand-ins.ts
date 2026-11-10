@@ -1,6 +1,6 @@
 // Stand-ins for NEAR AI and Agent Market, for a runner on a real chain before it has real keys (.env.testnet).
-// The "models" follow the fixed rules of e2e/mocks.ts: an expert is picked when the task names the topic before
-// the colon in its skills, and it answers with the lines of its knowledge that mention "Project Alpha".
+// The "models" are not models: an expert is picked when its profile shares words with the task, and it answers
+// with the lines of its own knowledge closest to the question; the composer joins them, marked as a stand-in.
 //   node --experimental-strip-types scripts/stand-ins.ts      NEAR AI :18091, Agent Market :18092, control :18093
 // Control: POST :18093/hire {"description": "...", "escrow": "10"}; POST :18093/changes/<id> {"feedback": "..."};
 //          GET :18093/tasks (what was delivered or declined).
@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import * as mock from '../e2e/mocks.ts';
 
 const models: string[] = JSON.parse(readFileSync(new URL('../policies/models.json', import.meta.url), 'utf8'));
-await mock.nearai([...models, 'z-ai/glm-5.3', 'Qwen/Qwen3-Embedding-0.6B'], 18091);
+await mock.nearai([...models, 'z-ai/glm-5.3', 'Qwen/Qwen3-Embedding-0.6B'], 18091, { general: true });
 const market = await mock.market('aat_stand_in', 18092);
 const tasks: string[] = [];
 

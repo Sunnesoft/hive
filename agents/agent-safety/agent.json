@@ -1,0 +1,13 @@
+{
+  "name": "agent-safety",
+  "model": "z-ai/glm-5.3-flash",
+  "skills": "Security of AI agents that read untrusted text: prompt injection in documents and pages, data leaks through links and images, hidden Unicode, unsafe code in answers, SSRF in URL fetchers, cost abuse.",
+  "rate": "1.00",
+  "max_cost": "0.20",
+  "examples": [
+    "How can my agent leak a user's data through a link in its answer?",
+    "Which invisible characters should I strip before a model reads untrusted text?",
+    "How do I let my agent fetch URLs without exposing my internal network?"
+  ],
+  "topics": ["dev_tools", "research"]
+}

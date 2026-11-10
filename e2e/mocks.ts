@@ -26,8 +26,15 @@ const bag = (text: string) => {
   return v;
 };
 
-/** NEAR AI: prices, embeddings and a chat endpoint that answers by which policy it was given. */
-export async function nearai(models: string[], port = 0) {
+// For the testnet stand-ins (general: true): words a text shares with another, so a stand-in "model" can pick experts
+// by their profile and answer with the lines of knowledge closest to the question. Not a model: an honest excerpt.
+const STOP = new Set('about after also because been before being could does each from have here into just know like make many more most much need only other over please same should some such tell than that their them then there these they this those very want what when where which while will with would your'.split(' '));
+const stems = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}_]{4,}/gu) ?? []).filter((w) => !STOP.has(w)).map((w) => w.slice(0, 5)));
+const shared = (a: Set<string>, b: Set<string>) => [...a].filter((w) => b.has(w)).length;
+
+/** NEAR AI: prices, embeddings and a chat endpoint that answers by which policy it was given. With `general`, the
+ *  router, checker, composer and agents work on any task (testnet stand-ins); without it, the fixed e2e rules. */
+export async function nearai(models: string[], port = 0, { general = false } = {}) {
   const agentCalls: string[] = []; // everything each agent call saw: agents must stay isolated
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
@@ -59,6 +66,26 @@ export async function nearai(models: string[], port = 0) {
       return reply({ allow, category: allow ? 'ok' : 'instructions_to_ai', reason: allow ? 'mock audit: fine' : 'mock audit: it talks to the AI' });
     }
     if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware', topic: 'research' });
+    if (is('You put together a team') && general) {
+      // An expert whose profile shares at least two words with the task, the closest first; asked the task itself.
+      const { task, agents } = data() as { task: string; agents: { id: number; skills: string; examples?: string[]; requested?: boolean }[] };
+      const want = stems(task);
+      const scored = agents.map((a) => ({ a, n: shared(want, stems(`${a.skills} ${(a.examples ?? []).join(' ')}`)) + (a.requested ? 2 : 0) }));
+      const top = Math.max(0, ...scored.map((s) => s.n));
+      const picks = scored.filter((s) => s.n >= 3 && 2 * s.n >= top).sort((x, y) => y.n - x.n).slice(0, 3).map((s) => ({ id: s.a.id, question: task.replace(/^#.*\n+/, '').slice(0, 1_500) }));
+      return reply({ picks, search: [] });
+    }
+    if (is('You check one contribution') && general) {
+      const { answer } = data() as { answer: string };
+      // Only an answer that speaks to the checker breaks the rules; an answer about evaluators does not.
+      const violation = /\b(dear|hello|hi|hey)\s+evaluator\b|full marks|mark (this|it) (as )?delivered/i.test(answer);
+      return reply({ delivered: answer.trim().length > 40 && !violation, violation, why: violation ? 'addressed_others' : answer.trim().length > 40 ? 'answered' : 'empty', reason: 'stand-in check' });
+    }
+    if (is('You write the final answer') && general) {
+      const { previous, contributions } = data() as { previous: string; contributions: { id: number; text: string }[] };
+      const parts = contributions.map((c) => `${c.text} [[${c.id}]]`).join('\n\n');
+      return reply({ answer: `${previous ? '_Revised after your note._\n\n' : ''}${parts}\n\n_Stand-in answer: excerpts from the experts' knowledge closest to your question. With a NEAR AI key the experts' models answer._` });
+    }
     if (is('You put together a team')) {
       // An agent is picked when the task names the topic of its skills ("<topic>: <what>"), in the order of the list.
       const { task, agents } = data() as { task: string; agents: { id: number; skills: string; requested?: boolean }[] };
@@ -85,9 +112,15 @@ export async function nearai(models: string[], port = 0) {
     if (is('You review code blocks')) return reply({ dangerous: [] }); // the static check must catch the curl | sh itself
     if (is("You check a customer's request")) return reply({ in_scope: !/new|marketing/i.test(data().feedback), reason: 'mock scope' });
 
-    // An agent: answers with the lines of its knowledge that mention Project Alpha.
+    // An agent: answers with the lines of its knowledge that mention Project Alpha (general: the closest lines).
     agentCalls.push(`${system}\n${user}`);
     const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
+    if (general) {
+      const asked = stems(user);
+      const lines = knowledge.split(/\n+/).map((l, i) => ({ l: l.trim(), i, n: shared(asked, stems(l)) })).filter((x) => x.n >= 2 && x.l.length > 20);
+      const best = lines.sort((x, y) => y.n - x.n).slice(0, 6).sort((x, y) => x.i - y.i).map((x) => x.l);
+      return reply(best.join('\n'));
+    }
     return reply(knowledge.split(/\n+/).filter((l) => l.includes('Project Alpha')).join(' '));
   }, port);
   return { ...server, agentCalls, composed, routed };
