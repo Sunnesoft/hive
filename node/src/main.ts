@@ -8,7 +8,7 @@ import { cfg, log, policyHash } from './config.ts';
 import { refreshPrices } from './llm.ts';
 import * as market from './market.ts';
 import { bid, serve } from './round.ts';
-import { listen } from './server.ts';
+import { listen, setState } from './server.ts';
 import { bootKeys, waitForKey } from './tee.ts';
 
 /** Runs `f` on every item; one item's failure is logged and does not stop the others. */
@@ -20,6 +20,7 @@ let paused = false;
 async function tick() {
   const [agents, { fee_bps, runner }] = await Promise.all([chain.agents(), chain.config()]);
   if (paused !== (runner !== cfg.RUNNER_ACCOUNT)) log((paused = !paused) ? 'paused' : 'resumed', { runner });
+  setState(paused ? 'paused' : 'ready');
   if (paused) return; // the owner stopped us: no audits, no rounds, nothing that costs money
   await refreshPrices();
   await each(agents.filter((a) => a.status === 'Pending'), admit);
@@ -33,7 +34,9 @@ useSeal(keys.seal);
 chain.useKey(keys.key);
 const server = await listen(keys.attestation);
 log('attest', { url: `http://0.0.0.0:${(server.address() as { port: number }).port}/attestation`, ...keys.attestation });
+setState('waiting_for_key');
 await waitForKey(keys.key.getPublicKey().toString()); // powerless until the owner has checked the attestation
+setState('ready');
 log('ready', { runner: cfg.RUNNER_ACCOUNT, contract: cfg.CONTRACT, sealKey: keys.attestation.sealKey, policies: policyHash });
 for (;;) {
   await tick().catch((e) => log('error', { error: String(e) }));

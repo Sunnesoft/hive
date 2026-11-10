@@ -1,8 +1,7 @@
 // The runner's public face. GET /attestation: what anyone checks before trusting it (scripts/verify.ts).
 // GET /info: what the pages need. POST /upload/<account>: sealed materials of a registered agent.
 // POST /cabinet: a sponsor's own agent, after signing in with a wallet. GET /demand: tasks by topic.
-// GET /: the sealing page, which sees plaintext materials, so it runs nothing but our code and talks only to us.
-// GET /cabinet.html: the wallet page, which never sees materials, so wallets may run there in their sandboxes.
+// Pages (node/ui): / the overview, /join where materials are sealed in the browser, /cabinet with the wallet.
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -11,6 +10,11 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as chain from './chain.ts';
 import { allowedModels, cfg, log } from './config.ts';
+import { CHUNK, NEAREST } from './library.ts';
+import { priceOf } from './llm.ts';
+import { policy } from './policies.ts';
+import { MAX_OUT } from './rules.ts';
+import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
 
@@ -19,7 +23,7 @@ const UPLOADS = 8; // at a time, one per account: each is streamed to disk, so m
 const ACCOUNT = /^(?=.{2,64}$)([a-z\d]+[-_])*[a-z\d]+(\.([a-z\d]+[-_])*[a-z\d]+)*$/;
 const ui = (file: string) => readFile(new URL(`../ui/${file}`, import.meta.url));
 
-type Reply = [status: number, body: unknown, type?: string, csp?: string];
+type Reply = [status: number, body: unknown, type?: string, csp?: string, cache?: boolean];
 
 const uploading = new Set<string>();
 
@@ -64,8 +68,13 @@ function info(sealKey: string): Promise<Reply> {
   if (cached && Date.now() - cached.at < 60_000) return cached.reply;
   const network = cfg.CONTRACT.endsWith('.near') ? 'mainnet' : cfg.CONTRACT.endsWith('.testnet') ? 'testnet' : 'local';
   const reply = Promise.all([chain.token(), chain.config()]).then(([token, c]): Reply => {
-    const fees = { audit_base: c.audit_base, audit_per_mb: c.audit_per_mb, min_deposit: c.min_deposit };
-    return [200, { contract: cfg.CONTRACT, token, network, sealKey, models: allowedModels, fees }];
+    const fees = { audit_base: c.audit_base, audit_per_mb: c.audit_per_mb, min_deposit: c.min_deposit, fee_bps: c.fee_bps };
+    const models = allowedModels.map((id) => ({ id, ...priceOf(id) })); // USD per 1M tokens, live from NEAR AI
+    // What the runner adds around an expert's own text, for the page to show the worst cost of one call.
+    const limits = { template_bytes: Buffer.byteLength(policy.agent), knowledge_bytes: NEAREST * CHUNK, public_bytes: WORST_PUBLIC, max_out: MAX_OUT };
+    const agents = chain.listed();
+    const stats = { active: agents.filter((a) => a.status === 'Active').length, pending: agents.filter((a) => a.status === 'Pending').length };
+    return [200, { contract: cfg.CONTRACT, token, network, sealKey, models, fees, limits, stats }];
   });
   cached = { at: Date.now(), reply };
   reply.catch(() => (cached = undefined));
@@ -90,27 +99,46 @@ async function route(req: IncomingMessage, attestation: { sealKey: string }): Pr
   if (req.method === 'POST' && up) return upload(up[1]!, req);
   if (req.method === 'POST' && path === '/cabinet') return cabinet(req);
   if (req.method !== 'GET') return [405, { error: 'method not allowed' }];
+  if (path === '/health') return [200, { ok: true, state }];
   if (path === '/attestation') return [200, attestation];
   if (path === '/info') return info(attestation.sealKey);
   if (path === '/demand') return [200, await store.demandNow()];
-  if (path === '/') return [200, await ui('index.html'), 'text/html; charset=utf-8'];
-  if (path === '/cabinet.html') return [200, await ui('cabinet.html'), 'text/html; charset=utf-8', WALLET_CSP];
-  if (['/app.js', '/seal.js', '/cabinet.js'].includes(path)) return [200, await ui(path.slice(1)), 'text/javascript; charset=utf-8'];
-  if (path === '/vendor/near-connect.js') return [200, await ui('vendor/near-connect.js'), 'text/javascript; charset=utf-8']; // npm run ui
+  const page = PAGES[path];
+  if (page) return [200, await ui(page.file), 'text/html; charset=utf-8', page.csp];
+  if (ASSETS[path]) return [200, await ui(path.slice(1)), ASSETS[path], STRICT_CSP, true];
+  const font = /^\/fonts\/(ibm-plex-(sans|mono)-(latin|cyrillic)-[456]00-normal\.woff2)$/.exec(path);
+  if (font) return [200, await readFile(new URL(`../../node_modules/@fontsource/ibm-plex-${font[2]}/files/${font[1]}`, import.meta.url)), 'font/woff2', STRICT_CSP, true];
   return [404, { error: 'not found' }];
 }
 
-const STRICT_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'";
-// Wallets run in sandboxed iframes, their code fetched from their own hosts; they talk to NEAR RPC and open their apps.
-const WALLET_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; frame-src 'self' https:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
-const HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
+// The overview and the join page run nothing but our files and talk to nothing but the runner: the join page sees materials.
+const STRICT_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'";
+// The cabinet never sees materials. Wallets run there in sandboxed iframes, their code fetched from their own hosts.
+const WALLET_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; frame-src 'self' https:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'";
+const PAGES: Record<string, { file: string; csp: string }> = {
+  '/': { file: 'index.html', csp: STRICT_CSP },
+  '/join': { file: 'join.html', csp: STRICT_CSP },
+  '/cabinet': { file: 'cabinet.html', csp: WALLET_CSP },
+  '/cabinet.html': { file: 'cabinet.html', csp: WALLET_CSP },
+};
+const JS = 'text/javascript; charset=utf-8';
+const ASSETS: Record<string, string> = {
+  '/ui.css': 'text/css; charset=utf-8', '/favicon.svg': 'image/svg+xml', '/ui.js': JS, '/home.js': JS, '/join.js': JS, '/seal.js': JS, '/cabinet.js': JS,
+  '/vendor/near-connect.js': JS, // npm run ui
+};
+const HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
+
+/** What the runner is doing, for GET /health and the container's health check. */
+let state: 'starting' | 'waiting_for_key' | 'ready' | 'paused' = 'starting';
+export const setState = (s: typeof state) => (state = s);
 
 export function listen(attestation: { sealKey: string }) {
   const server = createServer((req, res) => {
     route(req, attestation)
       .catch((e): Reply => (log('http_error', { path: req.url, error: String(e) }), [500, { error: 'internal error' }]))
-      .then(([status, body, type = 'application/json', csp = STRICT_CSP]) => {
-        res.writeHead(status, { ...HEADERS, 'content-security-policy': csp, 'content-type': type, ...(status >= 400 ? { connection: 'close' } : {}) });
+      .then(([status, body, type = 'application/json', csp = STRICT_CSP, cache = false]) => {
+        const caching = { 'cache-control': cache ? 'public, max-age=300' : 'no-store' };
+        res.writeHead(status, { ...HEADERS, ...caching, 'content-security-policy': csp, 'content-type': type, ...(status >= 400 ? { connection: 'close' } : {}) });
         res.end(Buffer.isBuffer(body) ? body : JSON.stringify(body));
       });
   });

@@ -55,12 +55,14 @@
 | Запрос | Ответ |
 |---|---|
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
-| `GET /info` | `{contract, token, network, sealKey, models, fees: {audit_base, audit_per_mb, min_deposit}}` |
+| `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI |
 | `POST /upload/<account>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
 | `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, agent, audit, rounds}`; `401` подпись не подходит или старше 10 минут |
 | `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |
-| `GET /` | страница шифрования (`/app.js`, `/seal.js`): только наш код, связь только с раннером |
-| `GET /cabinet.html` | кабинет с кошельком (`/cabinet.js`, `/vendor/near-connect.js`, собран `npm run ui`) |
+| `GET /` | обзор: что за раннер, сколько экспертов, спрос по темам |
+| `GET /join` | вступление: материалы шифруются в браузере. На обзоре и здесь только наш код и связь только с раннером |
+| `GET /cabinet` | кабинет с кошельком (NEAR Connect, `npm run ui`); материалов не видит |
+| `GET /health` | `{ok, state}`: `starting`, `waiting_for_key`, `ready`, `paused` |
 
 `rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`.
 `audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}]}` для текущей регистрации.

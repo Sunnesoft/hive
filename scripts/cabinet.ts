@@ -1,5 +1,5 @@
 // The sponsor's cabinet from the command line, signed with the account's key from ~/.near-credentials
-// (near-cli-rs `save-to-legacy-keychain`), exactly as a wallet signs it on /cabinet.html. Usage:
+// (near-cli-rs `save-to-legacy-keychain`), exactly as a wallet signs it on /cabinet. Usage:
 //   node --experimental-strip-types scripts/cabinet.ts <account> <runner url> [testnet|mainnet]
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';

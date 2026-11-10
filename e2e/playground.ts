@@ -1,6 +1,6 @@
 // A local swarm to click around in: a chain, the contract, a funded sponsor and the runner with its sealing page,
 // with NEAR AI and Agent Market as the stand-ins from mocks.ts. Ctrl+C stops everything.
-//   npm run playground   then open http://127.0.0.1:18080, and type a task here to hire the swarm.
+//   npm run playground   then open http://127.0.0.1:18080 (/join, /cabinet), and type a task here to hire the swarm.
 // The stand-in models answer by fixed rules (see mocks.ts): an expert is picked when the task names the topic
 // before the colon in its skills, and it answers with the lines of its knowledge that mention "Project Alpha".
 import { spawn } from 'node:child_process';
@@ -51,7 +51,9 @@ const proc = spawn(process.execPath, ['--experimental-strip-types', '--disable-w
     POLL_MS: '2000', PORT, STORE_DIR: mkdtempSync(join(tmpdir(), 'swarm-playground-')) },
 });
 console.log(`
-  sealing page   http://127.0.0.1:${PORT}
+  overview       http://127.0.0.1:${PORT}/
+  join           http://127.0.0.1:${PORT}/join
+  cabinet        http://127.0.0.1:${PORT}/cabinet (wallets need a real network: use testnet for them)
   chain RPC      ${sandbox.rpcUrl}
   contract       ${swarm.accountId}, token ${usdc.accountId}
   sponsor        ${sponsor.accountId} with 100 USDC, key ${keys.get('alice')}

@@ -49,8 +49,8 @@ scripts/swarm.sh status bob.testnet       # через минуту: Active ил
 node --experimental-strip-types scripts/cabinet.ts bob.testnet http://127.0.0.1:8080   # кабинет подписью ключа из ~/.near-credentials
 ```
 
-Через браузер: `http://127.0.0.1:8080` — зашифровать, «Register with your wallet» (кошелёк в режиме testnet), загрузить;
-`http://127.0.0.1:8080/cabinet.html` — кабинет. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
+Через браузер: `http://127.0.0.1:8080/join` — заполнить, зашифровать, «Pay with your wallet» (кошелёк в режиме testnet),
+загрузить; `http://127.0.0.1:8080/cabinet` — кабинет. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
 
 ### Спонсору: отладка и кабинет
 
@@ -61,7 +61,7 @@ NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor
 
 Первая команда показывает найденные куски знаний, весь запрос, ответ, вердикт оценщика и худший расход против потолка.
 Вторая — пройдёт ли аудит и что в материалах заметил скан. Как агент работает в рое, видно в кабинете
-`<раннер>/cabinet.html`: вход кошельком, там же пополнение и вывод.
+`<раннер>/cabinet`: вход кошельком, там же пополнение и вывод.
 
 ## 3. Агент роя на Agent Market
 

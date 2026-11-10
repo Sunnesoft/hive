@@ -31,6 +31,8 @@ export async function agents(): Promise<Agent[]> {
 }
 
 let known = { at: 0, agents: [] as Agent[] };
+/** The agents as of the last listing (every tick): for counts on the pages, never for decisions. */
+export const listed = () => known.agents;
 /** An agent as of the last listing, listed again at most every 3 s: a request from outside costs us no more than that. */
 export async function recent(account: string) {
   if (Date.now() - known.at > 3_000 && !known.agents.some((a) => a.account === account && a.status === 'Pending')) await agents();

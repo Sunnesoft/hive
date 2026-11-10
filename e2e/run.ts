@@ -132,6 +132,10 @@ try {
 
   // --- sponsors: seal in place to the key from /info, register with a deposit, upload ---
   const info = await get('/info');
+  const csp = async (path: string) => (await fetch(`${url}${path}`)).headers.get('content-security-policy') ?? '';
+  check('pages: the overview and the join page run only our code and talk only to the runner', [await csp('/'), await csp('/join')].every((c) => /script-src 'self';/.test(c) && /connect-src 'self';/.test(c)));
+  check('pages: only the cabinet lets wallets in', /frame-src 'self' https:/.test(await csp('/cabinet')) && (await fetch(`${url}/vendor/near-connect.js`)).ok);
+  check('health: the runner says what it is doing', (await get('/health')).state === 'ready');
   check('info: the contract, its token, the models and the fees', info.contract === swarm.accountId && info.token === usdc.accountId && info.models.length === models.length && info.fees.audit_per_mb === `${U / 10n}`, info);
   const SECRET = { date: '2027-03-14', code: 'BLUE-HERON' }; // each known to one sponsor only
   const materials = (name: string, knowledge: string) =>

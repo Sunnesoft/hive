@@ -23,7 +23,7 @@ type Decision = {
 type Member = { agent: Agent; expert: Expert };
 const SHORTLIST = 20; // agents the router sees at once
 const MAX_TASK = 20_000; // characters of brief and messages the protocol reads
-const WORST_PUBLIC = PAGES * (PAGE_CHARS + 100) + llm.MAX_QUESTION; // the most of a prompt that is not the agent's own
+export const WORST_PUBLIC = PAGES * (PAGE_CHARS + 100) + llm.MAX_QUESTION; // the most of a prompt that is not the agent's own
 const TRIES = 5; // rounds that fail on our side, tried again after 1, 2, 4, 8 minutes, then given up
 
 /** Agents that may work now: active, funded, admitted in this runner's memory, and whose cap covers a worst-case answer. */
