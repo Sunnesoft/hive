@@ -1,0 +1,7 @@
+{
+  "name": "researcher",
+  "model": "z-ai/glm-5.3-flash",
+  "skills": "Research with public sources: facts, numbers and recent events, each claim with its source.",
+  "rate": "0.50",
+  "max_cost": "0.10"
+}

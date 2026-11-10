@@ -1,41 +1,43 @@
-//! Swarm-for-Hire ledger: holds one token (USDC) and enforces the money rules, nothing else.
+//! Swarm-for-Hire ledger. It keeps USDC and nothing else, and moves it only by these rules:
 //!
-//! - Every account has one balance. A sponsor's balance is its agent's budget.
-//! - A job holds each agent's `max_cost`. On finish the operator gets the actual inference cost
-//!   and the rest goes back to the agent, or to the owner if the agent broke the rules.
-//! - Customer revenue for a finished job is split by the judge's weights, minus the owner's fee.
-//! - A stuck job can be closed by anyone after a timeout; every balance can be withdrawn.
+//! - A sponsor registers an agent: a public card and a deposit. The audit fee goes to the operator.
+//! - For a job the runner holds each chosen agent's cost cap and fixes its rate from the card.
+//! - At the end the runner reports each agent's inference cost and whether it delivered.
+//!   The cost goes to the operator, the rest of the hold back to the agent.
+//! - Customer revenue pays the owner's fee, then each agent that delivered exactly its rate,
+//!   then the operator the rest. Nobody gains from another agent failing.
+//! - A stuck job can be closed by anyone after a timeout. Every balance can be withdrawn.
 //!
-//! - An agent's manifest is sealed to the runner's TEE key: it is stored here, but only the runner reads it.
-//!
-//! Judging, disputes and the customer escrow live off-chain: the attested runner and Agent Market.
+//! What the agents know is not here: it is sealed and kept by the runner in a TEE.
 #[cfg(test)]
 mod tests;
 
-use near_sdk::json_types::{Base64VecU8, U128};
+use near_sdk::json_types::U128;
 use near_sdk::serde_json::{self, json, Value};
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, ext_contract, is_promise_success, near, require};
 use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise};
 
-const MAX_SLOTS: usize = 8;
+const MAX_TEAM: usize = 32; // agents in one job: bounds the gas of finish and revenue
+const MAX_SKILLS: usize = 500; // bytes of the public card text
+const MAX_SIZE_MB: u32 = 10; // sealed materials a sponsor may upload
 const MAX_FEE_BPS: u16 = 2_000;
 const MAX_SECS: u64 = 90 * 86_400;
-const MAX_MANIFEST: usize = 16_384; // bytes of a sealed manifest; the contract pays for its storage
+const COST_STEP: u128 = 10_000; // 0.01 USDC: coarse costs carry almost no hidden bits
 const GAS: Gas = Gas::from_tgas(10);
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Config {
-    pub owner: AccountId,    // DAO / multisig: sets config, receives fees and forfeits
-    pub runner: AccountId,   // attested TEE key: reviews agents, opens and settles jobs
-    pub operator: AccountId, // pays NEAR AI and forwards Agent Market payouts; reimbursed for inference
-    pub fee_bps: u16,        // owner's cut of revenue
-    pub review_fee: U128,    // to the operator on every registration: a review costs inference
-    pub min_deposit: U128,   // the least a registration brings
-    pub run_secs: u64,       // an unfinished job may be closed by anyone after this; holds return
-    pub pay_secs: u64,       // a finished job waits this long for revenue, then may be closed
-    pub seal_key: String,    // the runner's X25519 public key (hex) that sponsors seal manifests to
+    pub owner: AccountId,    // sets config, receives the fee and forfeits
+    pub runner: AccountId,   // the attested TEE: reviews agents, opens and settles jobs
+    pub operator: AccountId, // pays NEAR AI, forwards Agent Market payouts, keeps what agents are not owed
+    pub fee_bps: u16,        // owner's share of revenue
+    pub audit_base: U128,    // audit fee per registration
+    pub audit_per_mb: U128,  // plus this per declared megabyte of materials
+    pub min_deposit: U128,   // the least an agent keeps after the audit fee
+    pub run_secs: u64,       // an unfinished job may be closed after this; holds go back
+    pub pay_secs: u64,       // a finished job waits this long for revenue
 }
 
 #[near(serializers = [borsh, json])]
@@ -46,12 +48,15 @@ pub enum Status {
     Suspended,
 }
 
-/// One agent per sponsor account. Its budget is the sponsor's balance; its manifest is in `manifests`.
+/// An agent's public card. One agent per sponsor account; its budget is the sponsor's balance.
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Agent {
-    pub hash: String,   // sha256 hex of the sealed manifest: pins what was reviewed
-    pub max_cost: U128, // the most one job may take
+    pub skills: String, // what it knows, in plain text: the router reads it
+    pub rate: U128,     // what it asks for taking part in a job
+    pub max_cost: U128, // the most inference one job may take from its balance
+    pub hash: String,   // sha256 of the sealed materials the runner audited
+    pub size_mb: u32,   // their declared size: paid for in the audit fee, checked by the runner
     pub status: Status,
 }
 
@@ -59,29 +64,29 @@ pub struct Agent {
 #[derive(Clone)]
 pub struct Slot {
     pub agent: AccountId,
-    pub hold: U128,  // reserved at assign, settled at finish
-    pub weight: u32, // share of revenue, set at finish
+    pub hold: U128, // cost cap reserved at assign, settled at finish
+    pub pay: U128,  // its rate fixed at assign; 0 once it did not deliver
 }
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Job {
-    pub at: u64, // seconds: assign time, then finish time
+    pub at: u64, // seconds: assigned, then finished
     pub done: bool,
     pub slots: Vec<Slot>,
 }
 
 #[near(serializers = [json])]
 pub struct Outcome {
-    pub cost: U128, // actual inference spend, reimbursed to the operator
-    pub weight: u32,
-    pub violation: bool, // the rest of the hold is forfeited and the agent suspended
+    pub cost: U128,      // inference spent, on the 0.01 USDC step
+    pub delivered: bool, // did its part: keeps its pay
+    pub violation: bool, // broke the rules: the rest of the hold is forfeited, the agent suspended
 }
 
 /// `msg` of `ft_transfer_call`.
 #[near(serializers = [json])]
 pub enum Msg {
-    Register { manifest: Base64VecU8, max_cost: U128 }, // the manifest sealed to `seal_key`
+    Register { skills: String, rate: U128, max_cost: U128, hash: String, size_mb: u32 },
     TopUp { agent: AccountId },
     Revenue { job: String },
 }
@@ -89,9 +94,8 @@ pub enum Msg {
 #[near(serializers = [json])]
 pub struct AgentView {
     pub account: AccountId,
-    pub hash: String,
-    pub max_cost: U128,
-    pub status: Status,
+    #[serde(flatten)]
+    pub card: Agent,
     pub balance: U128,
 }
 
@@ -108,9 +112,8 @@ pub struct Contract {
     cfg: Config,
     balances: LookupMap<AccountId, u128>,
     agents: IterableMap<AccountId, Agent>,
-    manifests: LookupMap<AccountId, Vec<u8>>,
     jobs: LookupMap<String, Job>,
-    total: u128, // = balances + holds; must never exceed our token balance
+    total: u128, // = balances + holds; never above our token balance
 }
 
 #[near]
@@ -118,8 +121,8 @@ impl Contract {
     #[init]
     pub fn new(token: AccountId, cfg: Config) -> Self {
         check(&cfg);
-        let (balances, agents, manifests) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"m"));
-        Self { token, cfg, balances, agents, manifests, jobs: LookupMap::new(b"j"), total: 0 }
+        let (balances, agents, jobs) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"j"));
+        Self { token, cfg, balances, agents, jobs, total: 0 }
     }
 
     // ---- money in: `ft_transfer_call` on the token; a panic here refunds the sender ----
@@ -127,7 +130,10 @@ impl Contract {
     pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> U128 {
         require!(env::predecessor_account_id() == self.token, "wrong token");
         match serde_json::from_str(&msg).expect("bad msg") {
-            Msg::Register { manifest, max_cost } => self.register(sender_id, amount.0, manifest.0, max_cost),
+            Msg::Register { skills, rate, max_cost, hash, size_mb } => {
+                let card = Agent { skills, rate, max_cost, hash, size_mb, status: Status::Pending };
+                self.register(sender_id, amount.0, card)
+            }
             Msg::TopUp { agent } => {
                 require!(self.agents.contains_key(&agent), "no agent");
                 self.credit(&agent, amount.0);
@@ -141,8 +147,8 @@ impl Contract {
 
     // ---- runner ----
 
-    /// Activates or suspends a pending agent. `hash` pins what was reviewed: if the sponsor
-    /// re-registered meanwhile, the verdict is stale and refused.
+    /// Activates or suspends a pending agent. `hash` names what was audited: if the sponsor
+    /// registered other materials meanwhile, the verdict is stale and refused.
     pub fn review(&mut self, agent: AccountId, hash: String, allow: bool) {
         self.only(&self.cfg.runner);
         let a = self.agent_mut(&agent);
@@ -151,26 +157,26 @@ impl Contract {
         emit("review", json!({ "agent": agent, "hash": hash, "allow": allow }));
     }
 
-    /// Holds `max_cost` from each agent's balance for the job.
+    /// Holds each agent's cost cap and fixes its rate for the job.
     pub fn assign(&mut self, job: String, agents: Vec<AccountId>) {
         self.only(&self.cfg.runner);
         require!((1..=64).contains(&job.len()) && !self.jobs.contains_key(&job), "bad job id");
-        require!((1..=MAX_SLOTS).contains(&agents.len()), "bad slot count");
+        require!((1..=MAX_TEAM).contains(&agents.len()), "bad team size");
         let mut slots: Vec<Slot> = Vec::with_capacity(agents.len());
         for agent in agents {
             require!(slots.iter().all(|s| s.agent != agent), "duplicate agent");
             let a = self.agents.get(&agent).expect("no agent");
-            let (hold, balance) = (a.max_cost, self.balance_of(&agent));
+            let (hold, pay, balance) = (a.max_cost, a.rate, self.balance_of(&agent));
             require!(a.status == Status::Active && balance >= hold.0, "agent not ready");
             self.set_balance(&agent, balance - hold.0);
-            slots.push(Slot { agent, hold, weight: 0 });
+            slots.push(Slot { agent, hold, pay });
         }
         emit("assign", json!({ "job": job, "agents": slots.iter().map(|s| &s.agent).collect::<Vec<_>>() }));
         self.jobs.insert(job, Job { at: now(), done: false, slots });
     }
 
-    /// Settles holds: cost to the operator, the rest back to the agent, or to the owner on a
-    /// violation. A job nobody earned in is removed, so revenue for it is refused.
+    /// Settles the holds: cost to the operator, the rest back to the agent (to the owner on a
+    /// violation). An agent that did not deliver loses its pay. A job nobody is owed for is removed.
     pub fn finish(&mut self, job: String, outcomes: Vec<Outcome>) {
         self.only(&self.cfg.runner);
         let mut j = self.jobs.remove(&job).expect("no job");
@@ -178,6 +184,7 @@ impl Contract {
         let (owner, operator) = (self.cfg.owner.clone(), self.cfg.operator.clone());
         for (s, o) in j.slots.iter_mut().zip(outcomes) {
             require!(o.cost.0 <= s.hold.0, "cost above hold");
+            require!(o.cost.0 % COST_STEP == 0 || o.cost.0 == s.hold.0, "cost off the step");
             let rest = s.hold.0 - o.cost.0;
             self.credit(&operator, o.cost.0);
             if o.violation {
@@ -185,13 +192,15 @@ impl Contract {
                 self.agent_mut(&s.agent).status = Status::Suspended;
             } else {
                 self.credit(&s.agent, rest);
-                s.weight = o.weight;
+            }
+            if o.violation || !o.delivered {
+                s.pay = U128(0);
             }
             s.hold = U128(0);
         }
-        let earned = j.slots.iter().any(|s| s.weight > 0);
-        emit("finish", json!({ "job": job, "earned": earned }));
-        if earned {
+        let paid: Vec<&AccountId> = j.slots.iter().filter(|s| s.pay.0 > 0).map(|s| &s.agent).collect();
+        emit("finish", json!({ "job": job, "paid": paid }));
+        if !paid.is_empty() {
             (j.at, j.done) = (now(), true);
             self.jobs.insert(job, j);
         }
@@ -247,12 +256,12 @@ impl Contract {
     pub fn config(&self) -> Config {
         self.cfg.clone()
     }
+    /// The USDC contract whose transfers this contract accepts.
+    pub fn token(&self) -> AccountId {
+        self.token.clone()
+    }
     pub fn agent(&self, account: AccountId) -> Option<AgentView> {
         self.agents.get(&account).map(|a| self.view(&account, a))
-    }
-    /// The sealed manifest: useless to anyone but the runner's TEE.
-    pub fn manifest(&self, account: AccountId) -> Option<Base64VecU8> {
-        self.manifests.get(&account).map(|m| Base64VecU8(m.clone()))
     }
     pub fn agents(&self, from: u32, limit: u32) -> Vec<AgentView> {
         let page = self.agents.iter().skip(from as usize).take(limit.min(100) as usize);
@@ -271,31 +280,41 @@ impl Contract {
 }
 
 impl Contract {
-    fn register(&mut self, sponsor: AccountId, amount: u128, manifest: Vec<u8>, max_cost: U128) {
-        require!((1..=MAX_MANIFEST).contains(&manifest.len()), "manifest empty or too big");
-        require!(max_cost.0 > 0 && amount >= self.cfg.min_deposit.0, "deposit too small");
-        let fee = self.cfg.review_fee.0;
+    fn register(&mut self, sponsor: AccountId, amount: u128, card: Agent) {
+        require!(!card.skills.is_empty() && card.skills.len() <= MAX_SKILLS, "skills empty or too long");
+        require!(is_sha256_hex(&card.hash) && (1..=MAX_SIZE_MB).contains(&card.size_mb), "bad materials");
+        require!(card.max_cost.0 > 0, "max_cost must be positive");
+        let fee = self.cfg.audit_base.0 + self.cfg.audit_per_mb.0 * card.size_mb as u128;
+        require!(amount >= fee + self.cfg.min_deposit.0, "deposit too small");
         self.credit(&self.cfg.operator.clone(), fee);
         self.credit(&sponsor, amount - fee);
-        let hash: String = env::sha256(&manifest).iter().map(|b| format!("{b:02x}")).collect();
-        self.agents.insert(sponsor.clone(), Agent { hash: hash.clone(), max_cost, status: Status::Pending });
-        self.manifests.insert(sponsor.clone(), manifest);
-        emit("register", json!({ "agent": sponsor, "hash": hash, "max_cost": max_cost, "fee": U128(fee) }));
+        emit(
+            "register",
+            json!({ "agent": sponsor, "hash": card.hash, "rate": card.rate, "max_cost": card.max_cost, "fee": U128(fee) }),
+        );
+        self.agents.insert(sponsor, card);
     }
 
+    /// Owner's fee first; then each agent that delivered exactly its pay (pro rata if the revenue
+    /// falls short); the operator keeps the rest. Revenue is accepted once, from the operator.
     fn revenue(&mut self, sender: AccountId, amount: u128, job: String) {
         require!(sender == self.cfg.operator, "revenue comes from the operator");
         let j = self.jobs.remove(&job).expect("no job");
         require!(j.done, "job not finished");
         let fee = amount * self.cfg.fee_bps as u128 / 10_000;
+        let pays: Vec<u128> = j.slots.iter().map(|s| s.pay.0).collect();
+        let due: u128 = pays.iter().sum();
+        let parts = if amount - fee >= due { pays } else { split(amount - fee, &pays) };
+        let rest = amount - fee - parts.iter().sum::<u128>();
         self.credit(&self.cfg.owner.clone(), fee);
-        let parts = split(amount - fee, &j.slots.iter().map(|s| s.weight).collect::<Vec<_>>());
+        self.credit(&self.cfg.operator.clone(), rest);
         for (s, part) in j.slots.iter().zip(&parts) {
             self.credit(&s.agent, *part);
         }
+        let paid: Vec<(&AccountId, U128)> = j.slots.iter().zip(&parts).map(|(s, p)| (&s.agent, U128(*p))).collect();
         emit(
             "revenue",
-            json!({ "job": job, "amount": U128(amount), "fee": U128(fee), "parts": parts.into_iter().map(U128).collect::<Vec<_>>() }),
+            json!({ "job": job, "amount": U128(amount), "fee": U128(fee), "paid": paid, "operator": U128(rest) }),
         );
     }
 
@@ -305,9 +324,8 @@ impl Contract {
     fn agent_mut(&mut self, id: &AccountId) -> &mut Agent {
         self.agents.get_mut(id).expect("no agent")
     }
-    fn view(&self, account: &AccountId, a: &Agent) -> AgentView {
-        let (hash, max_cost, status) = (a.hash.clone(), a.max_cost, a.status);
-        AgentView { account: account.clone(), hash, max_cost, status, balance: U128(self.balance_of(account)) }
+    fn view(&self, account: &AccountId, card: &Agent) -> AgentView {
+        AgentView { account: account.clone(), card: card.clone(), balance: U128(self.balance_of(account)) }
     }
     fn balance_of(&self, id: &AccountId) -> u128 {
         self.balances.get(id).copied().unwrap_or(0)
@@ -320,21 +338,22 @@ impl Contract {
         }
     }
     fn credit(&mut self, id: &AccountId, amount: u128) {
-        self.set_balance(id, self.balance_of(id) + amount);
+        if amount > 0 {
+            self.set_balance(id, self.balance_of(id) + amount);
+        }
     }
 }
 
 fn check(cfg: &Config) {
     require!(cfg.fee_bps <= MAX_FEE_BPS, "fee too high");
-    require!(cfg.review_fee.0 <= cfg.min_deposit.0, "review fee above min deposit");
     require!(cfg.run_secs <= MAX_SECS && cfg.pay_secs <= MAX_SECS, "timeout too long");
 }
 
-/// Splits `amount` pro rata to `weights` (at least one is above 0: `finish` keeps only such jobs).
+/// Splits `amount` pro rata to `weights` (their sum is above `amount`, so above 0).
 /// Rounding dust goes to the heaviest share, so the parts always add up to `amount`.
-fn split(amount: u128, weights: &[u32]) -> Vec<u128> {
-    let total: u128 = weights.iter().map(|&w| w as u128).sum();
-    let mut parts: Vec<u128> = weights.iter().map(|&w| amount * w as u128 / total).collect();
+fn split(amount: u128, weights: &[u128]) -> Vec<u128> {
+    let total: u128 = weights.iter().sum();
+    let mut parts: Vec<u128> = weights.iter().map(|&w| amount * w / total).collect();
     let top = (0..weights.len()).max_by_key(|&i| weights[i]).unwrap();
     parts[top] += amount - parts.iter().sum::<u128>();
     parts
@@ -342,10 +361,14 @@ fn split(amount: u128, weights: &[u32]) -> Vec<u128> {
 
 /// NEP-297 event, so explorers and indexers can follow the money without our runner.
 fn emit(event: &str, data: Value) {
-    let e = json!({ "standard": "swarm", "version": "1.0.0", "event": event, "data": data });
+    let e = json!({ "standard": "swarm", "version": "2.0.0", "event": event, "data": data });
     env::log_str(&format!("EVENT_JSON:{e}"));
 }
 
 fn now() -> u64 {
     env::block_timestamp() / 1_000_000_000
+}
+
+fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

@@ -1,18 +1,27 @@
-# Phala Cloud (dstack). Everything here is covered by the attestation; only the two secrets
-# come in as encrypted env. Pin the image by digest, never by tag.
+# The runner on Phala Cloud (dstack). Everything written here is covered by the attestation; only the
+# secrets come in as encrypted env (.env.tee, see scripts/swarm.sh tee-deploy). Pin the image by digest.
 services:
   runner:
-    image: ghcr.io/OWNER/swarm-runner@sha256:DIGEST
+    image: ghcr.io/OWNER/swarm-runner@sha256:DIGEST # scripts/swarm.sh image ghcr.io/<you>/swarm-runner
     restart: always
     ports:
-      - "8080:8080" # GET /attestation: anyone can check this runner (scripts/swarm.sh verify-seal)
+      - "8080:8080" # /attestation, /info, /upload, the sealing page
     volumes:
-      - /var/run/dstack.sock:/var/run/dstack.sock
+      - /var/run/dstack.sock:/var/run/dstack.sock # keys and quotes from the TEE
+      - store:/data # sealed uploads and round decisions, on the CVM's encrypted disk
     environment:
       NEAR_RPC: https://rpc.mainnet.fastnear.com
-      CONTRACT: swarm.sunnesoft.near
-      RUNNER_ACCOUNT: runner.sunnesoft.near
+      CONTRACT: swarm.OWNER.near
+      RUNNER_ACCOUNT: runner.OWNER.near
       PROTOCOL_MODEL: z-ai/glm-5.3
-      SLOTS: "3"
+      AUDIT_MODEL: z-ai/glm-5.3-flash
+      EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B
+      OVERHEAD_USD: "0.50"
+      OVERHEAD_PER_AGENT_USD: "0.10"
+      MAX_REWORKS: "2"
+      BIDS: "off"
       NEARAI_API_KEY: ${NEARAI_API_KEY}
       MARKET_TOKEN: ${MARKET_TOKEN}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+volumes:
+  store:

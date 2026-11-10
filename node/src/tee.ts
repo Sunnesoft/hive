@@ -1,38 +1,35 @@
 // Two keys are born inside the TEE. The signing key is new on every boot and becomes the runner's
-// function-call key only after the owner checks the quote. The seal key opens sponsors' manifests; dstack
-// derives it from the app's identity, so it survives restarts and sealed manifests stay readable.
-// The attestation is served at GET /attestation, so anyone can check it (scripts/verify.ts).
+// function-call key only after the owner checks the quote. The seal key opens what sponsors upload; dstack
+// derives it from the app's identity, so it survives restarts. Without a TEE both come from DEV_KEY.
 import { createHash } from 'node:crypto';
-import { createServer } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DstackClient } from '@phala/dstack-sdk';
 import { KeyPair, type KeyPairString } from 'near-api-js';
-import { reportDataOf } from './attest.ts';
+import { reportDataOf, type Attestation } from './attest.ts';
 import { hasKey } from './chain.ts';
 import { cfg, log, policyHash } from './config.ts';
 import { devSecret, publicKeyOf } from './seal.ts';
 
-/** Serves what this runner is. The content proves itself (Intel's signature), so plain HTTP is fine. */
-const publish = (attestation: object) =>
-  createServer((req, res) => {
-    const ok = req.method === 'GET' && req.url === '/attestation';
-    res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' }).end(ok ? JSON.stringify(attestation) : '{}');
-  }).listen(cfg.PORT);
+export type Keys = { key: KeyPair; seal: Uint8Array; attestation: Attestation | { dev: true; publicKey: string; sealKey: string; policies: string } };
 
-export async function bootKeys(): Promise<{ key: KeyPair; seal: Uint8Array }> {
+export async function bootKeys(): Promise<Keys> {
   if (cfg.DEV_KEY) {
     const [key, seal] = [KeyPair.fromString(cfg.DEV_KEY as KeyPairString), devSecret(cfg.DEV_KEY)];
-    publish({ dev: true, publicKey: key.getPublicKey().toString(), sealKey: publicKeyOf(seal).toString('hex'), policies: policyHash });
-    return { key, seal };
+    const attestation = { dev: true as const, publicKey: key.getPublicKey().toString(), sealKey: publicKeyOf(seal).toString('hex'), policies: policyHash };
+    return { key, seal, attestation };
   }
   const dstack = new DstackClient();
   const seal = createHash('sha256').update((await dstack.getKey('swarm/manifest-seal')).key).digest();
   const key = KeyPair.fromRandom('ed25519');
   const [publicKey, sealKey] = [key.getPublicKey().toString(), publicKeyOf(seal).toString('hex')];
   const { quote, event_log } = await dstack.getQuote(Buffer.from(reportDataOf(publicKey, sealKey), 'hex'));
-  const attestation = { publicKey, sealKey, quote, event_log, policies: policyHash };
-  publish(attestation);
-  log('attest', attestation);
-  while (!(await hasKey(publicKey))) await sleep(15_000); // powerless until the owner adds it to the runner account
-  return { key, seal };
+  return { key, seal, attestation: { publicKey, sealKey, quote, event_log, policies: policyHash } };
+}
+
+/** Powerless until the owner checks the quote and adds the signing key to the runner account. */
+export async function waitForKey(publicKey: string) {
+  while (!(await hasKey(publicKey))) {
+    log('waiting_for_key', { publicKey });
+    await sleep(Math.min(cfg.POLL_MS, 15_000));
+  }
 }

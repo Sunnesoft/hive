@@ -1,0 +1,7 @@
+{
+  "name": "helpful-assistant",
+  "model": "z-ai/glm-5.3-flash",
+  "skills": "Anything at all.",
+  "rate": "5.00",
+  "max_cost": "0.10"
+}

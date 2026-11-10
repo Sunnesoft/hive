@@ -28,22 +28,23 @@ const A: &str = "a.near";
 const B: &str = "b.near";
 const X: &str = "x.near";
 const U: u128 = 1_000_000; // 1 USDC
+const CENT: u128 = U / 100;
 
 fn acc(s: &str) -> AccountId {
     s.parse().unwrap()
 }
 
-/// A stand-in for a sealed manifest: the contract only stores and hashes the bytes.
-fn register(sealed: &[u8], max_cost: u128) -> String {
-    json!({ "Register": { "manifest": Base64VecU8(sealed.to_vec()), "max_cost": U128(max_cost) } }).to_string()
+fn hash(c: char) -> String {
+    c.to_string().repeat(64)
 }
 
-fn hash_of(c: &Contract, a: &str) -> String {
-    c.agent(acc(a)).unwrap().hash
+fn register(hash: &str, rate: u128, max_cost: u128, size_mb: u32) -> String {
+    json!({ "Register": { "skills": "solidity audits", "rate": U128(rate), "max_cost": U128(max_cost), "hash": hash, "size_mb": size_mb } })
+        .to_string()
 }
 
 fn revenue(job: &str) -> String {
-    format!(r#"{{"Revenue":{{"job":"{job}"}}}}"#)
+    json!({ "Revenue": { "job": job } }).to_string()
 }
 
 fn deposit(c: &mut Contract, from: &str, amount: u128, msg: String) {
@@ -51,8 +52,8 @@ fn deposit(c: &mut Contract, from: &str, amount: u128, msg: String) {
     assert_eq!(c.ft_on_transfer(acc(from), U128(amount), msg).0, 0);
 }
 
-fn out(cost: u128, weight: u32, violation: bool) -> Outcome {
-    Outcome { cost: U128(cost), weight, violation }
+fn out(cost: u128, delivered: bool, violation: bool) -> Outcome {
+    Outcome { cost: U128(cost), delivered, violation }
 }
 
 fn bal(c: &Contract, a: &str) -> u128 {
@@ -65,22 +66,22 @@ fn cfg() -> Config {
         runner: acc(RUNNER),
         operator: acc(OP),
         fee_bps: 500,
-        review_fee: U128(0),
+        audit_base: U128(0),
+        audit_per_mb: U128(0),
         min_deposit: U128(U),
         run_secs: 600,
         pay_secs: 86_400,
-        seal_key: "ab".repeat(32),
     }
 }
 
-/// Two active agents with 10 USDC each and a 2 USDC cap per job.
+/// Two active agents with 10 USDC each and a 1 USDC cost cap: A asks 3 USDC a job, B 2 USDC.
 fn setup() -> Contract {
     call(DAO, 0);
     let mut c = Contract::new(acc(USDC), cfg());
-    for a in [A, B] {
-        deposit(&mut c, a, 10 * U, register(b"sealed a", 2 * U));
+    for (a, rate) in [(A, 3 * U), (B, 2 * U)] {
+        deposit(&mut c, a, 10 * U, register(&hash('a'), rate, U, 1));
         call(RUNNER, 0);
-        c.review(acc(a), hash_of(&c, a), true);
+        c.review(acc(a), hash('a'), true);
     }
     c
 }
@@ -92,65 +93,83 @@ fn assert_books(c: &Contract, jobs: &[&str]) {
     assert_eq!(balances + holds, c.total().0);
 }
 
-#[test]
-fn job_lifecycle_pays_costs_fee_and_weighted_revenue() {
-    let mut c = setup();
+fn assign_both(c: &mut Contract) {
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(A), acc(B)]);
-    assert_eq!((bal(&c, A), bal(&c, B)), (8 * U, 8 * U));
+}
+
+#[test]
+fn a_job_pays_inference_to_the_operator_and_rates_to_the_agents() {
+    let mut c = setup();
+    assign_both(&mut c);
+    assert_eq!((bal(&c, A), bal(&c, B)), (9 * U, 9 * U));
+    let slots = c.job("j1".into()).unwrap().slots;
+    assert_eq!((slots[0].pay.0, slots[1].pay.0), (3 * U, 2 * U)); // rates fixed from the cards
     assert_books(&c, &["j1"]);
 
-    c.finish("j1".into(), vec![out(U, 3, false), out(U / 2, 1, false)]);
-    assert_eq!((bal(&c, A), bal(&c, B)), (9 * U, 9 * U + U / 2));
-    assert_eq!(bal(&c, OP), U + U / 2);
+    c.finish("j1".into(), vec![out(2 * CENT, true, false), out(CENT, true, false)]);
+    assert_eq!((bal(&c, A), bal(&c, B), bal(&c, OP)), (10 * U - 2 * CENT, 10 * U - CENT, 3 * CENT));
     assert_books(&c, &["j1"]);
 
-    deposit(&mut c, OP, 10 * U, revenue("j1"));
+    deposit(&mut c, OP, 6 * U, revenue("j1")); // 5% fee 0.3, agents 3 + 2, the operator keeps 0.7
     assert!(c.job("j1".into()).is_none());
-    assert_eq!(bal(&c, DAO), U / 2); // 5% fee
-    assert_eq!(bal(&c, A), 9 * U + 7_125_000); // 9.5 USDC split 3:1
-    assert_eq!(bal(&c, B), 9 * U + U / 2 + 2_375_000);
-    assert_books(&c, &[]);
-
-    call(OP, 2);
-    let _ = c.withdraw(None);
-    assert_eq!(bal(&c, OP), 0); // took its 1.5 USDC reimbursement
+    assert_eq!(bal(&c, DAO), 3 * U / 10);
+    assert_eq!((bal(&c, A), bal(&c, B)), (13 * U - 2 * CENT, 12 * U - CENT));
+    assert_eq!(bal(&c, OP), 3 * CENT + 7 * U / 10);
     assert_books(&c, &[]);
 }
 
 #[test]
-fn violation_forfeits_the_hold_and_suspends() {
+fn an_agent_that_did_not_deliver_gets_nothing_and_its_share_goes_to_the_operator_not_to_the_others() {
     let mut c = setup();
-    call(RUNNER, 1);
-    c.assign("j1".into(), vec![acc(A), acc(B)]);
-    c.finish("j1".into(), vec![out(U, 9, true), out(U, 1, false)]);
-    assert_eq!(c.agent(acc(A)).unwrap().status, Status::Suspended);
-    assert_eq!(bal(&c, A), 8 * U);
-    assert_eq!(bal(&c, DAO), U);
+    assign_both(&mut c);
+    c.finish("j1".into(), vec![out(CENT, false, false), out(CENT, true, false)]);
+    deposit(&mut c, OP, 6 * U, revenue("j1"));
+    assert_eq!(bal(&c, A), 10 * U - CENT); // only its own cost
+    assert_eq!(bal(&c, B), 12 * U - CENT); // exactly its rate, not more
+    assert_eq!(bal(&c, OP), 2 * CENT + 6 * U - 3 * U / 10 - 2 * U);
+    assert_books(&c, &[]);
+}
 
-    deposit(&mut c, OP, 10 * U, revenue("j1"));
-    assert_eq!(bal(&c, A), 8 * U); // the violator's weight was dropped
-    assert_eq!(bal(&c, B), 9 * U + 9_500_000);
+#[test]
+fn revenue_below_the_rates_is_shared_pro_rata() {
+    let mut c = setup();
+    assign_both(&mut c);
+    c.finish("j1".into(), vec![out(0, true, false), out(0, true, false)]);
+    deposit(&mut c, OP, 4 * U, revenue("j1")); // fee 0.2, 3.8 for rates of 3 and 2
+    assert_eq!((bal(&c, A), bal(&c, B)), (10 * U + 2_280_000, 10 * U + 1_520_000));
+    assert_eq!(bal(&c, OP), 0);
+    assert_books(&c, &[]);
+}
+
+#[test]
+fn a_violation_forfeits_the_hold_and_the_pay_and_suspends() {
+    let mut c = setup();
+    assign_both(&mut c);
+    c.finish("j1".into(), vec![out(CENT, true, true), out(CENT, true, false)]);
+    assert_eq!(c.agent(acc(A)).unwrap().card.status, Status::Suspended);
+    assert_eq!((bal(&c, A), bal(&c, DAO)), (9 * U, U - CENT));
+    deposit(&mut c, OP, 6 * U, revenue("j1"));
+    assert_eq!(bal(&c, A), 9 * U);
     assert_books(&c, &[]);
 }
 
 #[test]
 #[should_panic(expected = "no job")]
-fn job_nobody_earned_in_refuses_revenue() {
+fn a_job_nobody_is_owed_for_refuses_revenue() {
     let mut c = setup();
-    call(RUNNER, 1);
-    c.assign("j1".into(), vec![acc(A)]);
-    c.finish("j1".into(), vec![out(0, 0, false)]);
+    assign_both(&mut c);
+    c.finish("j1".into(), vec![out(0, false, false), out(0, false, false)]);
     assert!(c.job("j1".into()).is_none());
     deposit(&mut c, OP, U, revenue("j1"));
 }
 
 #[test]
-fn stuck_job_returns_holds_after_timeout() {
+fn a_stuck_job_returns_holds_after_run_secs() {
     let mut c = setup();
     call(RUNNER, 100);
     c.assign("j1".into(), vec![acc(A), acc(B)]);
-    call(B, 700);
+    call(X, 700);
     c.close("j1".into());
     assert_eq!((bal(&c, A), bal(&c, B)), (10 * U, 10 * U));
     assert_books(&c, &[]);
@@ -158,28 +177,28 @@ fn stuck_job_returns_holds_after_timeout() {
 
 #[test]
 #[should_panic(expected = "too early")]
-fn stuck_job_cannot_be_closed_early() {
+fn a_stuck_job_cannot_be_closed_early() {
     let mut c = setup();
     call(RUNNER, 100);
     c.assign("j1".into(), vec![acc(A)]);
-    call(B, 699);
+    call(X, 699);
     c.close("j1".into());
 }
 
 #[test]
-fn unpaid_job_expires_after_pay_secs() {
+fn an_unpaid_job_expires_after_pay_secs() {
     let mut c = setup();
     call(RUNNER, 100);
     c.assign("j1".into(), vec![acc(A)]);
-    c.finish("j1".into(), vec![out(U, 5, false)]);
-    call(B, 100 + 86_400);
+    c.finish("j1".into(), vec![out(0, true, false)]);
+    call(X, 100 + 86_400);
     c.close("j1".into());
     assert!(c.job("j1".into()).is_none());
     assert_books(&c, &[]);
 }
 
 #[test]
-fn bounced_withdrawal_stays_in_the_balance() {
+fn a_bounced_withdrawal_stays_in_the_balance() {
     let mut c = setup();
     call(A, 1);
     let _ = c.withdraw(Some(U128(3 * U)));
@@ -191,54 +210,62 @@ fn bounced_withdrawal_stays_in_the_balance() {
 }
 
 #[test]
-fn top_up_funds_an_existing_agent() {
+fn anyone_can_top_up_an_agent() {
     let mut c = setup();
-    deposit(&mut c, X, U, format!(r#"{{"TopUp":{{"agent":"{A}"}}}}"#));
+    deposit(&mut c, X, U, json!({ "TopUp": { "agent": A } }).to_string());
     assert_eq!(bal(&c, A), 11 * U);
+    assert_books(&c, &[]);
+}
+
+#[test]
+fn registration_pays_the_audit_fee_by_size() {
+    let mut c = setup();
+    call(DAO, 1);
+    c.set_config(Config { audit_base: U128(U / 10), audit_per_mb: U128(U / 20), ..cfg() });
+    deposit(&mut c, X, 2 * U, register(&hash('c'), U, U, 4)); // 0.1 + 4 × 0.05 = 0.3
+    assert_eq!((bal(&c, OP), bal(&c, X)), (3 * U / 10, 2 * U - 3 * U / 10));
     assert_books(&c, &[]);
 }
 
 #[test]
 fn re_registering_needs_a_new_review() {
     let mut c = setup();
-    deposit(&mut c, A, U, register(b"sealed b", U));
+    deposit(&mut c, A, U, register(&hash('b'), U, U, 1));
     let a = c.agent(acc(A)).unwrap();
-    assert_eq!((a.status, a.max_cost.0, a.balance.0), (Status::Pending, U, 11 * U));
+    assert_eq!((a.card.status, a.card.hash, a.balance.0), (Status::Pending, hash('b'), 11 * U));
 }
 
 #[test]
 #[should_panic(expected = "stale review")]
-fn a_review_of_a_replaced_manifest_is_refused() {
+fn a_review_of_replaced_materials_is_refused() {
     let mut c = setup();
-    let reviewed = hash_of(&c, A);
-    deposit(&mut c, A, U, register(b"sealed b", U)); // the sponsor swaps the manifest mid-review
+    deposit(&mut c, A, U, register(&hash('b'), U, U, 1)); // new materials while the old ones are reviewed
     call(RUNNER, 1);
-    c.review(acc(A), reviewed, true);
+    c.review(acc(A), hash('a'), true);
 }
 
 #[test]
-fn the_sealed_manifest_is_stored_and_hashed() {
-    let c = setup();
-    assert_eq!(c.manifest(acc(A)).unwrap().0, b"sealed a".to_vec());
-    let sha: String = env::sha256(b"sealed a").iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(hash_of(&c, A), sha);
-}
-
-#[test]
-#[should_panic(expected = "manifest empty or too big")]
-fn a_manifest_has_a_size_cap() {
-    let mut c = setup();
-    deposit(&mut c, X, U, register(&[7; MAX_MANIFEST + 1], U));
-}
-
-#[test]
-fn registration_pays_the_review_fee_to_the_operator() {
+#[should_panic(expected = "deposit too small")]
+fn the_deposit_must_cover_the_audit_fee_and_the_minimum() {
     let mut c = setup();
     call(DAO, 1);
-    c.set_config(Config { review_fee: U128(U / 10), ..cfg() });
-    deposit(&mut c, X, 2 * U, register(b"sealed c", U));
-    assert_eq!((bal(&c, OP), bal(&c, X)), (U / 10, 2 * U - U / 10));
-    assert_books(&c, &[]);
+    c.set_config(Config { audit_base: U128(U / 10), ..cfg() });
+    deposit(&mut c, X, U, register(&hash('c'), U, U, 1));
+}
+
+#[test]
+#[should_panic(expected = "skills empty or too long")]
+fn the_card_is_short() {
+    let mut c = setup();
+    let msg = json!({ "Register": { "skills": "x".repeat(501), "rate": "1", "max_cost": "1", "hash": hash('c'), "size_mb": 1 } });
+    deposit(&mut c, X, U, msg.to_string());
+}
+
+#[test]
+#[should_panic(expected = "bad materials")]
+fn materials_are_at_most_ten_megabytes() {
+    let mut c = setup();
+    deposit(&mut c, X, U, register(&hash('c'), U, U, 11));
 }
 
 #[test]
@@ -254,14 +281,7 @@ fn config_is_bounded() {
 fn only_the_token_deposits() {
     let mut c = setup();
     call(A, 1);
-    c.ft_on_transfer(acc(A), U128(U), register(b"sealed a", U));
-}
-
-#[test]
-#[should_panic(expected = "deposit too small")]
-fn registration_needs_min_deposit() {
-    let mut c = setup();
-    deposit(&mut c, X, U - 1, register(b"sealed x", U));
+    c.ft_on_transfer(acc(A), U128(U), register(&hash('a'), U, U, 1));
 }
 
 #[test]
@@ -274,16 +294,16 @@ fn only_the_runner_assigns() {
 
 #[test]
 #[should_panic(expected = "agent not ready")]
-fn pending_agent_cannot_work() {
+fn a_pending_agent_cannot_work() {
     let mut c = setup();
-    deposit(&mut c, X, U, register(b"sealed x", U));
+    deposit(&mut c, X, U, register(&hash('c'), U, U, 1));
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(X)]);
 }
 
 #[test]
 #[should_panic(expected = "duplicate agent")]
-fn an_agent_takes_one_slot() {
+fn an_agent_takes_one_place() {
     let mut c = setup();
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(A), acc(A)]);
@@ -291,11 +311,20 @@ fn an_agent_takes_one_slot() {
 
 #[test]
 #[should_panic(expected = "cost above hold")]
-fn cost_is_capped_by_the_hold() {
+fn the_cost_is_capped_by_the_hold() {
     let mut c = setup();
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(A)]);
-    c.finish("j1".into(), vec![out(2 * U + 1, 1, false)]);
+    c.finish("j1".into(), vec![out(U + CENT, true, false)]);
+}
+
+#[test]
+#[should_panic(expected = "cost off the step")]
+fn the_cost_is_coarse() {
+    let mut c = setup();
+    call(RUNNER, 1);
+    c.assign("j1".into(), vec![acc(A)]);
+    c.finish("j1".into(), vec![out(1_234, true, false)]);
 }
 
 #[test]
@@ -304,25 +333,24 @@ fn revenue_comes_only_from_the_operator() {
     let mut c = setup();
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(A)]);
-    c.finish("j1".into(), vec![out(0, 1, false)]);
-    deposit(&mut c, B, 1, revenue("j1"));
+    c.finish("j1".into(), vec![out(0, true, false)]);
+    deposit(&mut c, B, U, revenue("j1"));
 }
 
 #[test]
 #[should_panic(expected = "bad amount")]
-fn sponsor_cannot_take_held_money() {
+fn a_sponsor_cannot_take_held_money() {
     let mut c = setup();
     call(RUNNER, 1);
     c.assign("j1".into(), vec![acc(A)]);
     call(A, 2);
-    let _ = c.withdraw(Some(U128(8 * U + 1)));
+    let _ = c.withdraw(Some(U128(9 * U + 1)));
 }
 
 #[test]
 fn split_is_pro_rata_and_adds_up() {
     assert_eq!(split(100, &[3, 1]), vec![75, 25]);
     assert_eq!(split(10, &[1, 2, 1]), vec![2, 6, 2]);
-    assert_eq!(split(7, &[0, 5]), vec![0, 7]);
     let mut x: u64 = 0x2545F4914F6CDD1D;
     let mut rnd = |m: u64| {
         x ^= x << 13;
@@ -331,9 +359,9 @@ fn split_is_pro_rata_and_adds_up() {
         x % m
     };
     for _ in 0..10_000 {
-        let amount = rnd(u64::MAX) as u128 * rnd(1 << 40) as u128;
-        let mut weights: Vec<u32> = (0..1 + rnd(8)).map(|_| rnd(3) as u32 * rnd(1_000) as u32).collect();
-        weights[0] += 1; // finished jobs always have weight
+        let amount = rnd(1 << 60) as u128; // ~1e12 USDC: far above any real revenue, and amount × rate stays in u128
+        let mut weights: Vec<u128> = (0..1 + rnd(32)).map(|_| rnd(3) as u128 * rnd(1 << 58) as u128).collect();
+        weights[0] += 1;
         assert_eq!(split(amount, &weights).iter().sum::<u128>(), amount);
     }
 }

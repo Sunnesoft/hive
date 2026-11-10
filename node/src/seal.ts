@@ -1,17 +1,14 @@
-// Private manifests. A sponsor seals the manifest to the runner's X25519 key; only the runner's TEE can
-// open it. The sponsor's account is bound in as associated data, so a copy registered by anyone else
-// does not open. Format: ephemeral public key (32) | nonce (12) | ciphertext | tag (16).
+// Sealing. A sponsor seals its materials to the runner's X25519 key; only the runner's TEE can open them.
+// The sponsor's account is bound in as associated data, so a copy registered by anyone else does not open.
+// Format: ephemeral public key (32) | nonce (12) | ciphertext | tag (16). The browser twin is node/ui/seal.js.
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
 import { x25519 } from '@noble/curves/ed25519';
 
-const INFO = 'swarm-for-hire manifest v1';
+const INFO = 'swarm-for-hire manifest v1'; // fixed: changing it breaks every sealed upload
 const keyOf = (shared: Uint8Array, eph: Uint8Array, to: Uint8Array) =>
   Buffer.from(hkdfSync('sha256', shared, Buffer.concat([eph, to]), INFO, 32));
 
 export const publicKeyOf = (secret: Uint8Array) => Buffer.from(x25519.getPublicKey(secret));
-
-/** Associated data of a sponsor's library: a manifest's ciphertext never opens as a library, nor the reverse. */
-export const libraryAad = (sponsor: string) => `${sponsor}|library`;
 
 /** The runner's secret when there is no TEE: derived from its dev key, so one env var is enough. */
 export const devSecret = (devKey: string) => createHash('sha256').update(`swarm seal|${devKey}`).digest();
