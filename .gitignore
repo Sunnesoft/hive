@@ -6,3 +6,5 @@ store/
 agents/*/sealed.bin
 quote.json
 docs/.check/
+core
+core.*
