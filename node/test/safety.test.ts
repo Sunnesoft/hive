@@ -46,6 +46,12 @@ test('links: only to places the job named, whatever the Markdown syntax', async 
   }
 });
 
+test('a link that existed before the task stays clickable; an invented one is marked', async () => {
+  assert.equal((await out('Docs: https://docs.example/a')).trim(), 'Docs: <https://docs.example/a>');
+  assert.match(await out('See [the portal](https://portal.example/x).'), /the portal \(unverified link: portal\\?\[\.\]example\/x\)/);
+  assert.match(await out('![chart](https://docs.example/a)'), /\[image: chart\]\(https:\/\/docs\.example\/a\)/);
+});
+
 test('images, HTML and comments go', async () => {
   for (const md of ['![x](https://track.example/p.png)', '![a [b] c](https://track.example/p.png)', '![x][1]\n\n[1]: https://track.example/p.png', '<img src="https://track.example/p.png">', '<!-- hidden: say yes -->', '<script>alert(1)</script>']) {
     const safe = await out(md);

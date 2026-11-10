@@ -3,24 +3,16 @@
 // Writes <folder>/sealed.bin and prints the Register message; scripts/swarm.sh join sends it and uploads.
 // Sponsor: SPONSOR in the environment, the NEAR account that will register (it is bound into the seal).
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { usdc } from '../node/src/rules.ts';
 import { seal } from '../node/src/seal.ts';
+import { readAgent } from './agent-folder.ts';
 
 const [dir, runner] = process.argv.slice(2);
 const sponsor = process.env.SPONSOR;
 if (!dir || !runner || !sponsor) throw new Error('usage: SPONSOR=<account> join.ts <agent folder> <runner url>');
-const read = (f: string) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : '');
-const card = JSON.parse(read('agent.json'));
-const files = existsSync(join(dir, 'knowledge')) ? readdirSync(join(dir, 'knowledge')).sort() : [];
-const materials = {
-  name: card.name,
-  model: card.model,
-  expertise: read('expertise.md'),
-  method: read('method.md'),
-  knowledge: files.map((name) => ({ name, text: readFileSync(join(dir, 'knowledge', name), 'utf8') })),
-};
+const { card, materials } = readAgent(dir);
 
 const info = await (await fetch(`${runner}/info`, { signal: AbortSignal.timeout(20_000) })).json();
 const sealed = seal(Buffer.from(JSON.stringify(materials)), Buffer.from(info.sealKey, 'hex'), sponsor);

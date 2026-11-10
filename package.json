@@ -10,10 +10,12 @@
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=node/test/test.env --test \"node/test/*.test.ts\"",
     "check": "tsc --noEmit",
     "e2e": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts",
-    "playground": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/playground.ts"
+    "playground": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/playground.ts",
+    "ui": "esbuild node_modules/@hot-labs/near-connect/build/index.js --bundle --format=esm --platform=browser --target=es2022 --legal-comments=inline --outfile=node/ui/vendor/near-connect.js --log-level=warning"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.82",
+    "@hot-labs/near-connect": "^0.12.0",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
     "@phala/dstack-sdk": "^0.5.8",
@@ -34,6 +36,7 @@
     "@types/html-to-text": "^9.0.4",
     "@types/mdast": "^4.0.4",
     "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
     "near-sandbox": "^0.2.1",
     "typescript": "^5.9.3"
   },

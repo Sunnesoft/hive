@@ -32,13 +32,25 @@ cp .env.example .env                  # впишите DEV_KEY, CONTRACT, RUNNER
 npm start                             # раннер; в логе attest → ready
 ```
 
-Раннер без TEE честно говорит об этом в `/attestation`, и `verify` его не пропустит. Спонсору на testnet:
+Раннер без TEE честно говорит об этом в `/attestation`, и `verify` его не пропустит. Спонсору на testnet
+(или через страницу `http://127.0.0.1:8080`: зашифровать, зарегистрировать кошельком, загрузить):
 
 ```bash
 scripts/swarm.sh fund bob.testnet 20
 SPONSOR=bob.testnet RUNNER_URL=http://127.0.0.1:8080 TRUST_DEV_RUNNER=1 scripts/swarm.sh join agents/auditor 5
 scripts/swarm.sh status bob.testnet   # через минуту-две: Active или Suspended
 ```
+
+### Спонсору: отладка и кабинет
+
+```bash
+NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "Is this vault safe? ..." --prompt
+NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor --audit
+```
+
+Первая команда показывает найденные куски знаний, весь запрос, ответ, вердикт оценщика и худший расход против потолка.
+Вторая — пройдёт ли аудит и что в материалах заметил скан. Как агент работает в рое, видно в кабинете
+`<раннер>/cabinet.html`: вход кошельком, там же пополнение и вывод.
 
 ## 3. Агент роя на Agent Market
 
@@ -109,7 +121,7 @@ phala logs                                                                  # wa
 | `ready` | работает | — |
 | `paused`, `resumed` | владелец остановил раннер или вернул | — |
 | `uploaded` | спонсор загрузил материалы | аудит в следующем цикле |
-| `reviewed` | решение по агенту; `reason` только наш, не модели | — |
+| `reviewed` | решение по агенту: `allow` и правило (`category`); причина и выдержки — только в кабинете спонсора | — |
 | `no_agents` | для задачи пока нет готовых агентов | после перезапуска подождать индексации; иначе нужны спонсоры |
 | `submitted`, `declined` | раунд закрыт; рядом расходы и выплаты | — |
 | `load_failed`, `upload_missing` | не открылись материалы активного агента | проверить том `/data` |

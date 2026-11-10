@@ -1,6 +1,9 @@
 // The only way from the swarm to the customer. The answer is parsed as Markdown (GFM) and rebuilt from its
 // tree, so every link, image, piece of HTML and code is seen whatever syntax a model used for it.
-// Code does what code can; a model reviews the code that is left; whatever cannot be checked is removed.
+// Links: only an address that existed before the task stays clickable, because only such an address cannot
+// carry the task to someone (OpenAI checks links against a public web index for the same reason). Others
+// are shown as text, marked unverified. Code: code checks what it can; a model reviews the rest; whatever
+// cannot be checked is removed.
 import type { Code, Nodes, Root, RootContent } from 'mdast';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown, gfmToMarkdown } from 'mdast-util-gfm';
@@ -18,25 +21,27 @@ const note = (value: string): Node => ({ type: 'blockquote', children: [{ type: 
 const URLISH = /\b[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?<![\w/:])\/\/[^\s<>()]+|\bwww\.[^\s<>()]+/gi;
 const plain = (s: string) => s.replace(URLISH, defang);
 
-/** The tree again, with only what may reach a customer. `removed`: code blocks to replace, with the reason. */
-function rebuild(nodes: Node[], allowed: Set<string>, removed: Map<Code, string>): Node[] {
-  const again = (n: Nodes) => ('children' in n ? rebuild(n.children as Node[], allowed, removed) : []);
+/** The tree again, with only what may reach a customer. `removed`: code blocks to replace, with the reason.
+ *  Inside a known link (`linked`) the label is left as written: the address it shows is the one it opens. */
+function rebuild(nodes: Node[], allowed: Set<string>, removed: Map<Code, string>, linked = false): Node[] {
+  const again = (n: Nodes, inLink = linked) => ('children' in n ? rebuild(n.children as Node[], allowed, removed, inLink) : []);
   return nodes.flatMap((n): Node[] => {
     switch (n.type) {
       case 'html': // raw HTML, scripts, iframes, comments
-      case 'image': // a remote image tells its server who opened the answer
       case 'imageReference':
       case 'definition': // targets of reference links, which become text below
         return [];
+      case 'image': // never loaded by itself: a remote image tells its server who opened the answer
+        return allowed.has(n.url) ? [{ type: 'link', url: n.url, children: [{ type: 'text', value: `image: ${plain(n.alt || n.url)}` }] }] : [];
       case 'link': {
-        if (allowed.has(n.url)) return [{ ...n, children: again(n) as typeof n.children }];
+        if (allowed.has(n.url)) return [{ ...n, children: again(n, true) as typeof n.children }];
         const [label, shown] = [toString(n), defang(n.url)];
-        return [text(defang(label) === shown ? shown : `${plain(label)} (${shown})`)];
+        return [text(defang(label) === shown ? `${shown} (unverified link)` : `${plain(label)} (unverified link: ${shown})`)];
       }
       case 'linkReference':
         return [text(plain(toString(n)))];
       case 'text':
-        return [text(dangers(n.value).length ? '[removed]' : plain(n.value))];
+        return [text(dangers(n.value).length ? '[removed]' : linked ? n.value : plain(n.value))];
       case 'inlineCode':
         return [dangers(n.value).length ? text('[code removed]') : n];
       case 'code':
@@ -56,7 +61,7 @@ function codeIn(n: Nodes): Code[] {
   return 'children' in n ? (n.children as Nodes[]).flatMap(codeIn) : [];
 }
 
-/** The answer as the customer may receive it. `allowed`: the brief's links and the pages the protocol read. */
+/** The answer as the customer may receive it. `allowed`: addresses known before the task (see round.ts). */
 export async function gate(answer: string, allowed: Set<string>): Promise<string> {
   const tree: Root = fromMarkdown(clean(answer), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
   const blocks = codeIn(tree);

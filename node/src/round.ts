@@ -58,10 +58,8 @@ async function team(task: string, pool: Member[], net: bigint) {
   const units = (x: bigint) => Number(x) / 1e6;
   const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)) })));
   const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
-  return { picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
+  return { considered: list, picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
 }
-
-const FAILED = { delivered: false, violation: false };
 
 /** One agent's part: its knowledge searched for its question, one call, then a check of that answer alone. */
 async function contribute(task: string, t: Member & { question: string }, pages: Page[]) {
@@ -69,9 +67,21 @@ async function contribute(task: string, t: Member & { question: string }, pages:
   const found = await search(t.expert.lib, t.question).catch(() => ({ chunks: [], cost: 0n }));
   const left = hold > found.cost ? hold - found.cost : 0n;
   const r = await llm.answer(t.expert.m, found.chunks, t.question, pages, left);
-  const check = r.text.trim() ? await llm.evaluate(task, t.question, r.text).catch(() => FAILED) : FAILED;
+  const failed = { delivered: false, violation: false, why: (r.why ?? (r.text.trim() ? 'not_checked' : 'empty')) as llm.Why };
+  const check = r.text.trim() ? await llm.evaluate(task, t.question, r.text).catch(() => failed) : failed;
   const outcome: Outcome = { cost: coarse(found.cost + r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
-  return { text: r.text, outcome };
+  return { text: r.text, outcome, why: check.why };
+}
+
+/** A line in each considered agent's cabinet: when, which round, picked or not, and how it went. Never the question. */
+function noteRound(key: string, topic: string, considered: Member[], members: Member[], parts: { outcome: Outcome; why: llm.Why }[]) {
+  const at = new Date().toISOString();
+  return Promise.all(considered.map((c) => {
+    const i = members.findIndex((m) => m.agent.account === c.agent.account);
+    const part = parts[i];
+    const line = part ? { at, job: key, topic, picked: true, ...part.outcome, why: part.why, pay: part.outcome.delivered ? c.agent.rate : '0' } : { at, job: key, topic, picked: false };
+    return store.note(c.agent.account, line);
+  })).catch((e) => log('note_failed', { job: key, error: String(e) }));
 }
 
 /** Takes the holds. An agent that stopped being ready since it was picked (withdrew, registered again) is left out. */
@@ -111,28 +121,33 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
     if (!scope.in_scope) return stand(`this change is new work beyond the original task (${scope.reason}) Please post it as a new job.`);
   }
   const screened = await llm.screen({ title: job.title, description: task });
-  if (!screened.allow) return refuse('rejected', screened.reason);
+  if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
 
   const net = budget(usdc(a.escrowAmount), feeBps, usdc(cfg.OVERHEAD_USD));
-  const { picked, members: planned, search: queries } = await team(task, pool, net);
-  if (picked === 0) return refuse('rejected', 'No expert in the swarm knows enough for this task.');
-  if (planned.length === 0) return refuse('rejected', 'The budget does not cover the experts this task needs.');
+  const { considered, picked, members: planned, search: queries } = await team(task, pool, net);
+  if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
+  if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
   const pages = await gather(task, queries);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url)])];
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await market.start(id);
-  const members = await commit(`${id}#${round}`, planned);
+  const key = `${id}#${round}`;
+  const members = await commit(key, planned);
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
   const parts = await Promise.all(members.map((t) => contribute(task, t, pages)));
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.account);
+  await noteRound(key, screened.topic, considered, members, parts);
+  void store.count(screened.topic, 'served');
 
   // Only delivered parts reach the composer; only the composer, the protocol's model, sees more than one.
   const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.text }] : []));
   const marked = good.length ? await llm.compose(task, previous, good, sources).catch(() => '') : '';
   if (!marked.trim()) return { outcomes, ...refuse('failed', 'The swarm could not compose an answer to this task.') };
-  const answer = await gate(provenance(marked).text, new Set(sources));
+  // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
+  const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);
+  const answer = await gate(provenance(marked).text, known);
   const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''}, round ${round}.*`;
   return { outcomes, submit: `${answer}\n\n${footer}`.slice(0, 250_000), provenance: { answer: marked, agents } };
 }

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swarm-for-Hire: your agent</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
+  button { padding: .45rem 1.1rem; font: inherit; cursor: pointer; margin: .2rem .4rem .2rem 0; }
+  input { font: inherit; padding: .35rem; width: 8rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; } td, th { border-bottom: 1px solid #ddd; padding: .3rem .5rem; text-align: left; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-word; }
+  .muted { color: #666; } #status { font-weight: 600; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>Your agent in the swarm</h1>
+<p class="muted">Sign in with your NEAR wallet: it pays for registration, top-ups and withdrawals, and its signature
+opens your cabinet. This page never sees your materials; they are sealed on the <a href="/">sealing page</a>.</p>
+<button id="connect">Connect wallet</button> <span id="who" class="muted"></span>
+
+<section id="register" hidden>
+  <h2>Register the sealed agent</h2>
+  <pre id="card"></pre>
+  Deposit, USDC <input id="deposit"> <button id="pay">Pay and register</button>
+  <p class="muted">Then go back to the sealing page: it uploads the sealed materials as soon as the registration is on chain.</p>
+</section>
+
+<section id="money" hidden>
+  <h2>Money</h2>
+  Top up, USDC <input id="topup" value="5.00"> <button id="topupBtn">Top up</button>
+  Withdraw, USDC <input id="withdraw" placeholder="all"> <button id="withdrawBtn">Withdraw</button>
+</section>
+
+<section id="cabinet" hidden>
+  <h2>Cabinet</h2>
+  <button id="open">Open with a signature</button>
+  <div id="view"></div>
+</section>
+
+<h2>What tasks need</h2>
+<p class="muted">All tasks the swarm got, by topic: where it had no expert, the swarm lacks knowledge you may have.</p>
+<div id="demand"></div>
+<div id="status"></div>
+<script type="module" src="/cabinet.js"></script>
+</body>
+</html>

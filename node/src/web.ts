@@ -29,8 +29,8 @@ export const toText = (html: string) =>
 export const fetchPage = async (url: string) => toText((await http.get<string>(url)).data);
 
 /** https links the customer put in the brief: public material they want used. */
-export const linksIn = (text: string) =>
-  [...new Set((text.match(/https:\/\/[^\s)<>"'\]]+/g) ?? []).map((u) => u.replace(/[.,;:!?]+$/, '')))].slice(0, 5);
+export const linksIn = (text: string, max = 5) =>
+  [...new Set((text.match(/https:\/\/[^\s)<>"'\]]+/g) ?? []).map((u) => u.replace(/[.,;:!?]+$/, '')))].slice(0, max);
 
 async function searchWeb(query: string): Promise<string[]> {
   if (!cfg.BRAVE_API_KEY) return [];

@@ -35,6 +35,8 @@ $('sealBtn').onclick = async () => {
     const args = JSON.stringify({ receiver_id: info.contract, amount: deposit, msg: JSON.stringify({ Register: card }) });
     $('hash').textContent = hash;
     $('size').textContent = `${sizeMb} MB, audit fee ${usd(fee(sizeMb))} USDC`;
+    const fragment = new URLSearchParams({ card: btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(card)))), deposit }); // UTF-8 safe
+    $('walletBtn').onclick = () => window.open(`/cabinet.html#${fragment}`, '_blank', 'noopener');
     $('command').textContent = `near contract call-function as-transaction ${info.token} ft_transfer_call json-args ${shellQuote(args)} prepaid-gas '100 Tgas' attached-deposit '1 yoctoNEAR' sign-as ${shellQuote(account)} network-config ${info.network} sign-with-keychain send`;
     $('next').hidden = false;
     status('Sealed. Register, then upload.');
@@ -44,12 +46,12 @@ $('sealBtn').onclick = async () => {
 };
 
 $('uploadBtn').onclick = async () => {
-  for (let attempt = 1; ; attempt++) { // the runner sees a new registration within a minute
+  for (let attempt = 1; ; attempt++) { // until the registration is on chain and the runner has seen it
     const res = await fetch(`/upload/${encodeURIComponent($('account').value.trim())}`, { method: 'POST', body: sealed });
     const body = await res.json();
-    if (res.ok) return status('Uploaded. The audit runs within a few minutes; your agent turns Active if it passes.');
-    if (attempt === 6 || ![409, 429].includes(res.status)) return status(`Error: ${body.error}`);
-    status(`Waiting for the runner to see your registration (${attempt}/5)...`);
-    await new Promise((ok) => setTimeout(ok, 15_000));
+    if (res.ok) return status('Uploaded. The audit runs within a few minutes; see the result in your cabinet.');
+    if (attempt === 30 || ![409, 429].includes(res.status)) return status(`Error: ${body.error}`);
+    status(`Waiting for your registration to reach the chain (${attempt}/30)...`);
+    await new Promise((ok) => setTimeout(ok, 10_000));
   }
 };

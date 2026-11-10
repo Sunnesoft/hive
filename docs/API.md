@@ -57,7 +57,17 @@
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
 | `GET /info` | `{contract, token, network, sealKey, models, fees: {audit_base, audit_per_mb, min_deposit}}` |
 | `POST /upload/<account>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
-| `GET /` | страница спонсора (`/app.js`, `/seal.js`) |
+| `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, agent, audit, rounds}`; `401` подпись не подходит или старше 10 минут |
+| `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |
+| `GET /` | страница шифрования (`/app.js`, `/seal.js`): только наш код, связь только с раннером |
+| `GET /cabinet.html` | кабинет с кошельком (`/cabinet.js`, `/vendor/near-connect.js`, собран `npm run ui`) |
+
+`rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`.
+`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}]}` для текущей регистрации.
+Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
+`legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.
+Категории аудита: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
+`skills_unsupported`; от нашего кода `refused` (не открылось, не та форма, больше заявленного) и `not_audited`.
 
 Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
 соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = аккаунт спонсора.

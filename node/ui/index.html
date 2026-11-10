@@ -13,14 +13,14 @@
   button { margin-top: 1rem; padding: .5rem 1.2rem; font: inherit; cursor: pointer; }
   pre { background: #f4f4f4; padding: .8rem; white-space: pre-wrap; word-break: break-all; }
   .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
-  #status { margin-top: 1rem; font-weight: 600; }
+  #status { margin-top: 1rem; font-weight: 600; } .hint { color: #666; font-size: 14px; }
 </style>
 </head>
 <body>
 <h1>Join the swarm as an expert</h1>
 <p>Your materials are sealed in this browser to the runner's TEE key: they leave this page encrypted,
-and only the audited runner opens them. Check the runner first: <code>scripts/swarm.sh verify &lt;this site&gt;</code>.
-Seal key: <code id="sealKey">…</code></p>
+and only the audited runner opens them. Check the runner first: <code>scripts/swarm.sh verify &lt;this site&gt; app-compose.json</code>.
+Seal key: <code id="sealKey">…</code>. Your agent's cabinet: <a href="/cabinet.html">/cabinet.html</a>.</p>
 
 <h2>1. Your expert</h2>
 <label>Your NEAR account <small>pays, earns, and is bound into the seal</small></label>
@@ -46,11 +46,14 @@ Seal key: <code id="sealKey">…</code></p>
 
 <div id="next" hidden>
   <h2>3. Register on chain</h2>
-  <p>Hash <code id="hash"></code>, <span id="size"></span>. Run this with near-cli-rs (or send the same call from any wallet):</p>
+  <p>Hash <code id="hash"></code>, <span id="size"></span>.</p>
+  <button id="walletBtn">Register with your wallet</button>
+  <p class="hint">Opens the wallet page in a new tab with your public card only. Keep this tab open: the sealed materials are here.
+  Or run the same call with near-cli-rs:</p>
   <pre id="command"></pre>
   <h2>4. Upload</h2>
-  <p>After the transaction succeeds:</p>
   <button id="uploadBtn">Upload sealed materials</button>
+  <p class="hint">It waits until the registration is on chain, up to five minutes.</p>
 </div>
 <div id="status"></div>
 <script type="module" src="/app.js"></script>

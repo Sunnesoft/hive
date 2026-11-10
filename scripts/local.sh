@@ -19,6 +19,7 @@ step "contract and test token: wasm"
 (cd e2e/token && cargo near build non-reproducible-wasm --no-abi)
 step "runner: dependencies, types, unit tests"
 [[ -d node_modules ]] || npm ci
+npm run -s ui # the wallet connector for the cabinet page, bundled from npm
 npm run -s check
 npm test
 step "end to end on a local chain (near-sandbox, nearcore 2.14.0)"

@@ -52,6 +52,10 @@ const protocol = <T>(rules: string, data: unknown, schema: z.ZodType<T>) => ask(
 const Verdict = z.object({ allow: z.boolean(), reason: z.string() });
 export type Verdict = z.infer<typeof Verdict>;
 
+/** Topics of tasks: Agent Market's own categories. Coarse on purpose: they tell sponsors where demand is, not what was asked. */
+export const TOPICS = ['automation', 'creative', 'customer_support', 'data', 'dev_tools', 'events', 'finance', 'legal_compliance', 'marketing', 'operations', 'research', 'sales', 'travel', 'other'] as const;
+export type Topic = (typeof TOPICS)[number];
+
 // ---- entry: audit of a sponsor's materials ----
 
 const Flags = z.object({ flags: z.array(z.object({ id: z.number(), reason: z.string() })) });
@@ -73,11 +77,15 @@ export async function scan(chunks: string[]): Promise<Flag[]> {
   return flags;
 }
 
-export const verdictOnMaterials = (summary: object) => protocol(policy.audit, summary, Verdict);
+/** Why an agent was denied, in words that name a rule, never the material. */
+export const DENIALS = ['instructions_to_ai', 'hidden_content', 'malware', 'personal_data', 'deception_or_copyright', 'skills_unsupported'] as const;
+const Audit = z.object({ allow: z.boolean(), category: z.enum(['ok', ...DENIALS]), reason: z.string() });
+export const verdictOnMaterials = (summary: object) => protocol(policy.audit, summary, Audit);
 
 // ---- a job ----
 
-export const screen = (job: { title: string; description: string }) => protocol(policy.job, job, Verdict);
+const Screened = Verdict.extend({ topic: z.enum(TOPICS) });
+export const screen = (job: { title: string; description: string }) => protocol(policy.job, job, Screened);
 
 export const MAX_QUESTION = 4_000; // characters of one agent's question
 
@@ -103,11 +111,12 @@ export const instructions = (m: Materials, found: string[]) =>
 
 /** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
  *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
-export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint) {
+export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why }> {
   const price = priceOf(m.model);
   const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
   const [system, prompt] = [instructions(m, found), materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`];
-  if (!price || ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n }; // no work, no charge
+  if (!price) return { text: '', cost: 0n, why: 'model_unavailable' }; // the model left the catalog: no work, no charge
+  if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
   try {
     const r = await generateText({
       model: nearai(m.model),
@@ -119,11 +128,14 @@ export async function answer(m: Materials, found: string[], question: string, pa
     const cost = microUsd(r.usage, price);
     return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap };
   } catch {
-    return { text: '', cost: 0n }; // a failed call: NEAR AI does not bill it
+    return { text: '', cost: 0n, why: 'model_failed' }; // a failed call: NEAR AI does not bill it
   }
 }
 
-const Check = z.object({ delivered: z.boolean(), violation: z.boolean(), reason: z.string() });
+/** Why a contribution counted or not, as its sponsor may see it: a rule, never the question. */
+export const WHYS = ['answered', 'empty', 'off_topic', 'refused', 'repeated_question', 'addressed_others', 'asked_for_score', 'changed_rules', 'hidden_content', 'attack'] as const;
+export type Why = (typeof WHYS)[number] | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
+const Check = z.object({ delivered: z.boolean(), violation: z.boolean(), why: z.enum(WHYS), reason: z.string() });
 /** Did this agent do its part? Sees only its question and answer, so no agent can sway another's verdict. */
 export const evaluate = (task: string, question: string, text: string) => protocol(policy.evaluate, { task, question, answer: text }, Check);
 

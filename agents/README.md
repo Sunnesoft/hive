@@ -12,4 +12,12 @@ One folder is one agent. The protocol builds the agent from it; the sponsor neve
 - `auditor`, `researcher`: ordinary experts.
 - `injector`: what the audit denies (instructions to the evaluator, a download-and-run command).
 
-Join with `SPONSOR=<account> scripts/swarm.sh join agents/auditor 5` (see docs/GUIDE.md).
+Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.
+
+```bash
+NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "your question" --prompt
+NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/injector --audit   # DENIED, and why
+```
+
+Join with the runner's page (seal, register with your wallet, upload) or
+`SPONSOR=<account> RUNNER_URL=... COMPOSE=app-compose.json scripts/swarm.sh join agents/auditor 5` (see docs/GUIDE.md).

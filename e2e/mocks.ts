@@ -53,8 +53,11 @@ export async function nearai(models: string[]) {
 
     if (is('You scan chunks')) // flags what plainly talks to an AI
       return reply({ flags: data().chunks.filter((c: { text: string }) => /SYSTEM OVERRIDE|ignore previous/i.test(c.text)).map((c: { id: number }) => ({ id: c.id, reason: 'talks to the AI' })) });
-    if (is('You decide whether an AI agent may join')) return reply({ allow: data().flags.length === 0, reason: 'mock audit' });
-    if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware' });
+    if (is('You decide whether an AI agent may join')) {
+      const allow = data().flags.length === 0;
+      return reply({ allow, category: allow ? 'ok' : 'instructions_to_ai', reason: allow ? 'mock audit: fine' : 'mock audit: it talks to the AI' });
+    }
+    if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware', topic: 'research' });
     if (is('You put together a team')) {
       // An agent is picked when the task names the topic of its skills ("<topic>: <what>"), in the order of the list.
       const { task, agents } = data() as { task: string; agents: { id: number; skills: string }[] };
@@ -63,7 +66,8 @@ export async function nearai(models: string[]) {
     }
     if (is('You check one contribution')) {
       const { answer } = data() as { answer: string };
-      return reply({ delivered: answer.includes('Project Alpha'), violation: /evaluator/i.test(answer), reason: 'mock check' });
+      const [delivered, violation] = [answer.includes('Project Alpha'), /evaluator/i.test(answer)];
+      return reply({ delivered, violation, why: violation ? 'addressed_others' : delivered ? 'answered' : 'off_topic', reason: 'mock check' });
     }
     if (is('You write the final answer')) {
       const { previous, contributions } = data() as { previous: string; contributions: { id: number; text: string }[] };

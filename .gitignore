@@ -8,3 +8,4 @@ quote.json
 docs/.check/
 core
 core.*
+node/ui/vendor/
