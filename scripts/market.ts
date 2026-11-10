@@ -27,7 +27,7 @@ Each answer is checked on its own, then one sourced answer is composed for you.
 - Up to ${reworks} rounds of changes within the original task are included.
 - Nothing is executed for you: code in answers is checked, dangerous code is removed, the rest is marked as not run.
 - Links only to addresses that existed before your task; others are shown as text, marked unverified. No images, no HTML.
-- Want particular experts? Pick them in the swarm's public catalog and put their ids in your brief.
+- Write your brief on the swarm's site (/experts): pick experts there if you like, see the price and the plan, then paste the brief here into "Describe the job". The expert ids in it are asked first.
 - The experts' knowledge is sealed to an attested TEE: nobody, the swarm's owner included, can read it.`;
 
 const [cmd, a] = process.argv.slice(2);

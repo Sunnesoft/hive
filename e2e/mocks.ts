@@ -170,5 +170,6 @@ export async function market(token: string, port = 0) {
   const delivered = (id: string) => versions.get(id)!.map((v) => v.markdown);
   /** The customer accepts the last delivery; the market pays the agent. */
   const accept = (id: string) => (rows.get(id)!.assignment.status = 'accepted');
-  return { ...server, hire, delivered, declined, requestChanges, redo, accept };
+  const splitRuling = (id: string) => (rows.get(id)!.assignment.status = 'dispute_resolved'); // a dispute settled by a split
+  return { ...server, hire, delivered, declined, requestChanges, redo, accept, splitRuling };
 }

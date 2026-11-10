@@ -4,7 +4,10 @@
 // Earlier rounds get exactly what they owe their experts (plus the owner's fee on it); the round that composed the
 // accepted answer gets the rest. That round is paid first: if a run stops halfway, the next run pays the earlier
 // rounds their exact shares. A paid round is gone from the contract, so nothing is paid twice. Safe from cron.
-//   node --experimental-strip-types --env-file=.env.testnet scripts/payouts.ts <operator account> [--dry]
+// A dispute ruled as a split (status dispute_resolved) pays us only part of the escrow, and the agent token cannot
+// read how much: the run names such tasks, and `--received <assignment>=<USDC>` forwards what actually arrived,
+// shared in proportion to what each round owes.
+//   node --experimental-strip-types --env-file=.env.testnet scripts/payouts.ts <operator account> [--dry] [--received id=usdc ...]
 // Needs NEAR_RPC, CONTRACT, MARKET_URL, MARKET_TOKEN; the operator's key in OPERATOR_KEY or in ~/.near-credentials.
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -13,6 +16,7 @@ import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, teraToGas, type KeyPa
 import { MARKET_FEE_BPS, share, show, usdc, type Job } from '../node/src/rules.ts';
 
 const [operator, dry] = [process.argv[2], process.argv.includes('--dry')];
+const received = new Map(process.argv.flatMap((a, i) => (process.argv[i - 1] === '--received' ? [a.split('=') as [string, string]] : [])));
 const { NEAR_RPC, CONTRACT, MARKET_URL = 'https://market.near.ai', MARKET_TOKEN } = process.env;
 if (!operator || !NEAR_RPC || !CONTRACT || !MARKET_TOKEN) throw new Error('usage: payouts.ts <operator account> [--dry], with NEAR_RPC, CONTRACT, MARKET_TOKEN set');
 
@@ -25,10 +29,10 @@ const [token, { fee_bps }] = await Promise.all([view<string>('token'), view<{ fe
 const market = (path: string) => fetch(`${MARKET_URL}${path}`, { headers: { authorization: `Bearer ${MARKET_TOKEN}` } });
 
 type Row = { assignment: { assignmentId: string; status: string; escrowAmount: string } };
-async function accepted(): Promise<Row[]> {
+async function settled(status: 'accepted' | 'dispute_resolved'): Promise<Row[]> {
   const all: Row[] = [];
   for (let offset = 0; ; offset += 100) {
-    const page: Row[] = (await (await market(`/v1/agents/me/assignments?status=accepted&limit=100&offset=${offset}`)).json()).assignments ?? [];
+    const page: Row[] = (await (await market(`/v1/agents/me/assignments?status=${status}&limit=100&offset=${offset}`)).json()).assignments ?? [];
     all.push(...page);
     if (page.length < 100) return all;
   }
@@ -47,9 +51,12 @@ async function owedRounds(id: string) {
   return rounds;
 }
 
-/** What to send to each round: earlier rounds their exact share, the accepted round the rest, sent first. */
+/** What to send to each round: earlier rounds their exact share, the accepted round the rest, sent first.
+ *  When less arrived than the rounds owe (a split ruling), each round gets its part in proportion. */
 function split(revenue: bigint, rounds: { job: string; due: bigint; last: boolean }[]) {
-  const earlier = rounds.filter((r) => !r.last).map((r) => ({ job: r.job, amount: share(r.due, fee_bps) }));
+  const shares = rounds.map((r) => share(r.due, fee_bps));
+  const owed = shares.reduce((s, x) => s + x, 0n);
+  const earlier = rounds.flatMap((r, i) => (r.last ? [] : [{ job: r.job, amount: owed > revenue ? (revenue * shares[i]!) / owed : shares[i]! }]));
   const final = rounds.find((r) => r.last);
   if (!final) return earlier; // paid before a run stopped: only the earlier rounds are left
   const rest = revenue - earlier.reduce((s, r) => s + r.amount, 0n);
@@ -57,10 +64,17 @@ function split(revenue: bigint, rounds: { job: string; due: bigint; last: boolea
 }
 
 let [sent, total] = [0, 0n];
-for (const { assignment: a } of await accepted()) {
+const rows = [...(await settled('accepted')), ...(await settled('dispute_resolved'))];
+for (const { assignment: a } of rows) {
   const rounds = await owedRounds(a.assignmentId);
   if (!rounds.length) continue; // paid already, or nobody was owed anything
-  const revenue = (usdc(a.escrowAmount) * (10_000n - MARKET_FEE_BPS)) / 10_000n; // what Agent Market pays us for it
+  const got = received.get(a.assignmentId);
+  if (a.status === 'dispute_resolved' && got === undefined) {
+    console.log(`split ruling on ${a.assignmentId}: run again with --received ${a.assignmentId}=<USDC Agent Market paid for it>`);
+    continue;
+  }
+  // What Agent Market paid us for it: the escrow minus its fee, or what arrived after a split ruling.
+  const revenue = got !== undefined ? usdc(got) : (usdc(a.escrowAmount) * (10_000n - MARKET_FEE_BPS)) / 10_000n;
   for (const { job, amount } of split(revenue, rounds)) {
     console.log(`${dry ? 'would pay' : 'paying'} ${show(amount)} USDC to ${job}`);
     if (!dry) {

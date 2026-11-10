@@ -258,8 +258,8 @@ try {
   const [left, stayed] = r2?.slots[0]?.agent === agentId(dates) ? [codes, dates] : [dates, codes]; // who round 2 had no room for
   market.accept('a-good');
   const payoutEnv = { ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, MARKET_URL: market.url, MARKET_TOKEN: 'aat_test', OPERATOR_KEY: keys.get(operator.accountId)!.toString() };
-  const payouts = () => new Promise<string>((ok) => {
-    const [cmd, argv] = node(['scripts/payouts.ts', operator.accountId]);
+  const payouts = (extra: string[] = []) => new Promise<string>((ok) => {
+    const [cmd, argv] = node(['scripts/payouts.ts', operator.accountId, ...extra]);
     execFile(cmd, argv, { cwd: root, env: payoutEnv }, (e, out, err) => ok(e ? `${out}${err}` : out));
   });
   const paid = await payouts();
@@ -314,6 +314,18 @@ try {
   check('intake: the expert named in the brief comes first, marked requested', named?.agents[0]?.requested === true && named.agents[0].skills === skills.get(codes), named?.agents);
   check('intake: the customer\'s text attachment reached the experts as material', ai.agentCalls.some((c) => c.includes('Customer context: the launch is internal only.')));
   check('intake: the answer names the experts who contributed', market.delivered('a-named')[0]!.includes(agentId(codes)), market.delivered('a-named')[0]!.slice(-200));
+
+  // --- a dispute ruled as a split: only part of the escrow arrives, and it is shared in proportion ---
+  const rn = await job('a-named#1');
+  const owedN = rn!.slots.reduce((s, x) => s + BigInt(x.pay), 0n);
+  market.splitRuling('a-named');
+  check('split: the run names the task and pays nothing until told what arrived', /split ruling on a-named: run again with --received a-named=/.test(await payouts()) && (await job('a-named#1')) !== null);
+  const splitBefore = { owner: await balance(owner.accountId), ...Object.fromEntries(await Promise.all(rn!.slots.map(async (x) => [x.agent, await balance(x.agent.split('/')[0]!)]))) };
+  await call(owner, usdc.accountId, 'ft_transfer', { receiver_id: operator.accountId, amount: `${2n * U}` }, 1n); // Agent Market pays out the split part
+  const paidSplit = await payouts(['--received', 'a-named=2.00']);
+  const feeN = (2n * U * 500n) / 10_000n;
+  const gotN = await Promise.all(rn!.slots.map(async (x) => (await balance(x.agent.split('/')[0]!)) - splitBefore[x.agent]));
+  check('split: what arrived goes to the round: the owner\'s 5%, then the experts in proportion to their rates', /paying 2\.00 USDC to a-named#1/.test(paidSplit) && (await balance(owner.accountId)) - splitBefore.owner === feeN && gotN.every((g, i) => g === ((2n * U - feeN) * BigInt(rn!.slots[i]!.pay)) / owedN || g === ((2n * U - feeN) * BigInt(rn!.slots[i]!.pay)) / owedN + 1n), { gotN, owedN, paidSplit });
 
   // --- money out ---
   const before = await tokens(dates);

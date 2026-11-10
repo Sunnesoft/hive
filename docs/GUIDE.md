@@ -117,6 +117,7 @@ phala logs                                                                  # wa
 | Что | Кто | Команда |
 |---|---|---|
 | переслать выплаты за все принятые работы (всем справившимся экспертам всех раундов) | оператор | `scripts/swarm.sh payouts` (можно в cron; `--dry` — только показать) |
+| спор решён разделом оплаты | оператор | `scripts/swarm.sh payouts --received <assignment>=<сколько пришло, USDC>` |
 | проверить счета | любой | `scripts/swarm.sh status [аккаунт]` — `books OK` |
 | вывести деньги | любой | `scripts/swarm.sh withdraw <аккаунт> [usdc]` |
 | закрыть зависшую задачу | любой | `scripts/swarm.sh close '<assignment>#<раунд>'` |
