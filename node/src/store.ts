@@ -28,14 +28,16 @@ export const historyOf = async (agent: string, last = 500) => {
 
 /** Demand by topic, over all tasks: public, so sponsors see what knowledge the swarm lacks. */
 const demandFile = () => join(dir('agents'), 'demand.json');
-let demand: Record<string, Record<string, number>> | undefined;
+// Loaded once, as a promise, so tasks that count at the same moment share one object; writes go one after another.
+let demand: Promise<Record<string, Record<string, number>>> | undefined;
+let saved = Promise.resolve();
+export const demandNow = () => (demand ??= readFile(demandFile(), 'utf8').then((s) => JSON.parse(s), () => ({})));
 export async function count(topic: string, outcome: 'served' | 'no_expert' | 'over_budget' | 'refused') {
-  demand ??= await readFile(demandFile(), 'utf8').then((s) => JSON.parse(s), () => ({}));
-  const t = (demand![topic] ??= {});
+  const d = await demandNow();
+  const t = (d[topic] ??= {});
   t[outcome] = (t[outcome] ?? 0) + 1;
-  await writeFile(demandFile(), JSON.stringify(demand));
+  await (saved = saved.catch(() => {}).then(() => writeFile(demandFile(), JSON.stringify(d))));
 }
-export const demandNow = async () => (demand ??= await readFile(demandFile(), 'utf8').then((s) => JSON.parse(s), () => ({})));
 
 const round = (key: string) => join(dir('rounds'), `${encodeURIComponent(key)}.json`);
 export const remember = (key: string, decision: object) => writeFile(round(key), JSON.stringify(decision));

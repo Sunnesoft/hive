@@ -94,7 +94,7 @@ const Plan = z.object({
   search: z.array(z.string()).default([]),
 });
 /** Which agents the task needs, most important first, each with its own question; and web searches, if any. */
-export async function plan(task: string, budget: number, agents: { id: number; skills: string; rate: number; requested?: boolean }[]) {
+export async function plan(task: string, budget: number, agents: { id: number; skills: string; rate: number; requested?: boolean; record?: string | null }[]) {
   const { picks, search } = await protocol(policy.route, { task, budget, agents }, Plan);
   const seen = new Set<number>();
   const valid = picks.filter((p) => agents.some((a) => a.id === p.id) && p.question.trim() && !seen.has(p.id) && !!seen.add(p.id));

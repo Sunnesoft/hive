@@ -52,6 +52,24 @@ async function shortlist(task: string, pool: Member[]) {
   return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, SHORTLIST).map((x) => x.c);
 }
 
+/** An expert's recent record for the router: "delivered/picked" over its last tasks, or null for a new one.
+ *  An expert that keeps failing gets fewer tasks, so its failures cost it, not the experts it works with. */
+async function record(agent: string) {
+  const picked = (await store.historyOf(agent, 200)).filter((r) => r.picked).slice(-50);
+  return picked.length ? `${picked.filter((r) => r.delivered).length}/${picked.length}` : null;
+}
+
+/** What the earlier rounds of an assignment still owe: each delivered expert's rate and its overhead. All rounds
+ *  of a task share its budget, because the customer pays once and every round's delivered experts are paid. */
+async function owedBefore(id: string, round: number) {
+  let owed = 0n;
+  for (let k = 1; k < round; k++) {
+    const j = await chain.job(`${id}#${k}`);
+    for (const s of j?.done ? j.slots : []) if (BigInt(s.pay) > 0n) owed += BigInt(s.pay) + usdc(cfg.OVERHEAD_PER_AGENT_USD);
+  }
+  return owed;
+}
+
 /** Did the customer name this expert in the brief, by its id from the public catalog (`alice.near/auditor`)? */
 const names = (task: string, id: string) => new RegExp(`(^|[^\\w.-])${id.replace(/[.]/g, '\\.')}(?![\\w-])`).test(task);
 
@@ -61,7 +79,8 @@ async function team(task: string, pool: Member[], net: bigint) {
   const asked = new Set(pool.filter((c) => names(task, c.agent.id)).map((c) => c.agent.id));
   const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
   const units = (x: bigint) => Number(x) / 1e6;
-  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id) })));
+  const records = await Promise.all(list.map((c) => record(c.agent.id)));
+  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]! })));
   const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
   return { considered: list, picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
 }
@@ -128,7 +147,8 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const screened = await llm.screen({ title: job.title, description: task });
   if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
 
-  const net = budget(usdc(a.escrowAmount), feeBps, usdc(cfg.OVERHEAD_USD));
+  const net = budget(usdc(a.escrowAmount), feeBps, usdc(cfg.OVERHEAD_USD)) - (await owedBefore(id, round));
+  if (round > 1 && net <= 0n) return stand('the budget of this task went to the experts of its earlier rounds. Please post further changes as a new job.');
   const { considered, picked, members: planned, search: queries } = await team(task, pool, net);
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));

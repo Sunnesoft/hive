@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, usdc, type Agent } from '../src/rules.ts';
+import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, share, usdc, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -51,4 +51,12 @@ test('provenance strips the source marks and remembers which were used', () => {
   const { text, used } = provenance('It launches on 2027-03-14 [[0]]. The code is BLUE-HERON [[2]][[0]].');
   assert.equal(text, 'It launches on 2027-03-14. The code is BLUE-HERON.');
   assert.deepEqual([...used].sort(), [0, 2]);
+});
+
+test('a round\'s share of revenue pays its experts exactly after the owner\'s fee, rounded up', () => {
+  const owed = 5n * U;
+  const amount = share(owed, 500);
+  assert.equal(amount, 5_263_158n);
+  assert.ok(amount - (amount * 500n) / 10_000n >= owed); // what is left after the fee covers the experts
+  assert.equal(share(95n * U, 500), 100n * U); // exact when it divides
 });

@@ -51,6 +51,12 @@ const bps = (amount: bigint, b: bigint) => (amount * (10_000n - b)) / 10_000n;
 /** What the agents of a job may cost together, out of what the customer pays. */
 export const budget = (price: bigint, feeBps: number, overhead: bigint) => bps(bps(price, MARKET_FEE_BPS), BigInt(feeBps)) - overhead;
 
+/** The revenue a round needs to pay what it owes its delivered experts after the owner's fee: rounded up. */
+export const share = (due: bigint, feeBps: number) => {
+  const keep = BigInt(10_000 - feeBps);
+  return (due * 10_000n + keep - 1n) / keep;
+};
+
 /** The longest prefix of picks (most important first) whose rates and per-agent overhead fit the budget. */
 export function fit<T extends { rate: bigint }>(picks: T[], net: bigint, perAgent: bigint): T[] {
   const team: T[] = [];

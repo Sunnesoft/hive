@@ -238,7 +238,8 @@ try {
   const v2 = market.delivered('a-good')[1]!;
   check('rework: round 2 delivered, revised', /Revised/.test(v2) && /round 2\.\*$/.test(v2), v2);
   check('rework: only the composer saw the answer sent back', ai.composed.at(-1)?.previous === v1 && ai.agentCalls.every((c) => !c.includes('Composed by Swarm-for-Hire')));
-  check('rework: the suspended agent is out of round 2', (await job('a-good#2'))?.slots.length === 2);
+  // Rounds share the budget: 8.525 for experts, round 1 owes 3 + 2 and 0.10 overhead each, so 3.325 is left.
+  check('rework: round 2 spends only what round 1 left (one expert fits); the suspended agent is out', (await job('a-good#2'))?.slots.length === 1, await job('a-good#2'));
 
   await market.requestChanges('a-good', 'Now write a new marketing plan for Project Beta.');
   await until('the answer to new work', () => market.delivered('a-good').length === 3);
@@ -250,6 +251,9 @@ try {
 
   // --- the customer accepts; Agent Market pays 9.5 (10 minus 5%); the operator's one command forwards it ---
   const [opBefore, ownerBefore, datesBefore, codesBefore] = [await balance(operator), await balance(owner.accountId), await balance(dates), await balance(codes)];
+  const r2 = await job('a-good#2');
+  const due = (a: Account) => owed(r1, a) + (r2?.slots.some((s) => s.agent === agentId(a)) ? owed(r2, a) : 0n);
+  const [left, stayed] = r2?.slots[0]?.agent === agentId(dates) ? [codes, dates] : [dates, codes]; // who round 2 had no room for
   market.accept('a-good');
   const payoutEnv = { ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, MARKET_URL: market.url, MARKET_TOKEN: 'aat_test', OPERATOR_KEY: keys.get(operator.accountId)!.toString() };
   const payouts = () => new Promise<string>((ok) => {
@@ -257,14 +261,19 @@ try {
     execFile(cmd, argv, { cwd: root, env: payoutEnv }, (e, out, err) => ok(e ? `${out}${err}` : out));
   });
   const paid = await payouts();
-  check('payouts: one command pays the round that composed the accepted answer (round 2, not round 1)', /paying 9\.50 USDC to a-good#2/.test(paid) && !/a-good#1/.test(paid), paid);
+  // Round 1 owes 5: it gets 5 / 0.95 rounded up = 5.263158, so its experts get exactly 5 after the owner's 5%.
+  // Round 2 composed the accepted answer: it is paid first and gets the rest of 9.50, 4.236842.
+  const [a1, a2] = [5_263_158n, 9_500_000n - 5_263_158n];
+  check('payouts: the accepted round 2 first, then round 1 its exact share', /paying 4\.24 USDC to a-good#2\npaying 5\.26 USDC to a-good#1/.test(paid), paid);
   check('payouts: running it again pays nothing twice', /^0 rounds/m.test(await payouts()));
-  check('revenue: owner fee 5% = 0.475', (await balance(owner.accountId)) - ownerBefore === 475_000n);
-  check('revenue: rates 3 and 2 to the agents', (await balance(dates)) - datesBefore === 3n * U && (await balance(codes)) - codesBefore === 2n * U);
-  check('revenue: the rest, 4.025, to the operator', (await balance(operator)) - opBefore === 4_025_000n, (await balance(operator)) - opBefore);
-  check('revenue: the paid round is gone', (await job('a-good#2')) === null);
+  const delta = { dates: (await balance(dates)) - datesBefore, codes: (await balance(codes)) - codesBefore, owner: (await balance(owner.accountId)) - ownerBefore, operator: (await balance(operator)) - opBefore };
+  check('revenue: every expert is paid its rate for each round it delivered in', delta.dates === due(dates) && delta.codes === due(codes), { delta, dates: due(dates), codes: due(codes) });
+  check('revenue: the expert round 2 had no room for is still paid for its part in round 1', (left === dates ? delta.dates : delta.codes) === owed(r1, left) && owed(r1, left) > 0n && (stayed === dates ? delta.dates : delta.codes) === owed(r1, stayed) + owed(r2, stayed));
+  check('revenue: the owner\'s 5% of each payment', delta.owner === (a1 * 500n) / 10_000n + (a2 * 500n) / 10_000n, delta.owner);
+  check('revenue: the operator keeps the rest, nothing lost', delta.operator === 9_500_000n - delta.owner - delta.dates - delta.codes, delta.operator);
+  check('revenue: both paid rounds are gone', (await job('a-good#1')) === null && (await job('a-good#2')) === null);
   const again = await pay(operator, U, { Revenue: { job: 'a-good#2' } }).then(() => 'paid', (e) => String(e));
-  check('revenue: a second payment is refused (and refunded by the token)', again !== 'paid' || (await balance(operator)) - opBefore === 4_025_000n, again);
+  check('revenue: a second payment is refused (and refunded by the token)', again !== 'paid' || (await balance(operator)) - opBefore === delta.operator, again);
   await books();
 
   // --- a dispute ruled redo: done even past the rework limit ---

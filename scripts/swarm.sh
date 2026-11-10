@@ -21,7 +21,7 @@
 #   join <agent folder> <usdc>     check the runner (RUNNER_URL, COMPOSE), seal the folder to it, register, upload
 #   top-up <owner/name> <usdc>     add to the balance behind an agent (its owner's)
 # operator
-#   payouts                        forward every accepted assignment's payout to its round (cron-safe; OPERATOR_KEY or keychain)
+#   payouts                        pay every accepted assignment's rounds: each delivered expert its rate (cron-safe)
 #   revenue <assignment#round> <usdc>  forward one payout by hand
 # anyone
 #   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
