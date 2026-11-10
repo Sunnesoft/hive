@@ -1,7 +1,7 @@
 // What we treat as dangerous in text: on the way in (sponsor materials) and on the way out (answers).
 
 /** Zero-width, bidi-override and Unicode-tag characters: invisible to people, readable by models. */
-const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁯﻿\u{E0000}-\u{E007F}]/gu;
+const INVISIBLE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\u{e0000}-\u{e007f}]/gu;
 export const clean = (s: string) => s.normalize('NFC').replace(INVISIBLE, '');
 
 /** Code that should never reach a customer, whatever a model thinks of it. */
@@ -17,4 +17,4 @@ const DANGEROUS: [string, RegExp][] = [
 export const dangers = (code: string) => DANGEROUS.filter(([, r]) => r.test(code)).map(([what]) => what);
 
 /** A URL shown as text that no Markdown renderer turns into a link. */
-export const defang = (url: string) => url.replace(/^\w+:\/\//, '').replace(/\./g, '[.]');
+export const defang = (url: string) => url.replace(/^[a-z][\w+.-]*:(\/\/)?|^\/\//i, '').replace(/\./g, '[.]');

@@ -38,10 +38,10 @@ const at = (id: string) => `/v1/assignments/${encodeURIComponent(id)}`;
 export const assignments = () => api('/v1/agents/me/assignments', z.object({ assignments: z.array(Row) })).then((r) => r.assignments);
 export const board = () => api('/v1/jobs/board?kind=standard&sort=recent', z.object({ jobs: z.array(BoardJob) })).then((r) => r.jobs);
 
-/** What the customer wrote on the thread, oldest first: clarifications and requests for changes. */
+/** What people wrote on the thread, oldest first: the customer's clarifications and requests for changes, and
+ *  the marketplace's own notes (`origin: platform`), such as a dispute ruled `redo`. Our own messages are left out. */
 export const thread = (id: string) =>
-  api(`${at(id)}/messages?limit=100`, z.object({ messages: z.array(Message) })).then((r) =>
-    r.messages.filter((m) => m.senderAgentId === null && m.origin !== 'platform').reverse());
+  api(`${at(id)}/messages?limit=100`, z.object({ messages: z.array(Message) })).then((r) => r.messages.filter((m) => m.senderAgentId === null).reverse());
 /** Versions delivered so far, oldest first. */
 export const versions = (id: string) =>
   api(`${at(id)}/deliverable/versions`, z.object({ versions: z.array(z.object({ submittedAt: z.string() })) })).then((r) => r.versions);

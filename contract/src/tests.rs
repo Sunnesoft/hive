@@ -81,9 +81,13 @@ fn setup() -> Contract {
     for (a, rate) in [(A, 3 * U), (B, 2 * U)] {
         deposit(&mut c, a, 10 * U, register(&hash('a'), rate, U, 1));
         call(RUNNER, 0);
-        c.review(acc(a), hash('a'), true);
+        c.review(acc(a), registration(&c, a), true);
     }
     c
+}
+
+fn registration(c: &Contract, a: &str) -> u64 {
+    c.agent(acc(a)).unwrap().card.registration
 }
 
 /// Everything the contract owes is in exactly one place: a balance or a hold.
@@ -143,14 +147,15 @@ fn revenue_below_the_rates_is_shared_pro_rata() {
 }
 
 #[test]
-fn a_violation_forfeits_the_hold_and_the_pay_and_suspends() {
+fn a_violation_costs_the_pay_and_suspends_but_enriches_nobody() {
     let mut c = setup();
     assign_both(&mut c);
     c.finish("j1".into(), vec![out(CENT, true, true), out(CENT, true, false)]);
     assert_eq!(c.agent(acc(A)).unwrap().card.status, Status::Suspended);
-    assert_eq!((bal(&c, A), bal(&c, DAO)), (9 * U, U - CENT));
+    assert_eq!((bal(&c, A), bal(&c, DAO)), (10 * U - CENT, 0)); // the hold came back, minus the cost
     deposit(&mut c, OP, 6 * U, revenue("j1"));
-    assert_eq!(bal(&c, A), 9 * U);
+    assert_eq!(bal(&c, A), 10 * U - CENT);
+    assert_eq!(bal(&c, DAO), 6 * U / 20); // only the fee
     assert_books(&c, &[]);
 }
 
@@ -237,11 +242,13 @@ fn re_registering_needs_a_new_review() {
 
 #[test]
 #[should_panic(expected = "stale review")]
-fn a_review_of_replaced_materials_is_refused() {
+fn a_review_of_a_replaced_card_is_refused() {
     let mut c = setup();
-    deposit(&mut c, A, U, register(&hash('b'), U, U, 1)); // new materials while the old ones are reviewed
+    deposit(&mut c, X, 2 * U, register(&hash('c'), U, U, 1));
+    let audited = registration(&c, X);
+    deposit(&mut c, X, 2 * U, register(&hash('c'), U, U, 1)); // same materials, a new card, while the audit runs
     call(RUNNER, 1);
-    c.review(acc(A), hash('a'), true);
+    c.review(acc(X), audited, true);
 }
 
 #[test]

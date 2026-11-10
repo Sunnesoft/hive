@@ -1,7 +1,8 @@
 // Checks a runner before anyone trusts it: before a sponsor seals materials to it, before the owner gives
 // it a key. Usage: verify.ts <runner url | attestation.json> [app-compose.json]
-// With RPC and RUNNER in the environment (scripts/swarm.sh sets them) it also says whether the signing key
-// already acts for the runner account. Exits 1 if a check fails.
+// The compose file is what binds the quote to our code (image digest, env, policies): without it, any genuine
+// TDX app would pass. With RPC and RUNNER in the environment (scripts/swarm.sh sets them) it also checks that
+// the signing key acts for the runner account; REQUIRE_KEY=1 makes that a condition (sponsors use it). Exits 1 if a check fails.
 import { readFileSync } from 'node:fs';
 import { getCollateralAndVerify } from '@phala/dcap-qvl';
 import { getComposeHash } from '@phala/dstack-sdk';
@@ -27,16 +28,16 @@ const all: Check[] = [
   ...checks,
   { what: 'it applies the policies of this repository', ok: a.policies === policyHash, detail: `this repository has ${policyHash}` },
 ];
-if (composeFile) {
-  const expected = getComposeHash(JSON.parse(readFileSync(composeFile, 'utf8')));
-  all.push({ what: 'it runs our compose (image digest, env, policies)', ok: expected === composeHash, detail: `expected ${expected}` });
+const expected = composeFile ? getComposeHash(JSON.parse(readFileSync(composeFile, 'utf8'))) : undefined;
+all.push({ what: 'it runs our compose (image digest, env, policies)', ok: expected === composeHash, detail: expected ? `expected ${expected}` : 'give app-compose.json to check it' });
+if (process.env.RPC && process.env.RUNNER) {
+  const body = { jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'view_access_key', finality: 'final', account_id: process.env.RUNNER, public_key: a.publicKey } };
+  const res = await (await fetch(process.env.RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+  const acts = !!res.result?.permission;
+  if (process.env.REQUIRE_KEY === '1') all.push({ what: `its signing key acts for ${process.env.RUNNER}`, ok: acts, detail: 'the owner has not given it the runner key' });
+  else console.log(acts ? `  the signing key acts for ${process.env.RUNNER}` : `  the signing key is not (yet) a key of ${process.env.RUNNER}`);
 }
 
 for (const c of all) console.log(`${c.ok ? '✓' : '✗'} ${c.what}${!c.ok && c.detail ? `  (${c.detail})` : ''}`);
 console.log(`  app id ${appId}\n  compose hash ${composeHash}\n  signing key ${a.publicKey}\n  seal key ${a.sealKey}`);
-if (process.env.RPC && process.env.RUNNER) {
-  const body = { jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'view_access_key', finality: 'final', account_id: process.env.RUNNER, public_key: a.publicKey } };
-  const res = await (await fetch(process.env.RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-  console.log(res.result?.permission ? `  the signing key acts for ${process.env.RUNNER}` : `  the signing key is not (yet) a key of ${process.env.RUNNER}`);
-}
 process.exit(all.every((c) => c.ok) ? 0 : 1);

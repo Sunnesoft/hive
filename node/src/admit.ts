@@ -20,8 +20,10 @@ const TRIES = 3; // audits that fail on our side before the agent is denied, so 
 let secret: Uint8Array;
 export const useSeal = (s: Uint8Array) => (secret = s);
 
-const experts = new Map<string, Expert>(); // `account/hash` -> expert: a new registration is a new key
-export const expertOf = (a: Agent) => experts.get(`${a.account}/${a.hash}`);
+/** One registration of one sponsor: a new registration, even with the same materials, is audited anew. */
+const cardOf = (a: Agent) => `${a.account}#${a.registration}`;
+const experts = new Map<string, Expert>();
+export const expertOf = (a: Agent) => experts.get(cardOf(a));
 
 async function open(a: Agent) {
   const sealed = await store.upload(a.hash);
@@ -35,7 +37,7 @@ async function open(a: Agent) {
 }
 
 async function audit(m: Materials, skills: string, docs: string[]) {
-  const all = [m.expertise, m.method, ...docs];
+  const all = [skills, m.expertise, m.method, ...docs]; // the public skills go into the router's prompt: scanned too
   const flags = [...all.flatMap((text, id) => dangers(text).map((reason) => ({ id, reason }))), ...(await scan(all))];
   return verdictOnMaterials({
     name: m.name,
@@ -49,24 +51,30 @@ async function audit(m: Materials, skills: string, docs: string[]) {
 }
 
 const failures = new Map<string, number>();
+const verdicts = new Map<string, { allow: boolean; reason?: string }>(); // decided, maybe not yet on chain
 
 /** Decides a Pending agent once its upload is here. The model's reason may quote the materials: never logged. */
 export async function admit(a: Agent) {
-  const v = await (async () => {
-    const opened = await open(a);
-    if (!opened) return null;
-    const { allow } = await audit(opened.m, a.skills, opened.docs);
-    if (allow) experts.set(`${a.account}/${a.hash}`, { m: opened.m, digest: opened.digest, lib: await index(opened.docs) });
-    return { allow };
-  })().catch((e) => {
-    if (e instanceof Refused) return { allow: false, reason: e.message }; // our own code's words
-    const n = (failures.get(a.hash) ?? 0) + 1;
-    failures.set(a.hash, n);
-    if (n < TRIES) throw e; // NEAR AI trouble: try again next tick
-    return { allow: false, reason: 'could not be audited' };
-  });
+  const card = cardOf(a);
+  const v =
+    verdicts.get(card) ??
+    (await (async () => {
+      const opened = await open(a);
+      if (!opened) return null;
+      const { allow } = await audit(opened.m, a.skills, opened.docs);
+      if (allow) experts.set(card, { m: opened.m, digest: opened.digest, lib: await index(opened.docs) });
+      return { allow };
+    })().catch((e) => {
+      if (e instanceof Refused) return { allow: false, reason: e.message }; // our own code's words
+      const n = (failures.get(card) ?? 0) + 1;
+      failures.set(card, n);
+      if (n < TRIES) throw e; // NEAR AI trouble: try again next tick
+      return { allow: false, reason: 'could not be audited' };
+    }));
   if (!v) return;
-  await chain.review(a.account, a.hash, v.allow);
+  verdicts.set(card, v); // if the chain refuses now, only the review is retried, never the paid audit
+  await chain.review(a.account, a.registration, v.allow);
+  verdicts.delete(card);
   log('reviewed', { agent: a.account, ...v });
 }
 
@@ -74,7 +82,7 @@ export async function admit(a: Agent) {
 let queue: Promise<unknown> = Promise.resolve();
 const loading = new Set<string>();
 export function warm(a: Agent) {
-  const key = `${a.account}/${a.hash}`;
+  const key = cardOf(a);
   if (a.status !== 'Active' || experts.has(key) || loading.has(key)) return;
   loading.add(key);
   queue = queue

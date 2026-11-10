@@ -17,15 +17,16 @@ export function seal(plain: Uint8Array, to: Uint8Array, sponsor: string): Buffer
   const eph = x25519.utils.randomSecretKey();
   const ephPub = x25519.getPublicKey(eph);
   const nonce = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', keyOf(x25519.getSharedSecret(eph, to), ephPub, to), nonce).setAAD(Buffer.from(sponsor));
+  const c = createCipheriv('aes-256-gcm', keyOf(x25519.getSharedSecret(eph, to), ephPub, to), nonce, { authTagLength: 16 }).setAAD(Buffer.from(sponsor));
   return Buffer.concat([ephPub, nonce, c.update(plain), c.final(), c.getAuthTag()]);
 }
 
 /** Throws if the bytes were not sealed to this key for this sponsor, or were changed. */
 export function open(sealed: Uint8Array, secret: Uint8Array, sponsor: string): Buffer {
   const b = Buffer.from(sealed);
+  if (b.length < 32 + 12 + 16) throw new Error('too short to be sealed');
   const [ephPub, nonce, body, tag] = [b.subarray(0, 32), b.subarray(32, 44), b.subarray(44, -16), b.subarray(-16)];
   const key = keyOf(x25519.getSharedSecret(secret, ephPub), ephPub, publicKeyOf(secret));
-  const d = createDecipheriv('aes-256-gcm', key, nonce).setAAD(Buffer.from(sponsor)).setAuthTag(tag);
+  const d = createDecipheriv('aes-256-gcm', key, nonce, { authTagLength: 16 }).setAAD(Buffer.from(sponsor)).setAuthTag(tag);
   return Buffer.concat([d.update(body), d.final()]);
 }

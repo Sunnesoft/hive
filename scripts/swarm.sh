@@ -10,16 +10,16 @@
 #   set <field> <value>            change one config field (fee_bps, audit_base, min_deposit, ...)
 #   image <repo>                   build and push the runner image, pin its digest in docker-compose.yml
 #   tee-deploy                     deploy docker-compose.yml to Phala Cloud with the secrets of .env.tee
-#   runner-key <url> [compose]     check the runner, then let its signing key call review/assign/finish
+#   runner-key <url> <compose>     check the runner, then let its signing key call review/assign/finish
 #   dev-key                        a runner key without a TEE (local chain, testnet): prints DEV_KEY
 #   pause | resume                 no key can act as the runner / the runner works again
 # sponsor (SPONSOR=<account>)
-#   join <agent folder> <usdc>     seal the folder to the runner (RUNNER_URL), register with a deposit, upload
+#   join <agent folder> <usdc>     check the runner (RUNNER_URL, COMPOSE), seal the folder to it, register, upload
 #   top-up <agent> <usdc>          add to an agent's balance
 # operator
 #   revenue <assignment> <usdc>    forward an Agent Market payout to the round the customer accepted
 # anyone
-#   verify <url> [compose]         check a runner: Intel quote, its keys, event log, compose, policies
+#   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
 #   withdraw <account> [usdc]      take a balance, all of it if no amount
 #   close <job>                    end a job past its timeout (SIGNER=<account>, default ROOT)
 #   status [account]               books, config, an agent and its balance
@@ -97,7 +97,7 @@ tee-deploy) # .env.tee: NEARAI_API_KEY, MARKET_TOKEN, optional BRAVE_API_KEY. En
   [[ -f .env.tee ]] || { echo "need .env.tee with the secrets" >&2; exit 1; }
   phala deploy -c docker-compose.yml -n swarm-runner -e .env.tee --wait ;;
 runner-key)
-  verify "$2" ${3:+"$3"} || { echo "the runner did not pass the checks" >&2; exit 1; }
+  verify "$2" "${3:?app-compose.json of the deployed app}" || { echo "the runner did not pass the checks" >&2; exit 1; }
   pk=$(curl -fsS "${2%/}/attestation" | jq -r .publicKey)
   read -rp "let $pk act as runner.$ROOT? [y/N] " ok
   [[ $ok == y ]] && runner_key "$pk" ;;
@@ -109,14 +109,19 @@ dev-key)
 pause) set_cfg runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
 resume) set_cfg runner "runner.$ROOT" ;;
 verify) verify "$2" ${3:+"$3"} ;;
-join)
+join) # COMPOSE: the app-compose.json the owner published; it binds the TEE to our code
   : "${SPONSOR:?account that registers the agent}" "${RUNNER_URL:?the runner, e.g. https://<app-id>-8080.<gateway>}"
-  verify "$RUNNER_URL" || [[ ${TRUST_DEV_RUNNER:-} == 1 ]] || { echo "not sealing to an unverified runner (TRUST_DEV_RUNNER=1 for local tests)" >&2; exit 1; }
+  REQUIRE_KEY=1 verify "$RUNNER_URL" "${COMPOSE:-app-compose.json}" || [[ ${TRUST_DEV_RUNNER:-} == 1 ]] ||
+    { echo "not sealing to an unverified runner (TRUST_DEV_RUNNER=1 for local tests only)" >&2; exit 1; }
   out=$(SPONSOR="$SPONSOR" ts scripts/join.ts "$2" "$RUNNER_URL")
   deposit=$(usdc "$3")
   (( deposit >= $(jq -r .least <<<"$out") )) || { echo "the deposit must be at least $(jq -r .least <<<"$out") units" >&2; exit 1; }
   pay "$SPONSOR" "$deposit" "$(jq -c .msg <<<"$out")"
-  curl -fsS --data-binary "@$(jq -r .file <<<"$out")" -H 'content-type: application/octet-stream' "$RUNNER_URL/upload/$SPONSOR"
+  for try in 1 2 3 4 5 6; do # the runner sees a new registration within a minute
+    curl -fsS --data-binary "@$(jq -r .file <<<"$out")" -H 'content-type: application/octet-stream' "$RUNNER_URL/upload/$SPONSOR" && break
+    (( try < 6 )) || exit 1
+    sleep 15
+  done
   echo; echo "uploaded: the audit runs within a few minutes (scripts/swarm.sh status $SPONSOR)" ;;
 top-up)
   pay "${SPONSOR:?account that pays}" "$(usdc "$3")" "$(jq -nc --arg a "$2" '{TopUp:{agent:$a}}')" ;;

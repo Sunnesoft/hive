@@ -9,25 +9,35 @@
     "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file-if-exists=.env node/src/main.ts",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=node/test/test.env --test \"node/test/*.test.ts\"",
     "check": "tsc --noEmit",
-    "e2e": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts"
+    "e2e": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/run.ts",
+    "playground": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/playground.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.82",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@phala/dcap-qvl": "^0.7.0",
     "@phala/dstack-sdk": "^0.5.8",
     "ai": "^7.0.159",
     "axios": "^1.21.0",
     "html-to-text": "^9.0.5",
+    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-gfm": "^3.1.0",
+    "mdast-util-to-markdown": "^2.2.1",
+    "mdast-util-to-string": "^4.0.0",
+    "micromark-extension-gfm": "^3.0.0",
     "near-api-js": "^7.2.0",
     "request-filtering-agent": "^3.2.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@phala/dcap-qvl": "^0.7.1",
     "@types/html-to-text": "^9.0.4",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^22.20.5",
     "near-sandbox": "^0.2.1",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "tar": "^7.5.22"
   }
 }

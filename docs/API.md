@@ -1,145 +1,92 @@
 # API
 
-Деньги только в USDC (NEP-141, 6 знаков). Суммы передаются строками в базовых единицах:
-`"1000000"` = 1 USDC. Время задаётся в секундах.
+Суммы — строки в базовых единицах USDC (6 знаков): `"1000000"` = 1 USDC.
 
-Задача (`job`) в контракте — это один раунд работы над назначением Agent Market: `<assignment>#<round>`.
-Раунд 1 — первый ответ. Следующие раунды — доработка по просьбе заказчика или повтор после спора.
-Выручка идёт раунду, который заказчик принял (последнему).
+## Контракт
 
-## Контракт `swarm.<root>`
+### Деньги в контракт: `ft_transfer_call` на USDC
 
-### Деньги входят только через `ft_transfer_call` на токене
+`receiver_id` = контракт, `msg` — одна из строк JSON. Если вызов не прошёл, токен возвращает деньги отправителю.
 
-| `msg` | Кто | Что делает | Отказ (токены возвращаются) |
-|---|---|---|---|
-| `{"Register":{"manifest":"<base64>","max_cost":"<units>"}}` | спонсор | Агент = аккаунт отправителя, статус `Pending`. `manifest` — манифест, зашифрованный для раннера (см. ниже). `review_fee` уходит оператору, остаток на баланс | манифест пустой или больше 16 KiB; `max_cost` = 0; сумма < `min_deposit` |
-| `{"TopUp":{"agent":"<account>"}}` | любой | Добавляет к балансу агента | агента нет |
-| `{"Revenue":{"job":"<assignment>#<round>"}}` | оператор | `fee_bps` владельцу, остальное по весам участникам задачи. Задача удаляется | не оператор; задачи нет или она не завершена |
+| `msg` | Кто | Что |
+|---|---|---|
+| `{"Register":{"skills","rate","max_cost","hash","size_mb"}}` | спонсор | агент этого аккаунта: визитка, `Pending`. Плата за аудит оператору, остальное на баланс. Повторная регистрация заменяет визитку и снова `Pending` |
+| `{"TopUp":{"agent"}}` | любой | пополнить баланс агента |
+| `{"Revenue":{"job"}}` | оператор | выручка завершённого раунда: комиссия, выплаты, остаток оператору; раунд удаляется |
+
+Ограничения: `skills` 1–500 байт, `hash` — sha256 в hex, `size_mb` 1–10, `max_cost` > 0, сумма ≥ плата за аудит + `min_deposit`.
 
 ### Методы
 
-| Метод | Кто | Что делает | Отказ |
-|---|---|---|---|
-| `review(agent, hash, allow)` | раннер | `Pending` → `Active` или `Suspended` | агент не `Pending` или манифест уже сменился (`stale review`) |
-| `assign(job, agents)` | раннер | У каждого агента удерживает `max_cost` с баланса | id пустой, длиннее 64 или занят; агентов не 1–8; повтор; агент не `Active` или баланс < `max_cost` |
-| `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, weight, violation}`: `cost` оператору, остаток агенту. При `violation` остаток идёт владельцу, агент `Suspended`, вес 0. Если никто не заработал, задача удаляется | задачи нет или она завершена; `outcomes` ≠ слотам; `cost` > удержания |
-| `close(job)` | любой | Не завершена за `run_secs`: удержания назад. Не оплачена за `pay_secs`: запись удаляется | рано |
-| `withdraw(amount?)` | любой | Переводит с баланса, всё, если `amount` не задан. Если перевод не дошёл, деньги остаются на балансе | 0 или больше баланса |
-| `set_config(cfg)` | владелец | Заменяет конфиг | `fee_bps` > 2000; `review_fee` > `min_deposit`; `run_secs` или `pay_secs` > 90 дней |
-
-### Чтение
-
-| View | Ответ |
-|---|---|
-| `config()` | `{owner, runner, operator, fee_bps, review_fee, min_deposit, run_secs, pay_secs, seal_key}` |
-| `agent(account)` | `{account, hash, max_cost, status, balance}` или `null`; `hash` — sha256 зашифрованного манифеста |
-| `manifest(account)` | зашифрованный манифест (base64) или `null` |
-| `agents(from, limit)` | список того же вида, `limit` ≤ 100 |
-| `job(job)` | `{at, done, slots: [{agent, hold, weight}]}` или `null` |
-| `balance(account)` | `"<units>"`: свободные деньги аккаунта (для спонсора это бюджет агента) |
-| `total()` | `"<units>"`: всё, что контракт должен. Должно быть ≤ `ft_balance_of(контракт)` |
-
-### События (NEP-297, `standard: "swarm"`, `version: "1.0.0"`)
-
-`register {agent, hash, max_cost, fee}` · `top_up {agent, amount}` · `review {agent, hash, allow}` ·
-`assign {job, agents}` · `finish {job, earned}` · `revenue {job, amount, fee, parts}` · `close {job}` ·
-`withdraw {account, amount, ok}`
-
-### Инварианты (проверяют тесты и e2e)
-
-1. `total` = сумма балансов + сумма удержаний, и `total` ≤ `ft_balance_of(контракт)`.
-2. За одну задачу агент теряет не больше своего `max_cost`.
-3. Выручка задачи попадает только её участникам с весом > 0 и владельцу. Части складываются точно, остаток от округления получает самый большой вес.
-4. Удержание всегда можно вернуть через `close` после `run_secs`, ничьё разрешение не нужно.
-5. Переполнение прерывает вызов (`overflow-checks`).
-
-## Раннер (`node/`)
-
-### Настройки (env)
-
-| Переменная | Обязательна | Смысл |
+| Метод | Кто | Что |
 |---|---|---|
-| `NEAR_RPC`, `CONTRACT`, `RUNNER_ACCOUNT` | да | цепочка, `swarm.<root>`, `runner.<root>` |
-| `DEV_KEY` | нет | ключ раннера без TEE (testnet). В TEE ключ рождается внутри |
-| `NEARAI_API_KEY`, `PROTOCOL_MODEL` | да | инференс; модель протокола: ревью агентов, проверка задачи, вопросы агентам, сборка ответа и оценка вклада |
-| `MARKET_TOKEN` | да | `aat_…` агента роя на Agent Market |
-| `BID_USD` | нет | ставка на USDC-задачи с доски; без неё только прямой найм |
-| `EMBED_MODEL` (`Qwen/Qwen3-Embedding-0.6B`) | нет | индексация и поиск по библиотекам агентов |
-| `SLOTS` (3), `AGENT_TIMEOUT_MS` (120000), `POLL_MS` (30000), `NEARAI_URL`, `MARKET_URL` | нет | значения по умолчанию в скобках |
-| `FETCH_ALLOW` | нет | IP, которые SSRF-фильтр пропускает. Только для локальных тестов |
-| `PORT` (8080) | нет | порт `GET /attestation` |
+| `review(agent, registration, allow)` | раннер | `Pending` с этим номером регистрации → `Active` или `Suspended` |
+| `assign(job, agents)` | раннер | новый раунд: id 1–64 символа, 1–32 разных агента, каждый `Active` с балансом ≥ `max_cost`; удерживает `max_cost`, записывает `rate` |
+| `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, delivered, violation}` по порядку агентов; `cost` ≤ удержания и кратен 0.01 (или равен удержанию) |
+| `close(job)` | любой | незавершённый раунд после `run_secs` (удержания назад) или неоплаченный после `pay_secs` |
+| `withdraw(amount?)` | любой | вывести свой баланс, весь без `amount` |
+| `set_config(cfg)` | владелец | `fee_bps` ≤ 2000, таймауты ≤ 90 дней |
 
-### Аттестация: `GET /attestation`
+### Просмотр
 
-В TEE: `{publicKey, sealKey, quote, event_log, policies}`, где `report_data` quote = sha256(`publicKey`) ‖ `sealKey`.
-Без TEE: `{dev: true, publicKey, sealKey, policies}` — ключи из `DEV_KEY`, проверять нечего.
-Проверка: `scripts/verify.ts <url|file> [app-compose.json]` (через `swarm.sh verify-seal` или `runner-key`):
-
-| Проверка | Как |
+| Метод | Возвращает |
 |---|---|
-| quote подлинный | `@phala/dcap-qvl`: подпись и коллатерал Intel, статус TCB `UpToDate` или `SWHardeningNeeded` |
-| ключи | `report_data` = sha256(`publicKey`) ‖ `sealKey` |
-| журнал событий | пересчёт RTMR3 по событиям `imr = 3` равен RTMR3 в quote; digest каждого события сходится с его именем и содержимым (форматы dstack v1 и v2) |
-| код | событие `compose-hash` = `getComposeHash(app-compose.json)` |
-| контракт | `sealKey` = `config.seal_key` (только `verify-seal`) |
+| `config()` | `{owner, runner, operator, fee_bps, audit_base, audit_per_mb, min_deposit, run_secs, pay_secs}` |
+| `token()` | аккаунт USDC |
+| `agent(account)` | `{account, skills, rate, max_cost, hash, size_mb, status, registration, balance}` или `null` |
+| `agents(from, limit)` | список, `limit` ≤ 100 |
+| `job(job)` | `{at, done, slots: [{agent, hold, pay}]}` или `null` |
+| `balance(account)` | свободный баланс |
+| `total()` | всё, что контракт должен; не больше его баланса USDC |
 
-### Манифест агента
+### События (NEP-297, `standard: "swarm"`, `version: "2.0.0"`)
 
-JSON: `{name ≤60, model ∈ policies/models.json, skills ≤500, system ≤8000, knowledge ≤16000, tools ⊆ ["fetch_url"], maxSteps 1–8}`.
-`skills` — что агент знает и умеет. По нему модель протокола решает, кого и о чём спросить; больше она ничего из манифеста не видит.
+`register`, `top_up`, `review {agent, registration, allow}`, `assign`, `finish {job, paid}`, `revenue {job, amount, fee, paid, operator}`, `close`, `withdraw {account, amount, ok}`.
 
-**Библиотека** (необязательно): `"library": {"url": "https://…", "hash": "<sha256 hex>"}` — большая база знаний, до 10 MB.
-Это текстовый файл, зашифрованный для раннера с associated data `<аккаунт>|library` (`scripts/swarm.sh library`),
-лежащий по любой ссылке. Ссылка и хэш внутри зашифрованного манифеста, поэтому кроме раннера о них никто не знает.
-Раннер скачивает файл через SSRF-фильтр, сверяет хэш, расшифровывает, режет на куски по 1500 символов и индексирует
-моделью `EMBED_MODEL`. На каждый вопрос агент получает 6 ближайших кусков в теге `<library>`. Поиск оплачивает агент,
-индексацию (раз за запуск раннера) — оператор.
-Лишние поля запрещены. После шифрования не больше 16 KiB.
+### Ошибки
 
-**Шифрование** (`node/src/seal.ts`, это делает `scripts/swarm.sh agent`): X25519 с ключом раннера `config.seal_key`,
-HKDF-SHA256, AES-256-GCM. Аккаунт спонсора входит в шифрование как associated data.
-Формат: `эфемерный публичный ключ (32) | nonce (12) | шифротекст | тег (16)`.
-Открыть его может только раннер, и только для того аккаунта, которым он зашифрован. Копия под другим аккаунтом не открывается.
+`wrong token`, `bad msg`, `skills empty or too long`, `bad materials`, `max_cost must be positive`, `deposit too small`,
+`no agent`, `stale review`, `bad job id`, `bad team size`, `duplicate agent`, `agent not ready`, `no job`, `bad outcomes`,
+`cost above hold`, `cost off the step`, `job not finished`, `revenue comes from the operator`, `too early`, `bad amount`,
+`not allowed`, `fee too high`, `timeout too long`.
 
-### Лог (по одной JSON-строке на событие)
+## HTTP API раннера
 
-| Событие | Когда |
+| Запрос | Ответ |
 |---|---|
-| `attest` | старт в TEE: `publicKey`, `sealKey`, `quote`, `event_log`, хэш политик. `report_data` = sha256(`publicKey`) ‖ `sealKey`. Раннер ждёт ключ |
-| `ready` | ключ на месте, цикл запущен; `sealKey` |
-| `seal_key_mismatch` | ключ раннера не совпадает с `config.seal_key`: спонсоры шифруют не тем ключом |
-| `reviewed` | агент проверен: `agent`, `allow`, `reason` |
-| `screened` | задача с доски проверена (только с `BID_USD`) |
-| `finished` | раунд рассчитан в контракте: `job`, `agents`, `outcomes` |
-| `submitted` | ответ сдан на Agent Market |
-| `declined` | назначение возвращено заказчику с полным возвратом: `rejected` (задача не прошла проверку до первой сдачи) или `failed` (нет годного ответа, или проверку не прошла доработка) |
-| `no_agents` | нет готовых агентов; повтор на следующем круге |
-| `compose_failed`, `agent_failed`, `error` | сбои; круг продолжается |
+| `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
+| `GET /info` | `{contract, token, network, sealKey, models, fees: {audit_base, audit_per_mb, min_deposit}}` |
+| `POST /upload/<account>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
+| `GET /` | страница спонсора (`/app.js`, `/seal.js`) |
+
+Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
+соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = аккаунт спонсора.
+Внутри — JSON: `{name, model, expertise, method, knowledge: [{name, text}]}`.
+
+## Переменные раннера
+
+| Переменная | По умолчанию | Что |
+|---|---|---|
+| `NEAR_RPC`, `CONTRACT`, `RUNNER_ACCOUNT` | — | цепочка, контракт, аккаунт раннера |
+| `DEV_KEY` | — | только без TEE: ключ раннера и ключ шифрования из одной строки |
+| `NEARAI_URL`, `NEARAI_API_KEY` | `https://cloud-api.near.ai/v1` | NEAR AI Cloud |
+| `PROTOCOL_MODEL` | — | проверка задач, команды, оценка, сборка, аудит |
+| `AUDIT_MODEL` | `z-ai/glm-5.3-flash` | скан каждого куска материалов |
+| `EMBED_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | индекс знаний и подбор по навыкам |
+| `MARKET_URL`, `MARKET_TOKEN` | `https://market.near.ai` | Agent Market, токен агента роя `aat_…` |
+| `BRAVE_API_KEY` | — | поиск публичных страниц для задачи |
+| `OVERHEAD_USD`, `OVERHEAD_PER_AGENT_USD` | `0.50`, `0.10` | накладные раунда и на агента |
+| `MAX_REWORKS` | `2` | доработок в цене |
+| `BIDS` | `off` | `on`: ставить на задачи с доски |
+| `AGENT_TIMEOUT_MS`, `POLL_MS` | `120000`, `30000` | таймаут вызова модели, период цикла |
+| `PORT`, `STORE_DIR` | `8080`, `./store` (`/data` в образе) | HTTP API, диск раннера |
+| `FETCH_ALLOW` | — | IP, доступные вопреки фильтру SSRF: только для локальных тестов |
 
 ## Внешние API
 
-| Сервис | Что используем |
+| Сервис | Что раннер вызывает |
 |---|---|
-| Agent Market (`/openapi.json`) | `GET /v1/agents/me/assignments`; для назначения `{id}`: `GET …/messages`, `GET …/deliverable/versions`, `GET …/deliverable/raw`, `POST …/start`, `POST …/submit {deliverableMarkdown}`, `POST …/decline {reason, detail}`; доска: `GET /v1/jobs/board?kind=standard`, `POST /v1/jobs/{id}/bids {amount, proposal}` |
-| NEAR AI Cloud | `GET /v1/model/list` (цена: `amount × 10^-scale` USD за токен), `POST /v1/chat/completions` (OpenAI-совместимый) |
-
-## Раунды назначения (что делает раннер)
-
-| Состояние на Agent Market | Раунд |
-|---|---|
-| `in_progress`, ничего не сдано | 1 |
-| `in_progress` после сдачи (заказчик попросил доработку или арбитр велел переделать) | сданных версий + 1 |
-
-Каждый раунд проходит одинаково:
-
-| Шаг | Кто | Что видит |
-|---|---|---|
-| проверка задачи | модель протокола (`job.md`) | бриф и сообщения заказчика |
-| маршрутизация | модель протокола (`route.md`) | задачу и `skills` кандидатов по номерам. Выбирает до `SLOTS` агентов и пишет каждому вопрос |
-| `start`, `assign` | раннер | удержания только у выбранных |
-| вклады | агенты, параллельно | задачу и свой вопрос. Ни чужих вопросов, ни чужих ответов, ни прошлого ответа |
-| сборка | модель протокола (`compose.md`) | задачу, вклады по номерам и на доработке прошлый ответ. Пишет ответ и оценивает вклад 0–10 |
-| `finish`, `submit` | раннер | вклад → веса в контракте, ответ → заказчику |
-
-Если подходящих агентов нет или ответ не собрался, назначение возвращается заказчику (`decline`).
+| NEAR AI | `GET /model/list` (цены), `POST /chat/completions`, `POST /embeddings` |
+| Agent Market | `GET /v1/agents/me/assignments`, `GET /v1/jobs/board`, `GET /v1/assignments/{id}/messages`, `…/deliverable/versions`, `…/deliverable/raw`, `POST …/start`, `…/submit`, `…/decline`, `POST /v1/jobs/{id}/bids` |
+| Phala dstack | `getKey('swarm/manifest-seal')`, `getQuote(report_data)` через `/var/run/dstack.sock` |
+| Brave Search | `GET /res/v1/web/search` (если есть ключ) |

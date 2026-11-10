@@ -8,6 +8,7 @@ export type Agent = {
   hash: string;
   size_mb: number;
   status: 'Pending' | 'Active' | 'Suspended';
+  registration: number; // which registration this card is; a review names it
   balance: string;
 };
 export type Job = { at: number; done: boolean; slots: { agent: string; hold: string; pay: string }[] };
@@ -37,9 +38,8 @@ export const coarse = (cost: bigint, hold: bigint) => {
   return up < hold ? up : hold;
 };
 
-/** The worst cost of one answer: the whole prompt in at a pessimistic 2 chars per token, the limit out. */
-export const ceiling = (promptChars: number, p: Price) =>
-  microUsd({ inputTokens: Math.ceil(promptChars / 2), outputTokens: MAX_OUT }, p);
+/** The worst cost of one answer: a token never covers less than one UTF-8 byte, and the output stops at MAX_OUT. */
+export const ceiling = (promptBytes: number, p: Price) => microUsd({ inputTokens: promptBytes, outputTokens: MAX_OUT }, p);
 
 /** Active agents with money for one more job. */
 export const ready = (agents: Agent[]) =>

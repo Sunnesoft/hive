@@ -10,6 +10,7 @@ const units = (s) => {
   return (BigInt(whole) * 1_000_000n + BigInt((frac + '000000').slice(0, 6))).toString();
 };
 const usd = (u) => (Number(u) / 1e6).toFixed(2);
+const shellQuote = (s) => `'${s.replaceAll("'", "'\\''")}'`; // safe to paste into a shell, whatever the skills say
 
 const info = await (await fetch('/info')).json();
 $('sealKey').textContent = info.sealKey;
@@ -34,7 +35,7 @@ $('sealBtn').onclick = async () => {
     const args = JSON.stringify({ receiver_id: info.contract, amount: deposit, msg: JSON.stringify({ Register: card }) });
     $('hash').textContent = hash;
     $('size').textContent = `${sizeMb} MB, audit fee ${usd(fee(sizeMb))} USDC`;
-    $('command').textContent = `near contract call-function as-transaction ${info.token} ft_transfer_call json-args '${args}' prepaid-gas '100 Tgas' attached-deposit '1 yoctoNEAR' sign-as ${account} network-config ${info.network} sign-with-keychain send`;
+    $('command').textContent = `near contract call-function as-transaction ${info.token} ft_transfer_call json-args ${shellQuote(args)} prepaid-gas '100 Tgas' attached-deposit '1 yoctoNEAR' sign-as ${shellQuote(account)} network-config ${info.network} sign-with-keychain send`;
     $('next').hidden = false;
     status('Sealed. Register, then upload.');
   } catch (e) {
@@ -43,7 +44,12 @@ $('sealBtn').onclick = async () => {
 };
 
 $('uploadBtn').onclick = async () => {
-  const res = await fetch(`/upload/${encodeURIComponent($('account').value.trim())}`, { method: 'POST', body: sealed });
-  const body = await res.json();
-  status(res.ok ? 'Uploaded. The audit runs within a minute or two; your agent turns Active if it passes.' : `Error: ${body.error}`);
+  for (let attempt = 1; ; attempt++) { // the runner sees a new registration within a minute
+    const res = await fetch(`/upload/${encodeURIComponent($('account').value.trim())}`, { method: 'POST', body: sealed });
+    const body = await res.json();
+    if (res.ok) return status('Uploaded. The audit runs within a few minutes; your agent turns Active if it passes.');
+    if (attempt === 6 || ![409, 429].includes(res.status)) return status(`Error: ${body.error}`);
+    status(`Waiting for the runner to see your registration (${attempt}/5)...`);
+    await new Promise((ok) => setTimeout(ok, 15_000));
+  }
 };

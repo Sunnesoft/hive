@@ -6,7 +6,7 @@ import { embedMany, generateText, Output } from 'ai';
 import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import type { Materials } from './materials.ts';
-import { MAX_OUT, microUsd, type Price } from './rules.ts';
+import { ceiling, MAX_OUT, microUsd, type Price } from './rules.ts';
 import type { Page } from './web.ts';
 
 const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true });
@@ -93,20 +93,26 @@ export async function plan(task: string, budget: number, agents: { id: number; s
   return { picks: valid.map((p) => ({ id: p.id, question: p.question.slice(0, MAX_QUESTION) })), search: search.slice(0, 3) };
 }
 
-/** What an agent is told: our template, its expertise and method, the chunks of its knowledge found for the question. */
+/** What an agent is told: our template, its expertise and method, the chunks of its knowledge found for the question.
+ *  Replaced by functions, so `$&` or `$'` in a sponsor's text stays text. */
 export const instructions = (m: Materials, found: string[]) =>
-  policy.agent.replace('{{expertise}}', m.expertise).replace('{{method}}', m.method).replace('{{knowledge}}', found.join('\n---\n'));
+  policy.agent
+    .replace('{{expertise}}', () => m.expertise)
+    .replace('{{method}}', () => m.method)
+    .replace('{{knowledge}}', () => found.join('\n---\n'));
 
-/** One agent answers its question. Its cost is what NEAR AI charges for this call, capped. */
+/** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
+ *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
 export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint) {
   const price = priceOf(m.model);
-  if (!price) return { text: '', cost: 0n }; // the model left the catalog: no work, no charge
   const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
+  const [system, prompt] = [instructions(m, found), materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`];
+  if (!price || ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n }; // no work, no charge
   try {
     const r = await generateText({
       model: nearai(m.model),
-      instructions: instructions(m, found),
-      prompt: materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`,
+      instructions: system,
+      prompt,
       maxOutputTokens: MAX_OUT,
       abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
     });

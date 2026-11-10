@@ -30,5 +30,5 @@ test('materials are text with a known shape: no extra fields, an allowed model, 
   assert.throws(() => unseal(sealFor('a.near', { ...good, tools: ['fetch'] }), runner, 'a.near'), Refused);
   assert.throws(() => unseal(sealFor('a.near', { ...good, model: 'evil/model' }), runner, 'a.near'), Refused);
   assert.throws(() => unseal(seal(Buffer.from('not json'), publicKeyOf(runner), 'a.near'), runner, 'a.near'), Refused);
-  assert.equal(unseal(sealFor('a.near', { ...good, expertise: 'Knows​ dates.' }), runner, 'a.near').expertise, 'Knows dates.');
+  assert.equal(unseal(sealFor('a.near', { ...good, expertise: 'Knows\u200b dates.' }), runner, 'a.near').expertise, 'Knows dates.');
 });

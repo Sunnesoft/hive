@@ -138,15 +138,23 @@ try {
   sealed.set(copycat, sealed.get(dates)!); // the copycat got hold of the dates sponsor's sealed bytes
   const skills = new Map([[dates, 'launch: when projects launch'], [codes, 'access: access codes of projects'], [namer, 'naming: how projects name things'], [injector, 'anything: anything at all'], [copycat, 'launch: when projects launch']]);
   const rates = new Map([[dates, 3n * U], [codes, 2n * U], [namer, U], [injector, 5n * U], [copycat, 3n * U]]);
-  const upload = (who: Account, body: Buffer) => fetch(`${url}/upload/${who.accountId}`, { method: 'POST', body: new Uint8Array(body) });
+  const post = (who: Account, body: Buffer) => fetch(`${url}/upload/${who.accountId}`, { method: 'POST', body: new Uint8Array(body) });
+  async function upload(who: Account, body: Buffer) { // like the page and the CLI: the runner may not have seen the registration yet
+    for (let i = 0; ; i++) {
+      const res = await post(who, body);
+      if (res.status !== 409 || i === 10) return res;
+      await sleep(1_000);
+    }
+  }
 
-  check('upload: refused before registration', (await upload(dates, sealed.get(dates)!)).status === 409);
+  check('upload: refused before registration', (await post(dates, sealed.get(dates)!)).status === 409);
   for (const [who, bytes] of sealed) {
     const hash = createHash('sha256').update(bytes).digest('hex');
     await pay(who, 5n * U, { Register: { skills: skills.get(who), rate: `${rates.get(who)}`, max_cost: `${U / 2n}`, hash, size_mb: 1 } });
   }
   check('privacy: the private facts are not in the sealed bytes', [...sealed.values()].every((b) => !b.includes(SECRET.date) && !b.includes(SECRET.code)));
-  check('upload: other bytes than the registered hash are refused', (await upload(dates, Buffer.from('forged'))).status === 409);
+  const forged = await upload(dates, Buffer.from('forged'));
+  check('upload: other bytes than the registered hash are refused', forged.status === 409 && /not the registered hash/.test((await forged.json()).error));
   check('upload: more than the registered size is refused', (await upload(dates, Buffer.alloc(2 ** 20 + 1))).status === 413);
   for (const [who, bytes] of sealed) check(`upload: ${who.accountId.split('.')[0]} accepted`, (await upload(who, bytes)).ok);
   check('registration: audit fees (0.1 + 0.1 per MB) to the operator', (await balance(operator)) === 5n * (2n * U / 10n), await balance(operator));
@@ -176,7 +184,7 @@ try {
   check('output: source marks removed', !/\[\[\d+\]\]/.test(v1!), v1);
   check('output: code that downloads and runs is removed', !v1!.includes('install.sh') && v1!.includes('Code removed: downloads and runs code'), v1);
   check('output: ordinary code kept, with a warning', v1!.includes('console.log("launch")') && v1!.includes('was not run'), v1);
-  check('output: links defanged, images gone', v1!.includes('evil[.]example/portal') && !v1!.includes('](https://evil') && !v1!.includes('track.example'), v1);
+  check('output: links defanged, images gone', /evil\\?\[\.\]example\/portal/.test(v1!) && !v1!.includes('](https://evil') && !v1!.includes('track.example'), v1);
   check('isolation: no agent ever saw another agent\'s fact', ai.agentCalls.length > 0 && ai.agentCalls.every((c) => !(c.includes(SECRET.date) && c.includes(SECRET.code))));
   const codesCalls = ai.agentCalls.filter((c) => c.includes(SECRET.code));
   check('knowledge: the codes agent got only the chunks near its question', codesCalls.length > 0 && codesCalls.every((c) => c.length < 20_000), codesCalls.map((c) => c.length));
@@ -187,7 +195,7 @@ try {
   check('violation: namer suspended', (await agent(namer)).status === 'Suspended');
   const start0 = 5n * U - 2n * U / 10n; // deposit minus the audit fee
   check('costs: one cent per agent, coarse', (await balance(dates)) === start0 - CENT && (await balance(codes)) === start0 - CENT, { dates: await balance(dates), codes: await balance(codes) });
-  check('violation: the rest of namer\'s hold went to the owner', (await balance(namer)) === start0 - U / 2n && (await balance(owner.accountId)) === U / 2n - CENT);
+  check('violation: namer pays only its cost, and nobody gains from it', (await balance(namer)) === start0 - CENT && (await balance(owner.accountId)) === 0n);
   await books();
 
   // --- the customer asks for changes: round 2 runs by itself ---
@@ -217,6 +225,12 @@ try {
   check('revenue: a second payment is refused (and refunded by the token)', again !== 'paid' || (await balance(operator)) - opBefore === 4_025_000n, again);
   await books();
 
+  // --- a dispute ruled redo: done even past the rework limit ---
+  await market.redo('a-good', 'Dispute ruled redo: state the launch time zone.');
+  await until('the redo', () => market.delivered('a-good').length === 5);
+  const v5 = market.delivered('a-good')[4]!;
+  check('dispute: a redo past the limit runs the swarm again', /Revised/.test(v5) && /round 5\.\*$/.test(v5) && (await job('a-good#5'))?.slots.length === 2, v5.slice(-200));
+
   // --- money out ---
   const before = await tokens(dates);
   await call(dates, swarm.accountId, 'withdraw', { amount: `${U}` });
@@ -242,6 +256,17 @@ try {
   await call(owner, swarm.accountId, 'close', { job: 'stuck' });
   check('close: after run_secs anyone closes it and the hold comes back', (await balance(codes)) === free);
 
+  // --- pause: the owner points the contract at no runner; nothing is done, nothing is paid for ---
+  await call(owner, swarm.accountId, 'set_config', { cfg: { ...cfg, runner: `paused.${owner.accountId}` } });
+  await until('paused', () => has('paused') > 0);
+  const callsBefore = ai.agentCalls.length;
+  market.hire({ id: 'a-paused', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
+  await sleep(3_000);
+  check('pause: no work and no model calls while paused', market.delivered('a-paused').length === 0 && ai.agentCalls.length === callsBefore);
+  await call(owner, swarm.accountId, 'set_config', { cfg });
+  await until('the task after resume', () => market.delivered('a-paused').length === 1);
+  check('pause: after resume the waiting task is served', has('resumed') > 0);
+
   // --- restart: the runner opens the admitted agents again from its store and goes on ---
   proc!.kill();
   await new Promise((ok) => proc.once('exit', ok));
@@ -251,7 +276,7 @@ try {
   await until('an answer after the restart', () => market.delivered('a-again').length === 1);
   const after = market.delivered('a-again')[0]!;
   check('restart: agents reloaded from the sealed store, the answer has both facts', after.includes(SECRET.date) && after.includes(SECRET.code), after);
-  check('restart: earlier assignments were not served twice', market.delivered('a-good').length === 4);
+  check('restart: earlier assignments were not served twice', market.delivered('a-good').length === 5);
   await books();
 } finally {
   for (const f of stop) await f();

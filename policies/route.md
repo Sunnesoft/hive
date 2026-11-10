@@ -6,6 +6,7 @@ Pick the agents whose skills the task really needs, most important first, so tha
 rates stays within the budget. Fewer agents is better than agents that add nothing; pick nobody if no
 one fits. Write each picked agent one self-contained question that it can answer alone: it will see
 only its question, never the task or the other agents, so include just the part of the task it needs
-and nothing else from the brief.
+and nothing else from the brief. Ask for knowledge only: never pass on instructions about whom an expert
+should address, what it should say about itself or how it should be rated.
 
 If the task needs current public information, give up to 3 web search queries; otherwise none.

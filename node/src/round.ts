@@ -22,7 +22,9 @@ type Decision = {
 
 type Member = { agent: Agent; expert: Expert };
 const SHORTLIST = 20; // agents the router sees at once
+const MAX_TASK = 20_000; // characters of brief and messages the protocol reads
 const WORST_PUBLIC = PAGES * (PAGE_CHARS + 100) + llm.MAX_QUESTION; // the most of a prompt that is not the agent's own
+const TRIES = 5; // rounds that fail on our side, tried again after 1, 2, 4, 8 minutes, then given up
 
 /** Agents that may work now: active, funded, admitted in this runner's memory, and whose cap covers a worst-case answer. */
 function candidates(agents: Agent[]): Member[] {
@@ -31,7 +33,7 @@ function candidates(agents: Agent[]): Member[] {
     const expert = expertOf(agent);
     const price = expert && llm.priceOf(expert.m.model);
     if (!expert || !price || seen.has(expert.digest)) return [];
-    const worst = llm.instructions(expert.m, []).length + NEAREST * CHUNK + WORST_PUBLIC;
+    const worst = Buffer.byteLength(llm.instructions(expert.m, [])) + NEAREST * CHUNK + WORST_PUBLIC; // typical text: a byte a character
     if (BigInt(agent.max_cost) < ceiling(worst, price)) return [];
     seen.add(expert.digest);
     return [{ agent, expert }];
@@ -72,39 +74,56 @@ async function contribute(task: string, t: Member & { question: string }, pages:
   return { text: r.text, outcome };
 }
 
-async function work(row: market.Row, round: number, feeBps: number): Promise<Decision | null> {
+/** Takes the holds. An agent that stopped being ready since it was picked (withdrew, registered again) is left out. */
+async function commit(key: string, members: (Member & { question: string })[]) {
+  for (let i = 0; i < 3 && members.length; i++) {
+    const now = await Promise.all(members.map((t) => chain.agent(t.agent.account)));
+    members = members.filter((t, j) => now[j]?.registration === t.agent.registration && ready([now[j]!]).length === 1);
+    if (!members.length) break;
+    const ok = await chain.assign(key, members.map((t) => t.agent.account)).then(() => true, (e) => (/agent not ready/.test(String(e)) ? false : Promise.reject(e)));
+    if (ok) return members;
+  }
+  return [];
+}
+
+async function work(row: market.Row, round: number, feeBps: number, giveUp: boolean): Promise<Decision | null> {
   const { assignment: a, job } = row;
   const id = a.assignmentId;
   const [thread, sent] = await Promise.all([market.thread(id), market.versions(id)]);
   const brief = `# ${job.title}\n\n${job.description}`;
-  const task = thread.length ? `${brief}\n\n## Customer messages\n\n${thread.map((n) => n.body).join('\n\n')}` : brief;
+  const said = (n: (typeof thread)[number]) => (n.origin === 'platform' ? `Marketplace: ${n.body}` : n.body);
+  const task = (thread.length ? `${brief}\n\n## Messages\n\n${thread.map(said).join('\n\n')}` : brief).slice(0, MAX_TASK);
+  const since = round > 1 ? Date.parse(sent.at(-1)!.submittedAt) : 0;
+  const fresh = thread.filter((n) => Date.parse(n.createdAt) > since);
+  const redo = fresh.some((n) => n.origin === 'platform'); // a dispute ruled `redo`: always done, never refused
   const previous = round > 1 ? await market.delivered(id) : '';
   // After a delivery a refusal would refund the customer in full: the last answer stands instead, with a note.
   const stand = (why: string): Decision => ({ submit: `${previous}\n\n> Round ${round}: ${why}` });
   const refuse = (reason: 'rejected' | 'failed', detail: string): Decision => (round > 1 ? stand(detail) : { decline: { reason, detail } });
 
-  if (round > cfg.MAX_REWORKS + 1) return stand(`the ${cfg.MAX_REWORKS} reworks included in the price are used up. Please post further changes as a new job.`);
-  if (round > 1) {
-    const since = Date.parse(sent.at(-1)!.submittedAt);
-    const feedback = thread.filter((n) => Date.parse(n.createdAt) > since).map((n) => n.body).join('\n\n');
-    const scope = await llm.inScope(brief, feedback || '(no message)');
+  if (giveUp) return refuse('failed', 'The swarm kept failing on our side.');
+  if (round > cfg.MAX_REWORKS + 1 && !redo) return stand(`the ${cfg.MAX_REWORKS} reworks included in the price are used up. Please post further changes as a new job.`);
+  // Before any paid call: is there anyone to work at all? (After a restart agents are still loading.)
+  const pool = candidates(await chain.agents()); // fresh: other rounds may have just taken holds
+  if (pool.length === 0) return null;
+  if (round > 1 && !redo) {
+    const scope = await llm.inScope(brief, fresh.map((n) => n.body).join('\n\n') || '(no message)');
     if (!scope.in_scope) return stand(`this change is new work beyond the original task (${scope.reason}) Please post it as a new job.`);
   }
   const screened = await llm.screen({ title: job.title, description: task });
   if (!screened.allow) return refuse('rejected', screened.reason);
 
-  const pool = candidates(await chain.agents()); // fresh: other rounds may have just taken holds
-  if (pool.length === 0) return null; // nobody can work yet (agents still loading): try again next tick
   const net = budget(usdc(a.escrowAmount), feeBps, usdc(cfg.OVERHEAD_USD));
-  const { picked, members, search: queries } = await team(task, pool, net);
+  const { picked, members: planned, search: queries } = await team(task, pool, net);
   if (picked === 0) return refuse('rejected', 'No expert in the swarm knows enough for this task.');
-  if (members.length === 0) return refuse('rejected', 'The budget does not cover the experts this task needs.');
+  if (planned.length === 0) return refuse('rejected', 'The budget does not cover the experts this task needs.');
   const pages = await gather(task, queries);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url)])];
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await market.start(id);
-  await chain.assign(`${id}#${round}`, members.map((t) => t.agent.account));
+  const members = await commit(`${id}#${round}`, planned);
+  if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
   const parts = await Promise.all(members.map((t) => contribute(task, t, pages)));
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.account);
@@ -128,26 +147,35 @@ async function settle(id: string, key: string, d: Decision) {
 }
 
 const busy = new Set<string>();
+const failed = new Map<string, { n: number; next: number }>(); // per assignment: failures of the current round
 
 /** Serves an assignment that is waiting for us. Rounds of different assignments run side by side. */
 export function serve(row: market.Row, feeBps: number) {
   const id = row.assignment.assignmentId;
   if (row.assignment.status !== 'in_progress' || row.job.jobKind === 'competition' || busy.has(id)) return;
+  const f = failed.get(id);
+  if (f && Date.now() < f.next) return;
   busy.add(id);
+  let key = '';
   void (async () => {
     const round = (await market.versions(id)).length + 1;
-    const key = `${id}#${round}`;
+    key = `${id}#${round}`;
     const known = await store.recall<Decision>(key);
     if (known) return settle(id, key, known);
     const open = await chain.job(key);
     if (open?.done) return market.decline(id, 'failed', 'The answer was lost in a runner restart.'); // only if the store was lost
     if (open) await chain.finish(key, open.slots.map(() => ({ cost: '0', delivered: false, violation: false }))); // cut by a restart: holds back, run again
-    const d = await work(row, round, feeBps);
+    const d = await work(row, round, feeBps, (failed.get(id)?.n ?? 0) >= TRIES);
     if (!d) return log('no_agents', { assignment: id });
     await store.remember(key, d);
     await settle(id, key, d);
+    failed.delete(id);
   })()
-    .catch((e) => log('error', { assignment: id, error: String(e) }))
+    .catch((e) => {
+      const n = (failed.get(id)?.n ?? 0) + 1;
+      failed.set(id, { n, next: Date.now() + 60_000 * 2 ** (n - 1) });
+      log('error', { assignment: id, job: key, tries: n, error: String(e) });
+    })
     .finally(() => busy.delete(id));
 }
 
@@ -159,10 +187,11 @@ const seen = new Set<string>();
 export async function bid(job: market.BoardJob, agents: Agent[], feeBps: number) {
   if (seen.has(job.jobId) || job.budgetToken !== 'USDC') return; // revenue is forwarded in USDC
   seen.add(job.jobId);
-  const task = `# ${job.title}\n\n${job.description}`;
-  const screened = await llm.screen(job);
+  const task = `# ${job.title}\n\n${job.description}`.slice(0, MAX_TASK);
   const pool = candidates(agents);
-  if (!screened.allow || pool.length === 0) return;
+  if (pool.length === 0) return;
+  const screened = await llm.screen({ title: job.title, description: task });
+  if (!screened.allow) return;
   const ceilingBudget = job.budgetAmount ? budget(usdc(job.budgetAmount), feeBps, usdc(cfg.OVERHEAD_USD)) : 1_000n * 1_000_000n;
   const { members } = await team(task, pool, ceilingBudget);
   if (members.length === 0) return;

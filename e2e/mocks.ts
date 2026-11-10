@@ -147,6 +147,12 @@ export async function market(token: string) {
     threads.get(id)!.unshift({ body: feedback, origin: 'direct', senderAgentId: null, createdAt: now() });
     rows.get(id)!.assignment.status = 'in_progress';
   };
+  /** A dispute ruled `redo`: the marketplace posts its note and the assignment is in progress again. */
+  const redo = async (id: string, note: string) => {
+    await new Promise((ok) => setTimeout(ok, 5));
+    threads.get(id)!.unshift({ body: note, origin: 'platform', senderAgentId: null, createdAt: now() });
+    rows.get(id)!.assignment.status = 'in_progress';
+  };
   const delivered = (id: string) => versions.get(id)!.map((v) => v.markdown);
-  return { ...server, hire, delivered, declined, requestChanges };
+  return { ...server, hire, delivered, declined, requestChanges, redo };
 }

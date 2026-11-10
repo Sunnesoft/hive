@@ -21,7 +21,7 @@ test('costs are coarse: up to the next cent, never above the hold', () => {
 test('token costs: USD per 1M tokens times tokens is micro-USD, rounded up', () => {
   assert.equal(microUsd({ inputTokens: 1_000, outputTokens: 200 }, { in: 1, out: 5 }), 2_000n);
   assert.equal(microUsd({ inputTokens: 1 }, { in: 0.1, out: 0 }), 1n);
-  assert.ok(ceiling(20_000, { in: 1, out: 5 }) >= microUsd({ inputTokens: 10_000, outputTokens: 4_000 }, { in: 1, out: 5 }));
+  assert.equal(ceiling(20_000, { in: 1, out: 5 }), microUsd({ inputTokens: 20_000, outputTokens: 4_000 }, { in: 1, out: 5 }));
 });
 
 test('the budget for agents: what the customer pays after both fees and the overhead', () => {
@@ -43,7 +43,7 @@ test('a quote covers the rates and the overhead after both fees', () => {
 
 test('only active agents with money for one more job are ready', () => {
   const a = (status: Agent['status'], balance: bigint): Agent =>
-    ({ account: 'a', skills: '', rate: '0', max_cost: `${U}`, hash: '', size_mb: 1, status, balance: `${balance}` });
+    ({ account: 'a', skills: '', rate: '0', max_cost: `${U}`, hash: '', size_mb: 1, status, registration: 1, balance: `${balance}` });
   assert.equal(ready([a('Active', U), a('Active', U - 1n), a('Pending', 9n * U), a('Suspended', 9n * U)]).length, 1);
 });
 

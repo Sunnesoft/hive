@@ -29,13 +29,13 @@ const GAS: Gas = Gas::from_tgas(10);
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Config {
-    pub owner: AccountId,    // sets config, receives the fee and forfeits
+    pub owner: AccountId,    // sets config, receives the fee
     pub runner: AccountId,   // the attested TEE: reviews agents, opens and settles jobs
     pub operator: AccountId, // pays NEAR AI, forwards Agent Market payouts, keeps what agents are not owed
     pub fee_bps: u16,        // owner's share of revenue
     pub audit_base: U128,    // audit fee per registration
     pub audit_per_mb: U128,  // plus this per declared megabyte of materials
-    pub min_deposit: U128,   // the least an agent keeps after the audit fee
+    pub min_deposit: U128,   // the least a registration must bring beyond the audit fee
     pub run_secs: u64,       // an unfinished job may be closed after this; holds go back
     pub pay_secs: u64,       // a finished job waits this long for revenue
 }
@@ -58,6 +58,7 @@ pub struct Agent {
     pub hash: String,   // sha256 of the sealed materials the runner audited
     pub size_mb: u32,   // their declared size: paid for in the audit fee, checked by the runner
     pub status: Status,
+    pub registration: u64, // which registration this card is: a review names it, so a card changed meanwhile is never activated
 }
 
 #[near(serializers = [borsh, json])]
@@ -80,7 +81,7 @@ pub struct Job {
 pub struct Outcome {
     pub cost: U128,      // inference spent, on the 0.01 USDC step
     pub delivered: bool, // did its part: keeps its pay
-    pub violation: bool, // broke the rules: the rest of the hold is forfeited, the agent suspended
+    pub violation: bool, // broke the rules: no pay, and the agent is suspended until it registers again
 }
 
 /// `msg` of `ft_transfer_call`.
@@ -113,7 +114,8 @@ pub struct Contract {
     balances: LookupMap<AccountId, u128>,
     agents: IterableMap<AccountId, Agent>,
     jobs: LookupMap<String, Job>,
-    total: u128, // = balances + holds; never above our token balance
+    total: u128,        // = balances + holds; never above our token balance
+    registrations: u64, // cards registered so far
 }
 
 #[near]
@@ -122,7 +124,7 @@ impl Contract {
     pub fn new(token: AccountId, cfg: Config) -> Self {
         check(&cfg);
         let (balances, agents, jobs) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"j"));
-        Self { token, cfg, balances, agents, jobs, total: 0 }
+        Self { token, cfg, balances, agents, jobs, total: 0, registrations: 0 }
     }
 
     // ---- money in: `ft_transfer_call` on the token; a panic here refunds the sender ----
@@ -131,7 +133,16 @@ impl Contract {
         require!(env::predecessor_account_id() == self.token, "wrong token");
         match serde_json::from_str(&msg).expect("bad msg") {
             Msg::Register { skills, rate, max_cost, hash, size_mb } => {
-                let card = Agent { skills, rate, max_cost, hash, size_mb, status: Status::Pending };
+                self.registrations += 1;
+                let card = Agent {
+                    skills,
+                    rate,
+                    max_cost,
+                    hash,
+                    size_mb,
+                    status: Status::Pending,
+                    registration: self.registrations,
+                };
                 self.register(sender_id, amount.0, card)
             }
             Msg::TopUp { agent } => {
@@ -147,14 +158,14 @@ impl Contract {
 
     // ---- runner ----
 
-    /// Activates or suspends a pending agent. `hash` names what was audited: if the sponsor
-    /// registered other materials meanwhile, the verdict is stale and refused.
-    pub fn review(&mut self, agent: AccountId, hash: String, allow: bool) {
+    /// Activates or suspends a pending agent. `registration` names the card that was audited: if the
+    /// sponsor registered again meanwhile (other skills, other materials), the verdict is stale and refused.
+    pub fn review(&mut self, agent: AccountId, registration: u64, allow: bool) {
         self.only(&self.cfg.runner);
         let a = self.agent_mut(&agent);
-        require!(a.status == Status::Pending && a.hash == hash, "stale review");
+        require!(a.status == Status::Pending && a.registration == registration, "stale review");
         a.status = if allow { Status::Active } else { Status::Suspended };
-        emit("review", json!({ "agent": agent, "hash": hash, "allow": allow }));
+        emit("review", json!({ "agent": agent, "registration": registration, "allow": allow }));
     }
 
     /// Holds each agent's cost cap and fixes its rate for the job.
@@ -175,23 +186,21 @@ impl Contract {
         self.jobs.insert(job, Job { at: now(), done: false, slots });
     }
 
-    /// Settles the holds: cost to the operator, the rest back to the agent (to the owner on a
-    /// violation). An agent that did not deliver loses its pay. A job nobody is owed for is removed.
+    /// Settles the holds: cost to the operator, the rest back to the agent. An agent that did not
+    /// deliver loses its pay; one that broke the rules is also suspended until it registers again.
+    /// Nobody gains from a violation, so nobody has a reason to provoke one. A job nobody is owed for is removed.
     pub fn finish(&mut self, job: String, outcomes: Vec<Outcome>) {
         self.only(&self.cfg.runner);
         let mut j = self.jobs.remove(&job).expect("no job");
         require!(!j.done && outcomes.len() == j.slots.len(), "bad outcomes");
-        let (owner, operator) = (self.cfg.owner.clone(), self.cfg.operator.clone());
+        let operator = self.cfg.operator.clone();
         for (s, o) in j.slots.iter_mut().zip(outcomes) {
             require!(o.cost.0 <= s.hold.0, "cost above hold");
             require!(o.cost.0 % COST_STEP == 0 || o.cost.0 == s.hold.0, "cost off the step");
-            let rest = s.hold.0 - o.cost.0;
             self.credit(&operator, o.cost.0);
+            self.credit(&s.agent, s.hold.0 - o.cost.0);
             if o.violation {
-                self.credit(&owner, rest);
                 self.agent_mut(&s.agent).status = Status::Suspended;
-            } else {
-                self.credit(&s.agent, rest);
             }
             if o.violation || !o.delivered {
                 s.pay = U128(0);

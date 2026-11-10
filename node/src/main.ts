@@ -16,9 +16,12 @@ async function each<T>(items: T[], f: (x: T) => Promise<unknown>) {
   for (const x of items) await f(x).catch((e) => log('error', { error: String(e) }));
 }
 
+let paused = false;
 async function tick() {
+  const [agents, { fee_bps, runner }] = await Promise.all([chain.agents(), chain.config()]);
+  if (paused !== (runner !== cfg.RUNNER_ACCOUNT)) log((paused = !paused) ? 'paused' : 'resumed', { runner });
+  if (paused) return; // the owner stopped us: no audits, no rounds, nothing that costs money
   await refreshPrices();
-  const [agents, { fee_bps }] = await Promise.all([chain.agents(), chain.config()]);
   await each(agents.filter((a) => a.status === 'Pending'), admit);
   agents.forEach(warm);
   if (cfg.BIDS === 'on') await each(await market.board(), (job) => bid(job, agents, fee_bps));
