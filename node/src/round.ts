@@ -10,7 +10,8 @@ import * as llm from './llm.ts';
 import * as market from './market.ts';
 import { budget, ceiling, coarse, fit, provenance, quote, ready, usdc, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
-import { gather, linksIn, PAGE_CHARS, PAGES, type Page } from './web.ts';
+import { shelve, type Shelf } from './shelf.ts';
+import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
 
 /** What a round decided: the chain's outcomes, if agents worked, and what the customer gets. */
 type Decision = {
@@ -23,7 +24,8 @@ type Decision = {
 type Member = { agent: Agent; expert: Expert };
 const SHORTLIST = 20; // agents the router sees at once
 const MAX_TASK = 20_000; // characters of brief and messages the protocol reads
-export const WORST_PUBLIC = PAGES * (PAGE_CHARS + 100) + llm.MAX_QUESTION; // the most of a prompt that is not the agent's own
+// The most of a prompt that is not the agent's own: its share of the customer's materials, their source tags, the question.
+export const WORST_PUBLIC = PUBLIC_CHARS + (MAX_SOURCES + 5) * 300 + llm.MAX_QUESTION;
 const TRIES = 5; // rounds that fail on our side, tried again after 1, 2, 4, 8 minutes, then given up
 
 /** Agents that may work now: active, funded, admitted in this runner's memory, and whose cap covers a worst-case answer. */
@@ -86,8 +88,9 @@ async function team(task: string, pool: Member[], net: bigint) {
 }
 
 /** One agent's part: its knowledge searched for its question, one call, then a check of that answer alone. */
-async function contribute(task: string, t: Member & { question: string }, pages: Page[]) {
+async function contribute(task: string, t: Member & { question: string }, shelf: Shelf) {
   const hold = BigInt(t.agent.max_cost);
+  const pages = await shelf.for(t.question); // the parts of the customer's materials closest to this question
   const found = await search(t.expert.lib, t.question).catch(() => ({ chunks: [], cost: 0n }));
   const left = hold > found.cost ? hold - found.cost : 0n;
   const r = await llm.answer(t.expert.m, found.chunks, t.question, pages, left);
@@ -152,9 +155,15 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const { considered, picked, members: planned, search: queries } = await team(task, pool, net);
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
-  // Public materials: the customer's text attachments, the brief's links and, with a search key, search results.
-  const files = await Promise.all(job.attachments.slice(0, 5).map((f) => market.attachment(f).then((text) => text && { url: `attachment: ${f.filename}`, text: text.slice(0, PAGE_CHARS) }, () => null)));
-  const pages = [...files.filter((f): f is Page => !!f), ...(await gather(task, queries))].slice(0, PAGES);
+  // The customer's materials: attached files, the links in the brief and messages, and search results if a key is set.
+  // Each expert later gets the parts closest to its own question; what could not be read is told to the customer.
+  const files = await Promise.all(job.attachments.slice(0, 5).map((f) => market.attachment(f).then(
+    (bytes) => textOf(bytes, f.contentType, f.filename).then((text) => ({ url: `attachment: ${f.filename}`, text: text.trim() })),
+  ).catch((e: Error): Unread => ({ url: `attachment: ${f.filename}`, why: e.message.slice(0, 80) }))));
+  const found = await gather(task, queries);
+  const pages = [...files.filter((f): f is Page => 'text' in f && f.text !== ''), ...found.pages];
+  const unread = [...files.filter((f): f is Unread => 'why' in f), ...found.unread];
+  const shelf = await shelve(pages);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
@@ -162,7 +171,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const key = `${id}#${round}`;
   const members = await commit(key, planned);
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
-  const parts = await Promise.all(members.map((t) => contribute(task, t, pages)));
+  const parts = await Promise.all(members.map((t) => contribute(task, t, shelf)));
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.id);
   await noteRound(key, screened.topic, considered, members, parts);
@@ -177,7 +186,12 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const answer = await gate(provenance(marked).text, known);
   const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
   const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
-  return { outcomes, submit: `${answer}\n\n${footer}`.slice(0, 250_000), provenance: { answer: marked, agents } };
+  const label = (url: string) => url.replace(/^attachment: /, '');
+  const read = pages.filter((p) => p.url.startsWith('attachment: ') || linksIn(task).includes(p.url)).map((p) => label(p.url));
+  const materials = read.length || unread.length
+    ? `\n\n*Your materials: ${read.length ? `read ${read.join(', ')}` : 'none could be read'}${unread.length ? `; could not read ${unread.map((u) => `${label(u.url)} (${u.why})`).join(', ')}` : ''}.*`
+    : '';
+  return { outcomes, submit: `${answer}${materials}\n\n${footer}`.slice(0, 250_000), provenance: { answer: marked, agents } };
 }
 
 /** Puts a decision into effect. Every step is safe to repeat: a restart simply calls this again. */

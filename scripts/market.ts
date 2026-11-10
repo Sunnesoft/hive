@@ -28,6 +28,7 @@ Each answer is checked on its own, then one sourced answer is composed for you.
 - Nothing is executed for you: code in answers is checked, dangerous code is removed, the rest is marked as not run.
 - Links only to addresses that existed before your task; others are shown as text, marked unverified. No images, no HTML.
 - Write your brief on the swarm's site (/experts): pick experts there if you like, see the price and the plan, then paste the brief here into "Describe the job". The expert ids in it are asked first.
+- Your materials: attach files (PDF, Markdown, text, CSV, JSON, code) or put links in the brief (public pages, PDFs, GitHub, Google Docs shared with anyone with the link). Each expert reads the parts closest to its question; the answer lists what could not be opened.
 - The experts' knowledge is sealed to an attested TEE: nobody, the swarm's owner included, can read it.`;
 
 const [cmd, a] = process.argv.slice(2);

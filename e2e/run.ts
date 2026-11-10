@@ -15,6 +15,7 @@ import { Account, KeyPair, KeyPairSigner, nearToYocto, teraToGas } from 'near-ap
 import { DEFAULT_ACCOUNT_ID, DEFAULT_PRIVATE_KEY, Sandbox } from 'near-sandbox';
 import { seal } from '../node/src/seal.ts';
 import * as mock from './mocks.ts';
+import { pdf } from './pdf.ts';
 
 const U = 1_000_000n; // 1 USDC
 const CENT = U / 100n;
@@ -311,12 +312,23 @@ try {
   const datesCard = catalog.find((e) => e.id === agentId(dates)) as { topics?: string[]; examples?: string[]; checked?: boolean } | undefined;
   check('catalog: the profile customers choose by, as the audit checked it: topics and questions it answers', datesCard?.checked === true && datesCard.topics?.[0] === 'research' && datesCard.examples?.[0] === 'When does Project Alpha launch?', datesCard);
   check('catalog: active experts with their public record', catalog.some((e) => e.id === agentId(dates) && e.delivered >= 2 && BigInt(e.earned) >= 6n * U) && !catalog.some((e) => e.id === agentId(injector)), catalog);
-  market.hire({ id: 'a-named', title: 'Project Alpha', description: `${ALPHA}\n\nExperts: ${agentId(codes)}`, escrow: '10.0', files: [{ name: 'context.md', text: 'Customer context: the launch is internal only.' }] });
+  // The customer's materials: a short note, a long manual with one fact deep inside, a PDF, and a file nobody can read.
+  const manual = [...Array.from({ length: 2400 }, (_, i) => `Note ${i}: routine inventory record for warehouse batch ${i}.`), 'The Project Alpha launch room is Hall 7.', ...Array.from({ length: 600 }, (_, i) => `Note ${2400 + i}: routine inventory record for warehouse batch ${2400 + i}.`)].join('\n\n');
+  market.hire({ id: 'a-named', title: 'Project Alpha', description: `${ALPHA}\n\nExperts: ${agentId(codes)}`, escrow: '10.0', files: [
+    { name: 'context.md', text: 'Customer context: the launch is internal only.' },
+    { name: 'manual.md', text: manual },
+    { name: 'budget.pdf', bytes: pdf(['Project Alpha budget is 42 thousand.']), type: 'application/pdf' },
+    { name: 'photos.zip', bytes: Buffer.from([0x50, 0x4b, 3, 4, 0, 0]), type: 'application/zip' },
+  ] });
   await until('the answer with a named expert', () => market.delivered('a-named').length === 1);
   const named = ai.routed.findLast((r) => r.task.includes(agentId(codes)));
   check('intake: the expert named in the brief comes first, marked requested', named?.agents[0]?.requested === true && named.agents[0].skills === skills.get(codes), named?.agents);
   check('intake: the customer\'s text attachment reached the experts as material', ai.agentCalls.some((c) => c.includes('Customer context: the launch is internal only.')));
   check('intake: the answer names the experts who contributed', market.delivered('a-named')[0]!.includes(agentId(codes)), market.delivered('a-named')[0]!.slice(-200));
+  const namedCalls = ai.agentCalls.filter((c) => c.includes('Customer context'));
+  check('materials: from a 190 KB manual each expert gets the parts closest to its question, the fact deep inside included', ai.agentCalls.some((c) => c.includes('Hall 7')) && ai.agentCalls.every((c) => c.length < 120_000), namedCalls.map((c) => c.length));
+  check('materials: a PDF the customer attached is read as text', ai.agentCalls.some((c) => c.includes('Project Alpha budget is 42 thousand.')));
+  check('materials: the answer tells the customer what was read and what could not be', /Your materials: read context\.md, manual\.md, budget\.pdf; could not read photos\.zip \(cannot read application\/zip\)/.test(market.delivered('a-named')[0]!), market.delivered('a-named')[0]!.slice(-400));
 
   // --- a dispute ruled as a split: only part of the escrow arrives, and it is shared in proportion ---
   const rn = await job('a-named#1');

@@ -72,10 +72,14 @@ function list() {
 function task() {
   return $('task').value.trim();
 }
+/** The material links the customer listed: https only, one per line, as the runner will read them. */
+const links = () => [...new Set($('links').value.split(/\s+/).map((l) => l.trim()).filter((l) => /^https:\/\/\S+$/.test(l)))].slice(0, 10);
 const briefText = () => {
   const chosen = experts.filter((e) => picked.has(e.id));
-  const body = task() || '<your task>';
-  return chosen.length ? `${body}\n\nExperts: ${chosen.map((e) => e.id).join(', ')}` : body;
+  const parts = [task() || '<your task>'];
+  if (links().length) parts.push(`Materials:\n${links().map((l) => `- ${l}`).join('\n')}`);
+  if (chosen.length) parts.push(`Experts: ${chosen.map((e) => e.id).join(', ')}`);
+  return parts.join('\n\n');
 };
 let plan = null; // the plan the brief fits, once experts are picked
 
@@ -160,6 +164,7 @@ async function hire() {
 
 $('search').addEventListener('input', list);
 $('task').addEventListener('input', () => (compose(), list()));
+$('links').addEventListener('input', compose);
 $('next').addEventListener('click', hire);
 $('barNext').addEventListener('click', hire);
 $('back').addEventListener('click', () => {

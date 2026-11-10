@@ -10,7 +10,7 @@ async function listen(handle: Handler, port = 0) {
     let raw = '';
     for await (const chunk of req) raw += chunk;
     const [status, json] = handle(req.method!, req.url!, raw ? JSON.parse(raw) : undefined, req.headers.authorization);
-    res.writeHead(status, { 'content-type': 'application/json' }).end(typeof json === 'string' ? json : JSON.stringify(json));
+    res.writeHead(status, { 'content-type': 'application/json' }).end(typeof json === 'string' || Buffer.isBuffer(json) ? json : JSON.stringify(json));
   });
   await new Promise<void>((ok) => server.listen(port, '127.0.0.1', ok));
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => server.close() };
@@ -131,7 +131,7 @@ type Row = {
   job: { jobId: string; title: string; description: string; jobKind: string; attachments: { filename: string; contentType: string; byteSize: number; downloadUrl: string }[] };
 };
 type Message = { body: string; origin: string; senderAgentId: string | null; createdAt: string };
-export type Hire = { id: string; title: string; description: string; escrow: string; files?: { name: string; text: string }[] };
+export type Hire = { id: string; title: string; description: string; escrow: string; files?: { name: string; text?: string; bytes?: Buffer; type?: string }[] };
 
 /** Agent Market: an assignment queue with start, submit, decline, a thread and delivered versions. */
 export async function market(token: string, port = 0) {
@@ -140,7 +140,7 @@ export async function market(token: string, port = 0) {
   const threads = new Map<string, Message[]>(); // newest first, as the API returns
   const declined = new Map<string, { reason: string; detail: string }>();
   const now = () => new Date().toISOString();
-  const files = new Map<string, string>(); // download path -> text
+  const files = new Map<string, string | Buffer>(); // download path -> content
 
   /** A customer hires the swarm directly: the escrow is already funded. */
   const hire = (h: Hire) => {
@@ -148,8 +148,9 @@ export async function market(token: string, port = 0) {
       assignment: { assignmentId: h.id, status: 'in_progress', escrowAmount: h.escrow, startedAt: null, submittedAt: null, deliverableUrl: null },
       job: { jobId: `job-${h.id}`, title: h.title, description: h.description, jobKind: 'standard', attachments: (h.files ?? []).map((f, i) => {
         const downloadUrl = `/v1/files/${h.id}-${i}/raw`;
-        files.set(downloadUrl, f.text);
-        return { filename: f.name, contentType: 'text/markdown', byteSize: f.text.length, downloadUrl };
+        const body = f.bytes ?? f.text ?? '';
+        files.set(downloadUrl, body);
+        return { filename: f.name, contentType: f.type ?? 'text/markdown', byteSize: body.length, downloadUrl };
       }) },
     });
     versions.set(h.id, []);

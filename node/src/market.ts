@@ -50,11 +50,11 @@ export const versions = (id: string) =>
 /** The latest delivered Markdown. */
 export const delivered = async (id: string) => (await request(`${at(id)}/deliverable/raw`)).text();
 /** A file the customer attached, as text: only text files, at most 2 MB. Fetched with our token, as the market asks. */
+/** A customer's attached file as bytes; web.textOf turns it into text (PDF, Markdown, CSV, JSON, code, plain text). */
 export async function attachment(a: Attachment) {
-  const text = /^text\/|json|xml|csv|markdown/.test(a.contentType) || /\.(md|txt|csv|json|xml|ya?ml|sol|rs|ts|js|py)$/i.test(a.filename);
-  if (!text || a.byteSize > 2_000_000) return null;
+  if (a.byteSize > 5_000_000) throw new Error('it is over 5 MB');
   const path = a.downloadUrl.startsWith('http') ? new URL(a.downloadUrl).pathname : a.downloadUrl; // only ever from the market
-  return (await request(path)).text();
+  return new Uint8Array(await (await request(path)).arrayBuffer());
 }
 
 export const bid = (jobId: string, amount: string, proposal: string) =>
