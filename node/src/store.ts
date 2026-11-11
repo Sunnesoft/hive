@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { cfg } from './config.ts';
 
 const dir = (sub: string) => join(cfg.STORE_DIR, sub);
-await Promise.all(['uploads', 'rounds', 'agents'].map((d) => mkdir(dir(d), { recursive: true })));
+await Promise.all(['uploads', 'rounds', 'agents', 'orders'].map((d) => mkdir(dir(d), { recursive: true })));
 
 /** An upload is written to a draft first and becomes `uploads/<hash>` only once its hash is checked. */
 export const draft = () => join(dir('uploads'), `.part-${randomUUID()}`);
@@ -43,3 +43,26 @@ const round = (key: string) => join(dir('rounds'), `${encodeURIComponent(key)}.j
 export const remember = (key: string, decision: object) => writeFile(round(key), JSON.stringify(decision));
 export const recall = async <T>(key: string): Promise<T | null> =>
   readFile(round(key), 'utf8').then((s) => JSON.parse(s) as T, () => null);
+
+/** Orders placed in the contract, once the swarm answered or declined: what the customer reads. Listed by customer. */
+const orderFile = (id: string) => join(dir('orders'), `${encodeURIComponent(id)}.json`);
+const ordersBy = (customer: string) => join(dir('orders'), `by-${encodeURIComponent(customer)}.jsonl`);
+export const orderOf = <T>(id: string) => readFile(orderFile(id), 'utf8').then((s) => JSON.parse(s) as T, () => null);
+export async function keepOrder<T extends { id: string; customer: string }>(record: T) {
+  const isNew = !(await orderOf(record.id));
+  await writeFile(orderFile(record.id), JSON.stringify(record));
+  if (isNew) await appendFile(ordersBy(record.customer), `${record.id}\n`);
+}
+export const ordersOf = async (customer: string, last = 50) =>
+  (await readFile(ordersBy(customer), 'utf8').catch(() => '')).split('\n').filter(Boolean).slice(-last);
+
+/** What the runner itself spent at NEAR AI, by UTC day, in millionths of a dollar: the daily limit is checked against it. */
+const spendFile = () => join(cfg.STORE_DIR, 'spend.json');
+let spend: Promise<Record<string, number>> | undefined;
+let spendSaved = Promise.resolve();
+export const spendNow = () => (spend ??= readFile(spendFile(), 'utf8').then((s) => JSON.parse(s), () => ({})));
+export async function spent(day: string, units: bigint) {
+  const s = await spendNow();
+  s[day] = (s[day] ?? 0) + Number(units);
+  await (spendSaved = spendSaved.catch(() => {}).then(() => writeFile(spendFile(), JSON.stringify(s))));
+}

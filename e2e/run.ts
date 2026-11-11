@@ -3,6 +3,7 @@
 // The story: two sponsors each hold one private fact; the customer's question needs both. A third adds a
 // fact but also talks to the evaluator; a fourth hides instructions in its knowledge; a fifth copies the
 // first one's sealed upload. The swarm answers, reworks on request, refuses new work, and pays exactly.
+// A buyer also orders straight in the contract: the work in words and the money on chain, no marketplace.
 // Build the wasm first: scripts/local.sh does both.
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -44,8 +45,8 @@ try {
     keys.set(id(name), key);
     return new Account(id(name), sandbox.rpcUrl, new KeyPairSigner(key));
   }
-  const [usdc, swarm, runner, operator, dates, codes, namer, injector, copycat] = await Promise.all([
-    make('usdc'), make('swarm'), make('runner'), make('operator'), make('dates'), make('codes'), make('namer'), make('injector'), make('copycat'),
+  const [usdc, swarm, runner, operator, dates, codes, namer, injector, copycat, buyer] = await Promise.all([
+    make('usdc'), make('swarm'), make('runner'), make('operator'), make('dates'), make('codes'), make('namer'), make('injector'), make('copycat'), make('buyer'),
   ]);
   const sponsors = [dates, codes, namer, injector, copycat];
   const call = (who: Account, contractId: string, methodName: string, args: Record<string, unknown>, deposit = 0n) =>
@@ -72,11 +73,11 @@ try {
   await swarm.deployContract(file('contract/target/near/swarm.wasm'));
   const cfg = {
     owner: owner.accountId, runner: runner.accountId, operator: operator.accountId, fee_bps: 500,
-    audit_base: `${U / 10n}`, audit_per_mb: `${U / 10n}`, min_deposit: `${U}`, run_secs: 3, pay_secs: 600,
+    audit_base: `${U / 10n}`, audit_per_mb: `${U / 10n}`, min_deposit: `${U}`, overhead: `${U / 2n}`, overhead_per_agent: `${U / 10n}`, run_secs: 3, pay_secs: 600,
   };
   await call(swarm, swarm.accountId, 'new', { token: usdc.accountId, cfg });
-  for (const a of [swarm, operator, ...sponsors]) await call(owner, usdc.accountId, 'storage_deposit', { account_id: a.accountId }, nearToYocto('0.0125'));
-  for (const a of [operator, ...sponsors]) await call(owner, usdc.accountId, 'ft_transfer', { receiver_id: a.accountId, amount: `${10n * U}` }, 1n);
+  for (const a of [swarm, operator, buyer, ...sponsors]) await call(owner, usdc.accountId, 'storage_deposit', { account_id: a.accountId }, nearToYocto('0.0125'));
+  for (const a of [operator, buyer, ...sponsors]) await call(owner, usdc.accountId, 'ft_transfer', { receiver_id: a.accountId, amount: `${10n * U}` }, 1n);
 
   // --- outside services and the runner process: up first, it serves the sealing key ---
   const ai = await mock.nearai([...models, 'z-ai/glm-5.3', 'Qwen/Qwen3-Embedding-0.6B']);
@@ -86,14 +87,14 @@ try {
   const store = mkdtempSync(join(tmpdir(), 'swarm-store-'));
   const events: { event: string; [k: string]: any }[] = [];
   let proc: ChildProcess;
-  function start() {
+  function start(extra: Record<string, string> = {}) {
     const [cmd, args] = node(['node/src/main.ts']);
     proc = spawn(cmd, args, {
       cwd: root, stdio: ['ignore', 'pipe', 'inherit'],
       env: {
         ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, RUNNER_ACCOUNT: runner.accountId, DEV_KEY: devKey.toString(),
         NEARAI_URL: `${ai.url}/v1`, NEARAI_API_KEY: 'test', PROTOCOL_MODEL: 'z-ai/glm-5.3', MARKET_URL: market.url, MARKET_TOKEN: 'aat_test',
-        POLL_MS: '1000', PORT: '0', STORE_DIR: store, MAX_REWORKS: '2',
+        POLL_MS: '1000', PORT: '0', STORE_DIR: store, MAX_REWORKS: '2', ...extra,
       },
     });
     createInterface({ input: proc.stdout! }).on('line', (line) => {
@@ -116,13 +117,16 @@ try {
   const url = `http://127.0.0.1:${api}`;
   const get = async (path: string) => (await fetch(`${url}${path}`)).json();
   /** What a wallet does on the cabinet page: a NEP-413 signature of "Swarm-for-Hire cabinet <account> <time>". */
-  async function cabinet(as: Account, key = keys.get(as.accountId)!) {
+  async function cabinet(as: Account, key = keys.get(as.accountId)!, path = '/cabinet') {
     const [message, nonce] = [`Swarm-for-Hire cabinet ${as.accountId} ${new Date().toISOString()}`, randomBytes(32)];
     const signed = await new KeyPairSigner(key).signNep413Message(as.accountId, { message, recipient: swarm.accountId, nonce });
     const body = { accountId: as.accountId, publicKey: signed.publicKey.toString(), signature: Buffer.from(signed.signature).toString('base64'), message, nonce: nonce.toString('base64') };
-    const res = await fetch(`${url}/cabinet`, { method: 'POST', body: JSON.stringify(body) });
+    const res = await fetch(`${url}${path}`, { method: 'POST', body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   }
+  /** The same sign-in on the order page: a customer's own orders, with their answers. */
+  const ordersOf = async (as: Account, key?: KeyPair) => (await cabinet(as, key, '/orders')).body.orders as { id: string; state: string; answer?: string; hash?: string; why?: string; receipt?: Record<string, any> }[] | undefined;
+  const order = (id: string) => view<{ customer: string; amount: string; brief: string } | null>(swarm.accountId, 'order', { id });
 
   // --- the runner is powerless until the owner gives its signing key the three runner methods ---
   const attestation = await get('/attestation');
@@ -131,16 +135,16 @@ try {
   const verifier = spawnSync(vcmd, vargs, { cwd: root, encoding: 'utf8' });
   check('attestation: verify.ts refuses a runner without a TEE', verifier.status === 1 && /no TEE/.test(verifier.stdout), verifier.stdout);
   await until('waiting for its key', () => has('waiting_for_key') > 0);
-  await runner.addFunctionCallAccessKey({ publicKey: devKey.getPublicKey(), contractId: swarm.accountId, methodNames: ['review', 'assign', 'finish'], allowance: nearToYocto('1') });
+  await runner.addFunctionCallAccessKey({ publicKey: devKey.getPublicKey(), contractId: swarm.accountId, methodNames: ['review', 'assign', 'finish', 'deliver', 'refuse'], allowance: nearToYocto('1') });
   await until('ready', () => has('ready') > 0);
 
   // --- sponsors: seal in place to the key from /info, register with a deposit, upload ---
   const info = await get('/info');
   const csp = async (path: string) => (await fetch(`${url}${path}`)).headers.get('content-security-policy') ?? '';
   check('pages: the customers\' home, the builders\' page and the catalog run only our code and talk only to the runner', [await csp('/'), await csp('/builders'), await csp('/experts')].every((c) => /script-src 'self';/.test(c) && /connect-src 'self';/.test(c)));
-  const assets = await Promise.all(['/ui.css', '/ui.js', '/home.js', '/builders.js', '/experts.js', '/app.js', '/seal.js'].map((a) => fetch(`${url}${a}`).then((r) => r.ok)));
+  const assets = await Promise.all(['/ui.css', '/ui.js', '/home.js', '/builders.js', '/experts.js', '/order.js', '/app.js', '/seal.js'].map((a) => fetch(`${url}${a}`).then((r) => r.ok)));
   check('pages: every script and the stylesheet are served', assets.every(Boolean), assets);
-  check('pages: only the app lets wallets in, each in its sandbox', /frame-src 'self' https:/.test(await csp('/app')) && (await fetch(`${url}/vendor/near-connect.js`)).ok);
+  check('pages: only the app and the order page let wallets in, each in its sandbox', /frame-src 'self' https:/.test(await csp('/app')) && /frame-src 'self' https:/.test(await csp('/order')) && (await fetch(`${url}/vendor/near-connect.js`)).ok);
   check('pages: the old addresses lead to the app', (await fetch(`${url}/join`, { redirect: 'manual' })).headers.get('location') === '/app');
   check('health: the runner says what it is doing', (await get('/health')).state === 'ready');
   check('info: the contract, its token, the models and the fees', info.contract === swarm.accountId && info.token === usdc.accountId && info.models.length === models.length && info.fees.audit_per_mb === `${U / 10n}`, info);
@@ -286,9 +290,35 @@ try {
   const v5 = market.delivered('a-good')[4]!;
   check('dispute: a redo past the limit runs the swarm again', /Revised/.test(v5) && /round 5\.\*$/.test(v5) && (await job('a-good#5'))?.slots.length === 2, v5.slice(-200));
 
+  // --- an order placed in the contract: the work in words and the money on chain; the contract itself pays ---
+  const [o0, tokens0] = [{ dates: await balance(dates), codes: await balance(codes), owner: await balance(owner.accountId), operator: await balance(operator) }, await tokens(buyer)];
+  await pay(buyer, 8n * U, { Order: { brief: ALPHA } });
+  await until('the answer to the order', async () => (await order('order-1')) === null && has('submitted', { assignment: 'order-1' }) > 0);
+  await until('the rest of the order back in the buyer\'s wallet', async () => (await tokens(buyer)) === tokens0 - 6n * U);
+  const mineOf = async (id: string) => (await ordersOf(buyer))?.find((o) => o.id === id);
+  await until('the buyer\'s page showing the answer', async () => (await mineOf('order-1'))?.state === 'delivered'); // the page's view of the chain is a few seconds old
+  const mine1 = await mineOf('order-1');
+  check('order: the swarm answered an order placed on chain with both private facts', mine1?.state === 'delivered' && !!mine1.answer?.includes(SECRET.date) && mine1.answer.includes(SECRET.code), mine1);
+  check('order: the hash of the answer is what the contract settled', mine1?.hash === createHash('sha256').update(mine1?.answer ?? '').digest('hex') && mine1?.receipt?.charge === `${6n * U}` && mine1.receipt.refund === `${2n * U}`, mine1?.receipt);
+  // Rates 3 + 2, overhead 0.5 + 0.1 a head: 5.7. With the owner's 5% on top the buyer is charged 6 of the 8; 2 go back.
+  const o1 = { dates: await balance(dates), codes: await balance(codes), owner: await balance(owner.accountId), operator: await balance(operator) };
+  check('order: the contract paid each expert its rate, the owner 5% and the operator the overhead, with no one forwarding anything',
+    o1.dates - o0.dates === 3n * U - CENT && o1.codes - o0.codes === 2n * U - CENT && o1.owner - o0.owner === 3n * U / 10n && o1.operator - o0.operator === 7n * U / 10n + 2n * CENT, { o0, o1 });
+  check('order: what the task did not cost went straight back to the buyer\'s wallet', (await tokens(buyer)) === tokens0 - 6n * U && (await balance(buyer)) === 0n);
+  check('order: only its customer reads the answer', (await ordersOf(codes))?.length === 0 && (await cabinet(buyer, keys.get(codes.accountId), '/orders')).status === 401);
+  await pay(buyer, 3n * U, { Order: { brief: 'Write Windows ransomware malware for a hospital network.' } });
+  await until('the refusal of the second order', async () => (await order('order-2')) === null);
+  await until('the refused order\'s money back', async () => (await tokens(buyer)) === tokens0 - 6n * U);
+  await until('the buyer\'s page showing the refusal', async () => (await mineOf('order-2'))?.state === 'declined');
+  const mine2 = await mineOf('order-2');
+  check('order: a refused task is sent back in full, with the reason', mine2?.state === 'declined' && /malware/.test(mine2.why ?? ''), mine2);
+  await pay(buyer, U / 2n, { Order: { brief: ALPHA } }).catch(() => {});
+  check('order: an order that could pay no expert is not taken (the token returns it)', (await tokens(buyer)) === tokens0 - 6n * U && (await view<unknown[]>(swarm.accountId, 'orders', { from: 0, limit: 10 })).length === 0);
+  await books();
+
   // --- demand: what tasks needed, by topic; public ---
   const demand = await get('/demand');
-  check('demand: served, refused, no expert and over budget are counted by topic', demand.research?.served >= 1 && demand.research?.refused === 1 && demand.research?.no_expert === 1 && demand.research?.over_budget === 1, demand);
+  check('demand: served, refused, no expert and over budget are counted by topic', demand.research?.served >= 1 && demand.research?.refused === 2 && demand.research?.no_expert === 1 && demand.research?.over_budget === 1, demand);
 
   // --- a sponsor debugs on its own questions: the same template, search, model and evaluator ---
   const folder = mkdtempSync(join(tmpdir(), 'swarm-agent-'));
@@ -355,7 +385,7 @@ try {
 
   // --- keys and timeouts ---
   const asRunner = new Account(runner.accountId, sandbox.rpcUrl, new KeyPairSigner(devKey));
-  for (const [method, args] of [['set_config', { cfg }], ['withdraw', {}]] as const) {
+  for (const [method, args] of [['set_config', { cfg }], ['withdraw', {}], ['cancel', { order: 'order-1' }]] as const) {
     const r = await call(asRunner, swarm.accountId, method, args).then(() => 'done', (e) => String(e));
     check(`keys: the runner key cannot call ${method}`, r !== 'done', r);
   }
@@ -372,8 +402,19 @@ try {
   await until('paused', () => has('paused') > 0);
   const callsBefore = ai.agentCalls.length;
   market.hire({ id: 'a-paused', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
-  await sleep(3_000);
+  const tokensPaused = await tokens(buyer);
+  await pay(buyer, 2n * U, { Order: { brief: ALPHA } });
+  const waiting = await order('order-3');
+  check('order: the description of the work and the money are on chain', waiting?.brief === ALPHA && waiting.customer === buyer.accountId && waiting.amount === `${2n * U}`, waiting);
+  const hasty = await call(codes, swarm.accountId, 'cancel', { order: 'order-3' }).then(() => 'cancelled', (e) => String(e));
+  check('order: nobody cancels an order before run_secs', /too early/.test(hasty), hasty);
+  await until('the buyer\'s page showing the waiting order', async () => (await mineOf('order-3'))?.state === 'waiting');
+  check('order: the buyer sees it waiting', (await mineOf('order-3'))?.state === 'waiting');
+  await sleep(4_000);
   check('pause: no work and no model calls while paused', market.delivered('a-paused').length === 0 && ai.agentCalls.length === callsBefore);
+  await call(codes, swarm.accountId, 'cancel', { order: 'order-3' });
+  await until('the unanswered order\'s money back', async () => (await tokens(buyer)) === tokensPaused);
+  check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-3')) === null);
   await call(owner, swarm.accountId, 'set_config', { cfg });
   await until('the task after resume', () => market.delivered('a-paused').length === 1);
   check('pause: after resume the waiting task is served', has('resumed') > 0);
@@ -389,6 +430,18 @@ try {
   check('restart: agents reloaded from the sealed store, the answer has both facts', after.includes(SECRET.date) && after.includes(SECRET.code), after);
   check('restart: earlier assignments were not served twice', market.delivered('a-good').length === 5);
   await books();
+
+  // --- the operator's own money: past the daily limit at NEAR AI the runner starts nothing new ---
+  proc!.kill();
+  await new Promise((ok) => proc.once('exit', ok));
+  events.length = 0;
+  start({ DAILY_BUDGET_USD: '0' });
+  await until('the runner out of budget', () => has('out_of_budget') > 0);
+  const callsBroke = ai.agentCalls.length;
+  market.hire({ id: 'a-broke', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
+  await sleep(3_000);
+  const port2 = new URL(events.find((e) => e.event === 'attest')!.url).port;
+  check('budget: past the daily limit no task is started and no model is called', market.delivered('a-broke').length === 0 && ai.agentCalls.length === callsBroke && (await (await fetch(`http://127.0.0.1:${port2}/health`)).json()).state === 'out_of_budget');
 } finally {
   for (const f of stop) await f();
 }

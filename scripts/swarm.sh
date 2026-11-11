@@ -3,6 +3,7 @@
 #
 #   NETWORK=testnet|mainnet ROOT=<owner account> TOKEN=<USDC contract> scripts/swarm.sh <command> ...
 #   KEYCHAIN=legacy-keychain keeps keys in ~/.near-credentials instead of the system keychain.
+#   SWARM_ACCOUNT=<account> names the contract if it is not swarm.ROOT (a second deployment by the same owner).
 #
 # testnet
 #   faucet <account>               a new testnet account with NEAR from the faucet, its key in the keychain
@@ -14,7 +15,7 @@
 #   set <field> <value>            change one config field (fee_bps, audit_base, min_deposit, ...)
 #   image <repo>                   build and push the runner image, pin its digest in docker-compose.yml
 #   tee-deploy                     deploy docker-compose.yml to Phala Cloud with the secrets of .env.tee
-#   runner-key <url> <compose>     check the runner, then let its signing key call review/assign/finish
+#   runner-key <url> <compose>     check the runner, then let its signing key call the runner's methods
 #   dev-key                        a runner key without a TEE (local chain, testnet): prints DEV_KEY
 #   pause | resume                 no key can act as the runner / the runner works again
 # sponsor (SPONSOR=<account>)
@@ -23,6 +24,10 @@
 # operator
 #   payouts                        pay every accepted assignment's rounds: each delivered expert its rate (cron-safe)
 #   revenue <assignment#round> <usdc>  forward one payout by hand
+# customer (CUSTOMER=<account>)
+#   order "<the work>" <usdc>      place an order in the contract: the task in words and its budget; prints its id
+#   answers                        the customer's orders and their answers, from the runner (RUNNER_URL), signed with its key
+#   cancel <order>                 send back an order nobody answered within run_secs (anyone may call it)
 # anyone
 #   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
 #   withdraw <account> [usdc]      take a balance, all of it if no amount
@@ -31,7 +36,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${NETWORK:=testnet}" "${ROOT:?owner account, e.g. alice.testnet}" "${TOKEN:?USDC contract on this network}"
-C="swarm.$ROOT"
+C=${SWARM_ACCOUNT:-swarm.$ROOT}
 RPC=${RPC:-https://rpc.$NETWORK.fastnear.com}
 KC=${KEYCHAIN:-keychain} # where near-cli-rs keeps and finds keys
 
@@ -61,10 +66,11 @@ send() {
 }
 # pay <from> <units> <msg>: USDC into the contract with a message
 pay() { send "$TOKEN" ft_transfer_call "$(jq -nc --arg r "$C" --arg a "$2" --arg m "$3" '{receiver_id:$r,amount:$a,msg:$m}')" "$1" '1 yoctoNEAR'; }
-# A function-call key: it can call only the runner methods of the contract and never moves tokens.
+# A function-call key: it can call only the runner methods of the contract. It cannot move a token to itself or
+# to anyone it chooses: an order's money goes only where the contract's rules send it.
 runner_key() {
   near account add-key "runner.$ROOT" grant-function-call-access --allowance '5 NEAR' \
-    --contract-account-id "$C" --function-names 'review, assign, finish' \
+    --contract-account-id "$C" --function-names 'review, assign, finish, deliver, refuse' \
     use-manually-provided-public-key "$1" network-config "$NETWORK" sign-with-$KC send
 }
 set_cfg() { send "$C" set_config "$(view "$C" config | jq -c --arg k "$1" --arg v "$2" '{cfg: (.[$k] = (if .[$k] | type == "number" then ($v | tonumber) else $v end))}')" "$ROOT"; }
@@ -92,7 +98,8 @@ deploy)
       sign-as "$ROOT" network-config "$NETWORK" sign-with-$KC send
   done
   cfg=$(jq -nc --arg r "$ROOT" '{owner:$r, runner:"runner.\($r)", operator:"operator.\($r)", fee_bps:500,
-    audit_base:"100000", audit_per_mb:"100000", min_deposit:"1000000", run_secs:1800, pay_secs:1209600}')
+    audit_base:"100000", audit_per_mb:"100000", min_deposit:"1000000", overhead:"500000", overhead_per_agent:"100000",
+    run_secs:1800, pay_secs:1209600}')
   near contract deploy "$C" use-file contract/target/near/swarm.wasm with-init-call new \
     json-args "$(jq -nc --arg t "$TOKEN" --argjson c "$cfg" '{token:$t, cfg:$c}')" \
     prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-$KC send
@@ -144,6 +151,14 @@ revenue) # the round is in the accepted answer's footer: "round N"
   [[ $2 == *#* ]] || { echo "give the round: <assignment>#<round>" >&2; exit 1; }
   echo "paying $3 USDC to $2"
   pay "operator.$ROOT" "$(usdc "$3")" "$(jq -nc --arg j "$2" '{Revenue:{job:$j}}')" ;;
+order) # the description is public on chain; the answer is read on the runner's /order page with the same wallet
+  : "${CUSTOMER:?account that orders and pays}"
+  pay "$CUSTOMER" "$(usdc "$3")" "$(jq -nc --arg b "$2" '{Order:{brief:$b}}')"
+  view "$C" orders '{"from":0,"limit":100}' | jq -c --arg c "$CUSTOMER" '.[] | select(.customer == $c) | {id, amount}' ;;
+answers) # reads the key from ~/.near-credentials, as near-cli-rs saves it with KEYCHAIN=legacy-keychain
+  ts scripts/cabinet.ts "${CUSTOMER:?account that ordered}" "${RUNNER_URL:?the runner, e.g. http://127.0.0.1:8080}" "$NETWORK" --orders ;;
+cancel)
+  send "$C" cancel "$(jq -nc --arg o "$2" '{order:$o}')" "${SIGNER:-${CUSTOMER:-$ROOT}}" ;;
 withdraw)
   args='{}'
   [[ -n ${3:-} ]] && args=$(jq -nc --arg a "$(usdc "$3")" '{amount:$a}')
@@ -166,5 +181,5 @@ status)
       (( $(jq length <<<"$page") == 100 )) || break
     done
   fi ;;
-*) sed -n '2,30p' "$0"; exit 1 ;;
+*) sed -n '2,35p' "$0"; exit 1 ;;
 esac

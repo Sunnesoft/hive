@@ -146,6 +146,7 @@ main.page { padding-bottom: 88px; }
 .feature svg.icon { width: 26px; height: 26px; }
 svg.icon { fill: none; stroke: var(--honey); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 svg.icon.ok { stroke: var(--ok); stroke-width: 2.2; }
+svg.icon.warn { stroke: var(--warn); }
 svg.icon.honey { stroke: var(--honey-fill); }
 
 /* ---- hero ---- */
@@ -604,3 +605,11 @@ hr.soft { border: 0; height: 1px; background: var(--soft-2); margin: 0; }
   .table-card > header, .table-card > .faint, .table-card > p:last-child, .table-card .empty { padding-left: 16px; padding-right: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- the order page: a customer's orders in the contract ---- */
+.orders { display: grid; gap: 16px; }
+.order > header .end { font-size: 13.5px; }
+.order details summary { cursor: pointer; color: var(--ink-2); font-size: 14.5px; }
+.order details[open] summary { margin-bottom: 8px; }
+.answer-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15.5px; line-height: 1.65; padding: 16px 18px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); }
+.order .hash { font: 12.5px/1.5 var(--font-mono); overflow-wrap: anywhere; }

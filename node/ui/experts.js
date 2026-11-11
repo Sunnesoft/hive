@@ -1,5 +1,6 @@
 // Hiring, the customer's way: write the task, pick experts if you like, see the price, then hire the swarm on
 // Agent Market with the brief copied and the steps spelled out. Payment and acceptance happen there.
+// Or the same brief goes to /order: the customer pays into the contract from a wallet and the contract settles.
 import { $, account, ago, askList, getJSON, h, icon, quote, topicChips, topicName, units, usd } from '/ui.js';
 
 const [info, experts] = await Promise.all([getJSON('/info'), getJSON('/agents')]);
@@ -162,6 +163,22 @@ async function hire() {
   $('hireTitle').focus({ preventScroll: true });
 }
 
+/** The same brief as an order in the contract: its budget covers the picked experts, or the smallest plan. */
+function orderOnChain() {
+  if (!task()) {
+    $('need').textContent = 'Write your task first: it is what the swarm answers.';
+    $('task').focus();
+    return;
+  }
+  const chosen = experts.filter((e) => picked.has(e.id));
+  const cost = chosen.reduce((s, e) => s + BigInt(e.rate) + BigInt(pricing.order.per_agent), BigInt(pricing.order.overhead));
+  const cents = (cost * 10_000n / BigInt(10_000 - info.fees.fee_bps) + 9_999n) / 10_000n; // with the owner's fee on top, up to a cent
+  const amount = chosen.length ? `${cents / 100n}.${`${cents % 100n}`.padStart(2, '0')}` : Number(pricing.plans[0].usd).toFixed(2);
+  sessionStorage.setItem('swarm.order', JSON.stringify({ brief: briefText(), amount }));
+  location.href = '/order';
+}
+$('chainHint').textContent = `The contract pays the experts and returns the rest. No marketplace fee; one answer, no changes or disputes; your task is public on chain.`;
+$('chain').addEventListener('click', orderOnChain);
 $('search').addEventListener('input', list);
 $('task').addEventListener('input', () => (compose(), list()));
 $('links').addEventListener('input', compose);

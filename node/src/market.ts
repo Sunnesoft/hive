@@ -2,6 +2,7 @@
 // Shapes follow market.near.ai/openapi.json; responses are parsed, never trusted blindly.
 import { z } from 'zod';
 import { cfg } from './config.ts';
+import { MARKET_FEE_BPS, usdc } from './rules.ts';
 
 async function request(path: string, body?: unknown) {
   const res = await fetch(`${cfg.MARKET_URL}${path}`, {
@@ -33,6 +34,7 @@ const BoardJob = Brief.extend({ budgetToken: z.string(), budgetAmount: z.string(
 const Message = z.object({ body: z.string(), origin: z.string(), senderAgentId: z.string().nullable(), createdAt: z.string() });
 export type Row = z.infer<typeof Row>;
 export type BoardJob = z.infer<typeof BoardJob>;
+export type Message = z.infer<typeof Message>;
 
 const at = (id: string) => `/v1/assignments/${encodeURIComponent(id)}`;
 
@@ -66,3 +68,24 @@ export const submit = (id: string, deliverableMarkdown: string) => api(`${at(id)
 /** Hands the assignment back; the customer is refunded in full. */
 export const decline = (id: string, reason: 'rejected' | 'failed', detail: string) =>
   api(`${at(id)}/decline`, z.unknown(), { reason, detail: detail.slice(0, 500) });
+
+/** A door is where customers' work comes in and answers go out: Agent Market here, orders placed in the
+ *  contract in orders.ts. round.ts serves both the same way. */
+export type Door = {
+  key: (id: string, round: number) => string; // the job's id on chain
+  fee: bigint; // what the door keeps of the price, in basis points
+  overhead: bigint; // the protocol's own cost: per task, and per agent that works
+  perAgent: bigint;
+  thread: (id: string) => Promise<Message[]>;
+  versions: (id: string) => Promise<{ submittedAt: string }[]>;
+  delivered: (id: string) => Promise<string>;
+  attachment: (a: Attachment) => Promise<Uint8Array>;
+  start: (id: string) => Promise<unknown>;
+  submit: (id: string, markdown: string) => Promise<unknown>;
+  decline: (id: string, reason: 'rejected' | 'failed', detail: string) => Promise<unknown>;
+};
+export const door: Door = {
+  key: (id, round) => `${id}#${round}`, // every rework is its own job
+  fee: MARKET_FEE_BPS, overhead: usdc(cfg.OVERHEAD_USD), perAgent: usdc(cfg.OVERHEAD_PER_AGENT_USD),
+  thread, versions, delivered, attachment, start, submit, decline,
+};

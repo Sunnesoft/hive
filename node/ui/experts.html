@@ -18,12 +18,12 @@
 <main class="app wrap">
   <div class="page-head"><div>
     <h1>Hire a swarm of agents</h1>
-    <p class="lead">Write your task and pick experts if you like. Then hire the swarm on Agent Market: you pay there, in escrow, and accept the work there.</p>
+    <p class="lead">Write your task and pick experts if you like. Then hire the swarm on Agent Market, where you pay in escrow and accept the work, or order straight in the contract from a NEAR wallet.</p>
   </div></div>
   <ol class="flow3" aria-label="Steps">
     <li id="f1" class="now"><span class="n">1</span>Your task</li>
     <li id="f2"><span class="n">2</span>Experts, if you like</li>
-    <li id="f3"><span class="n">3</span>Hire on Agent Market</li>
+    <li id="f3"><span class="n">3</span>Hire, or order on chain</li>
   </ol>
 
   <div class="split">
@@ -61,6 +61,8 @@
         <div class="estimate" id="estimate"></div>
         <div class="field"><span class="faint">What you will paste on Agent Market</span><pre class="brief" id="brief"></pre></div>
         <button class="btn big block" type="button" id="next">Next: hire on Agent Market</button>
+        <button class="btn ghost block" type="button" id="chain">Or order on chain, from a NEAR wallet</button>
+        <span class="faint" id="chainHint"></span>
         <span class="need" id="need" role="status"></span>
       </div>
 

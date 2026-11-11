@@ -5,8 +5,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { admit, useSeal, warm } from './admit.ts';
 import * as chain from './chain.ts';
 import { cfg, log, policyHash } from './config.ts';
-import { refreshPrices } from './llm.ts';
+import { overBudget, refreshPrices } from './llm.ts';
 import * as market from './market.ts';
+import * as orders from './orders.ts';
 import { bid, serve } from './round.ts';
 import { listen, setState } from './server.ts';
 import { bootKeys, waitForKey } from './tee.ts';
@@ -16,17 +17,26 @@ async function each<T>(items: T[], f: (x: T) => Promise<unknown>) {
   for (const x of items) await f(x).catch((e) => log('error', { error: String(e) }));
 }
 
-let paused = false;
+let [paused, broke] = [false, false];
 async function tick() {
-  const [agents, { fee_bps, runner }] = await Promise.all([chain.agents(), chain.config()]);
+  const [agents, config] = await Promise.all([chain.agents(), chain.config()]);
+  const { fee_bps, runner } = config;
   if (paused !== (runner !== cfg.RUNNER_ACCOUNT)) log((paused = !paused) ? 'paused' : 'resumed', { runner });
-  setState(paused ? 'paused' : 'ready');
-  if (paused) return; // the owner stopped us: no audits, no rounds, nothing that costs money
+  if (!paused && broke !== (await overBudget())) log((broke = !broke) ? 'out_of_budget' : 'in_budget', { daily_usd: cfg.DAILY_BUDGET_USD });
+  setState(paused ? 'paused' : broke ? 'out_of_budget' : 'ready');
+  if (paused || broke) return; // the owner stopped us, or today's money is spent: no audits, no rounds, nothing that costs money
   await refreshPrices();
   await each(agents.filter((a) => a.status === 'Pending'), admit);
   agents.forEach(warm);
-  if (cfg.BIDS === 'on') await each(await market.board(), (job) => bid(job, agents, fee_bps));
-  for (const row of await market.assignments()) serve(row, fee_bps);
+  // The two doors, each on its own: one being down does not stop the other.
+  await each([
+    async () => { for (const row of orders.rows(await chain.orders())) serve(row, fee_bps, orders.door(config)); },
+    async () => {
+      if (!cfg.MARKET_TOKEN) return;
+      if (cfg.BIDS === 'on') await each(await market.board(), (job) => bid(job, agents, fee_bps));
+      for (const row of await market.assignments()) serve(row, fee_bps);
+    },
+  ], (door) => door());
 }
 
 const keys = await bootKeys();

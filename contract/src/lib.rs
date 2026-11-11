@@ -7,6 +7,9 @@
 //!   The cost goes to the operator, the rest of the hold back to the agent.
 //! - Customer revenue pays the owner's fee, then each agent that delivered exactly its rate,
 //!   then the operator the rest. Nobody gains from another agent failing.
+//! - A customer may also order here: USDC with a description of the work. When the swarm delivers,
+//!   the order pays that job by the same rule plus the protocol's overhead; the rest is sent back.
+//!   An order the swarm declines, or does not answer in time, is sent back in full.
 //! - A stuck job can be closed by anyone after a timeout. Every balance can be withdrawn.
 //!
 //! What the agents know is not here: it is sealed and kept by the runner in a TEE.
@@ -23,6 +26,8 @@ const MAX_TEAM: usize = 32; // agents in one job: bounds the gas of finish and r
 const MAX_SKILLS: usize = 500; // bytes of the public card text
 const MAX_NAME: usize = 32; // an agent's name: lowercase letters, digits and dashes
 const MAX_SIZE_MB: u32 = 10; // sealed materials a sponsor may upload
+const MAX_BRIEF: usize = 4_000; // bytes of an order's description, kept here until the order is settled
+const MAX_REASON: usize = 200; // bytes of why an order was declined
 const MAX_FEE_BPS: u16 = 2_000;
 const MAX_SECS: u64 = 90 * 86_400;
 const COST_STEP: u128 = 10_000; // 0.01 USDC: coarse costs carry almost no hidden bits
@@ -38,6 +43,8 @@ pub struct Config {
     pub audit_base: U128,    // audit fee per registration
     pub audit_per_mb: U128,  // plus this per declared megabyte of materials
     pub min_deposit: U128,   // the least a registration must bring beyond the audit fee
+    pub overhead: U128,      // what an order pays the operator for the protocol's own work
+    pub overhead_per_agent: U128, // plus this for each agent that delivered
     pub run_secs: u64,       // an unfinished job may be closed after this; holds go back
     pub pay_secs: u64,       // a finished job waits this long for revenue
 }
@@ -81,6 +88,16 @@ pub struct Job {
     pub slots: Vec<Slot>,
 }
 
+/// A customer's order: the work in words and the most it may cost, held until the swarm delivers or declines.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct Order {
+    pub customer: AccountId,
+    pub amount: U128,  // what is not spent is sent back to the customer
+    pub brief: String, // the description of the work: public
+    pub at: u64,       // seconds: placed
+}
+
 #[near(serializers = [json])]
 pub struct Outcome {
     pub cost: U128,      // inference spent, on the 0.01 USDC step
@@ -94,6 +111,7 @@ pub enum Msg {
     Register { name: String, skills: String, rate: U128, max_cost: U128, hash: String, size_mb: u32 },
     TopUp { agent: String }, // adds to the balance of the agent's owner
     Revenue { job: String },
+    Order { brief: String }, // the customer's order; its id is in the `order` event
 }
 
 #[near(serializers = [json])]
@@ -102,6 +120,13 @@ pub struct AgentView {
     #[serde(flatten)]
     pub card: Agent,
     pub balance: U128, // the owner's, shared by all its agents
+}
+
+#[near(serializers = [json])]
+pub struct OrderView {
+    pub id: String,
+    #[serde(flatten)]
+    pub order: Order,
 }
 
 #[allow(dead_code)] // only the generated `ext_ft` is used
@@ -118,8 +143,10 @@ pub struct Contract {
     balances: LookupMap<AccountId, u128>,
     agents: IterableMap<String, Agent>, // by `<owner>/<name>`
     jobs: LookupMap<String, Job>,
-    total: u128,        // = balances + holds; never above our token balance
+    orders: IterableMap<String, Order>, // open orders by `order-<n>`; the job of an order has the same id
+    total: u128,        // = balances + holds + open orders; never above our token balance
     registrations: u64, // cards registered so far
+    placed: u64,        // orders placed so far: an order id is never used twice
 }
 
 #[near]
@@ -128,7 +155,7 @@ impl Contract {
     pub fn new(token: AccountId, cfg: Config) -> Self {
         check(&cfg);
         let (balances, agents, jobs) = (LookupMap::new(b"b"), IterableMap::new(b"a"), LookupMap::new(b"j"));
-        Self { token, cfg, balances, agents, jobs, total: 0, registrations: 0 }
+        Self { token, cfg, balances, agents, jobs, orders: IterableMap::new(b"o"), total: 0, registrations: 0, placed: 0 }
     }
 
     // ---- money in: `ft_transfer_call` on the token; a panic here refunds the sender ----
@@ -148,6 +175,7 @@ impl Contract {
                 emit("top_up", json!({ "agent": agent, "amount": amount }));
             }
             Msg::Revenue { job } => self.revenue(sender_id, amount.0, job),
+            Msg::Order { brief } => self.place(sender_id, amount.0, brief),
         }
         self.total += amount.0;
         U128(0)
@@ -213,7 +241,42 @@ impl Contract {
         }
     }
 
+    /// The answer to an order is ready; `answer` is its sha256. The order's job says who delivered. The order
+    /// pays the owner's fee, each of them its rate and the protocol's overhead; the rest goes back to the customer.
+    pub fn deliver(&mut self, order: String, answer: String) {
+        self.only(&self.cfg.runner);
+        require!(is_sha256_hex(&answer), "bad answer hash");
+        let o = self.orders.remove(&order).expect("no order");
+        let j = self.jobs.remove(&order).expect("no job");
+        require!(j.done, "job not finished");
+        let delivered = j.slots.iter().filter(|s| s.pay.0 > 0).count() as u128;
+        let cost = j.slots.iter().map(|s| s.pay.0).sum::<u128>() + self.cfg.overhead.0 + self.cfg.overhead_per_agent.0 * delivered;
+        let keep = 10_000 - self.cfg.fee_bps as u128;
+        let charge = o.amount.0.min((cost * 10_000).div_ceil(keep)); // so that after the fee it covers the cost
+        self.pay_out(&order, &j, charge);
+        self.give_back(&o.customer, o.amount.0 - charge);
+        emit(
+            "deliver",
+            json!({ "order": order, "customer": o.customer, "answer": answer, "charge": U128(charge), "refund": U128(o.amount.0 - charge) }),
+        );
+    }
+
+    /// The swarm declines an order: the task is refused, nobody knows enough, the money covers no team,
+    /// or the work failed. All of it goes back to the customer.
+    pub fn refuse(&mut self, order: String, reason: String) {
+        self.only(&self.cfg.runner);
+        require!(reason.len() <= MAX_REASON, "reason too long");
+        self.refund(order, &reason);
+    }
+
     // ---- anyone ----
+
+    /// Returns an order the swarm did not answer within `run_secs` to its customer.
+    pub fn cancel(&mut self, order: String) {
+        let o = self.orders.get(&order).expect("no order");
+        require!(now() >= o.at + self.cfg.run_secs, "too early");
+        self.refund(order, "timeout");
+    }
 
     /// Closes a stuck job: unfinished after `run_secs` (holds go back) or unpaid after `pay_secs`.
     pub fn close(&mut self, job: String) {
@@ -232,19 +295,14 @@ impl Contract {
         let amount = amount.map_or(have, |a| a.0);
         require!(amount > 0 && amount <= have, "bad amount");
         self.set_balance(&me, have - amount);
-        self.total -= amount;
-        ext_ft::ext(self.token.clone())
-            .with_attached_deposit(NearToken::from_yoctonear(1))
-            .with_static_gas(GAS)
-            .ft_transfer(me.clone(), U128(amount), None)
-            .then(Self::ext(env::current_account_id()).with_static_gas(GAS).on_withdraw(me, U128(amount)))
+        self.send(me, amount)
     }
 
     #[private]
     pub fn on_withdraw(&mut self, account: AccountId, amount: U128) {
         let ok = is_promise_success();
         if !ok {
-            self.credit(&account, amount.0); // e.g. not registered with the token: the money stays here
+            self.credit(&account, amount.0); // e.g. not registered with the token: the money stays here, in its balance
             self.total += amount.0;
         }
         emit("withdraw", json!({ "account": account, "amount": amount, "ok": ok }));
@@ -277,6 +335,14 @@ impl Contract {
     pub fn job(&self, job: String) -> Option<Job> {
         self.jobs.get(&job).cloned()
     }
+    pub fn order(&self, id: String) -> Option<Order> {
+        self.orders.get(&id).cloned()
+    }
+    /// Open orders: the runner serves them.
+    pub fn orders(&self, from: u32, limit: u32) -> Vec<OrderView> {
+        let page = self.orders.iter().skip(from as usize).take(limit.min(100) as usize);
+        page.map(|(id, o)| OrderView { id: id.clone(), order: o.clone() }).collect()
+    }
     pub fn balance(&self, account: AccountId) -> U128 {
         U128(self.balance_of(&account))
     }
@@ -305,12 +371,17 @@ impl Contract {
         self.agents.insert(id, card);
     }
 
-    /// Owner's fee first; then each agent that delivered exactly its pay (pro rata if the revenue
-    /// falls short); the operator keeps the rest. Revenue is accepted once, from the operator.
+    /// Revenue for a finished job, forwarded by the operator from Agent Market. Accepted once.
     fn revenue(&mut self, sender: AccountId, amount: u128, job: String) {
         require!(sender == self.cfg.operator, "revenue comes from the operator");
         let j = self.jobs.remove(&job).expect("no job");
         require!(j.done, "job not finished");
+        self.pay_out(&job, &j, amount);
+    }
+
+    /// Shares `amount` for a finished job: the owner's fee first; then each agent that delivered exactly
+    /// its pay (pro rata if the amount falls short); the operator keeps the rest.
+    fn pay_out(&mut self, job: &str, j: &Job, amount: u128) {
         let fee = amount * self.cfg.fee_bps as u128 / 10_000;
         let pays: Vec<u128> = j.slots.iter().map(|s| s.pay.0).collect();
         let due: u128 = pays.iter().sum();
@@ -326,6 +397,44 @@ impl Contract {
             "revenue",
             json!({ "job": job, "amount": U128(amount), "fee": U128(fee), "paid": paid, "operator": U128(rest) }),
         );
+    }
+
+    /// Holds a customer's money with the description of the work. The id is new every time.
+    fn place(&mut self, customer: AccountId, amount: u128, brief: String) {
+        require!(!brief.trim().is_empty() && brief.len() <= MAX_BRIEF, "brief empty or too long");
+        require!(amount > self.cfg.overhead.0, "order too small"); // or it could pay no agent at all
+        self.placed += 1;
+        let id = format!("order-{}", self.placed);
+        emit("order", json!({ "order": id, "customer": customer, "amount": U128(amount) }));
+        self.orders.insert(id, Order { customer, amount: U128(amount), brief, at: now() });
+    }
+
+    /// Ends an order with all its money back in the customer's balance. Its job, if one finished, is dropped unpaid.
+    fn refund(&mut self, order: String, reason: &str) {
+        let o = self.orders.remove(&order).expect("no order");
+        if let Some(j) = self.jobs.get(&order) {
+            require!(j.done, "job running"); // its holds are still out: finish or close it first
+            self.jobs.remove(&order);
+        }
+        self.give_back(&o.customer, o.amount.0);
+        emit("refund", json!({ "order": order, "customer": o.customer, "amount": o.amount, "reason": reason }));
+    }
+
+    /// Sends tokens out. If the transfer fails, `on_withdraw` puts them into the receiver's balance here.
+    fn send(&mut self, to: AccountId, amount: u128) -> Promise {
+        self.total -= amount;
+        ext_ft::ext(self.token.clone())
+            .with_attached_deposit(NearToken::from_yoctonear(1))
+            .with_static_gas(GAS)
+            .ft_transfer(to.clone(), U128(amount), None)
+            .then(Self::ext(env::current_account_id()).with_static_gas(GAS).on_withdraw(to, U128(amount)))
+    }
+
+    /// A customer's money goes straight back to its wallet: it never has to come for it.
+    fn give_back(&mut self, customer: &AccountId, amount: u128) {
+        if amount > 0 {
+            self.send(customer.clone(), amount).detach();
+        }
     }
 
     fn only(&self, who: &AccountId) {

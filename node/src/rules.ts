@@ -51,8 +51,9 @@ export const ready = (agents: Agent[]) =>
 
 const bps = (amount: bigint, b: bigint) => (amount * (10_000n - b)) / 10_000n;
 
-/** What the agents of a job may cost together, out of what the customer pays. */
-export const budget = (price: bigint, feeBps: number, overhead: bigint) => bps(bps(price, MARKET_FEE_BPS), BigInt(feeBps)) - overhead;
+/** What the agents of a job may cost together, out of what the customer pays: less the door's own fee
+ *  (Agent Market's; an order in the contract has none), the owner's fee and the protocol's overhead. */
+export const budget = (price: bigint, feeBps: number, overhead: bigint, doorBps = MARKET_FEE_BPS) => bps(bps(price, doorBps), BigInt(feeBps)) - overhead;
 
 /** The revenue a round needs to pay what it owes its delivered experts after the owner's fee: rounded up. */
 export const share = (due: bigint, feeBps: number) => {

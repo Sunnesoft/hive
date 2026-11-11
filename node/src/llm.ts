@@ -6,7 +6,8 @@ import { embedMany, generateText, Output } from 'ai';
 import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, MAX_OUT, microUsd, TOPICS, type Price } from './rules.ts';
+import { ceiling, MAX_OUT, microUsd, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import * as store from './store.ts';
 import type { Page } from './web.ts';
 
 const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true });
@@ -27,24 +28,39 @@ export async function refreshPrices() {
   prices = Object.fromEntries(models.map((m) => [m.modelId, { in: perMillion(m.inputCostPerToken), out: perMillion(m.outputCostPerToken) }]));
 }
 
+// ---- the operator's own money: every call is priced and counted by UTC day ----
+
+const today = () => new Date().toISOString().slice(0, 10);
+const count = (model: string, usage: Usage) => {
+  const price = priceOf(model);
+  if (price) void store.spent(today(), microUsd(usage, price)).catch(() => {});
+};
+/** Has the runner spent its daily limit at NEAR AI? Then it starts no new work until the next UTC day. */
+export const overBudget = async () => BigInt(Math.ceil((await store.spendNow())[today()] ?? 0)) >= usdc(cfg.DAILY_BUDGET_USD);
+
 // ---- building blocks ----
 
 export async function embed(values: string[], timeoutMs = cfg.AGENT_TIMEOUT_MS) {
   const model = nearai.embeddingModel(cfg.EMBED_MODEL);
   const { embeddings, usage } = await embedMany({ model, values, maxParallelCalls: 4, abortSignal: AbortSignal.timeout(timeoutMs) });
+  count(cfg.EMBED_MODEL, { inputTokens: usage.tokens });
   return { vectors: embeddings, tokens: usage.tokens };
 }
 
+const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a composed answer, a ceiling for a runaway one
+
 /** One structured call: rules as instructions, the input only as JSON data. */
 async function ask<T>(model: string, instructions: string, data: unknown, schema: z.ZodType<T>): Promise<T> {
-  const { output } = await generateText({
+  const { output, usage } = await generateText({
     model: nearai(model),
     instructions,
     prompt: JSON.stringify(data),
     output: Output.object({ schema }),
     temperature: 0,
+    maxOutputTokens: PROTOCOL_OUT,
     abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
   });
+  count(model, usage);
   return output;
 }
 const protocol = <T>(rules: string, data: unknown, schema: z.ZodType<T>) => ask(cfg.PROTOCOL_MODEL, rules, data, schema);
@@ -126,6 +142,7 @@ export async function answer(m: Materials, found: string[], question: string, pa
       abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
     });
     const cost = microUsd(r.usage, price);
+    count(m.model, r.usage);
     return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap };
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' }; // a failed call: NEAR AI does not bill it

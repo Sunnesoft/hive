@@ -52,6 +52,21 @@ node --experimental-strip-types scripts/cabinet.ts bob.testnet http://127.0.0.1:
 Через браузер: `http://127.0.0.1:8080/app` — подключить кошелёк (в режиме testnet), «New expert», одно подтверждение;
 там же дашборд и страницы экспертов. Аккаунту кошелька нужны тестовые USDC: `scripts/swarm.sh fund <аккаунт> 20`.
 
+### Заказчику: заказ через контракт
+
+```bash
+scripts/swarm.sh faucet carol.testnet && scripts/swarm.sh fund carol.testnet 20   # NEAR с фасета, 20 тестовых USDC
+export CUSTOMER=carol.testnet RUNNER_URL=http://127.0.0.1:8080
+scripts/swarm.sh order "Is this staking contract safe to deploy on NEAR? https://github.com/you/project" 5
+scripts/swarm.sh answers                  # через минуту-две: ответ, кому сколько заплачено, сколько вернулось
+scripts/swarm.sh cancel order-1           # если рой молчит дольше run_secs: вернуть весь бюджет
+```
+
+Описание работы и бюджет лежат в контракте, расчёт делает контракт: ставки справившимся, накладные, 5% владельцу,
+остаток сразу на кошелёк заказчика. Через браузер то же самое на `http://127.0.0.1:8080/order`; бриф с выбором
+экспертов удобнее собрать на `/experts` и нажать «Or order on chain». Agent Market для этого пути не нужен:
+без `MARKET_TOKEN` раннер обслуживает только заказы из контракта.
+
 ### Спонсору: отладка и кабинет
 
 ```bash

@@ -1,5 +1,6 @@
-// One round of work on an assignment: the first answer, or a rework the customer asked for. Each round is
-// its own job on chain, `<assignment>#<round>`. Agents never see each other: each gets its own question,
+// One round of work on a task: the first answer, or a rework the customer asked for. The task comes through
+// a door: Agent Market (each round is the job `<assignment>#<round>` on chain) or an order placed in the
+// contract (one round, the job has the order's id). Agents never see each other: each gets its own question,
 // is checked alone and is owed its fixed rate or nothing. What a round decided is stored before it is sent.
 import { expertOf, type Expert } from './admit.ts';
 import * as chain from './chain.ts';
@@ -8,6 +9,7 @@ import { gate } from './filter.ts';
 import { CHUNK, NEAREST, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import * as market from './market.ts';
+import type { Door } from './market.ts';
 import { budget, ceiling, coarse, fit, provenance, quote, ready, usdc, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { shelve, type Shelf } from './shelf.ts';
@@ -63,11 +65,11 @@ async function record(agent: string) {
 
 /** What the earlier rounds of an assignment still owe: each delivered expert's rate and its overhead. All rounds
  *  of a task share its budget, because the customer pays once and every round's delivered experts are paid. */
-async function owedBefore(id: string, round: number) {
+async function owedBefore(id: string, round: number, door: Door) {
   let owed = 0n;
   for (let k = 1; k < round; k++) {
-    const j = await chain.job(`${id}#${k}`);
-    for (const s of j?.done ? j.slots : []) if (BigInt(s.pay) > 0n) owed += BigInt(s.pay) + usdc(cfg.OVERHEAD_PER_AGENT_USD);
+    const j = await chain.job(door.key(id, k));
+    for (const s of j?.done ? j.slots : []) if (BigInt(s.pay) > 0n) owed += BigInt(s.pay) + door.perAgent;
   }
   return owed;
 }
@@ -77,14 +79,14 @@ const names = (task: string, id: string) => new RegExp(`(^|[^\\w.-])${id.replace
 
 /** The team for a task within a budget: the router's picks, most important first, as many as the money covers.
  *  Experts the customer asked for come first and are marked: the router takes them unless they cannot help. */
-async function team(task: string, pool: Member[], net: bigint) {
+async function team(task: string, pool: Member[], net: bigint, perAgent: bigint) {
   const asked = new Set(pool.filter((c) => names(task, c.agent.id)).map((c) => c.agent.id));
   const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
   const units = (x: bigint) => Number(x) / 1e6;
   const records = await Promise.all(list.map((c) => record(c.agent.id)));
   const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, examples: c.expert.m.examples, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]! })));
   const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
-  return { considered: list, picked: picks.length, members: fit(picks, net, usdc(cfg.OVERHEAD_PER_AGENT_USD)), search: plan.search };
+  return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search };
 }
 
 /** One agent's part: its knowledge searched for its question, one call, then a check of that answer alone. */
@@ -123,17 +125,17 @@ async function commit(key: string, members: (Member & { question: string })[]) {
   return [];
 }
 
-async function work(row: market.Row, round: number, feeBps: number, giveUp: boolean): Promise<Decision | null> {
+async function work(row: market.Row, round: number, feeBps: number, giveUp: boolean, door: Door): Promise<Decision | null> {
   const { assignment: a, job } = row;
   const id = a.assignmentId;
-  const [thread, sent] = await Promise.all([market.thread(id), market.versions(id)]);
-  const brief = `# ${job.title}\n\n${job.description}`;
+  const [thread, sent] = await Promise.all([door.thread(id), door.versions(id)]);
+  const brief = job.title ? `# ${job.title}\n\n${job.description}` : job.description;
   const said = (n: (typeof thread)[number]) => (n.origin === 'platform' ? `Marketplace: ${n.body}` : n.body);
   const task = (thread.length ? `${brief}\n\n## Messages\n\n${thread.map(said).join('\n\n')}` : brief).slice(0, MAX_TASK);
   const since = round > 1 ? Date.parse(sent.at(-1)!.submittedAt) : 0;
   const fresh = thread.filter((n) => Date.parse(n.createdAt) > since);
   const redo = fresh.some((n) => n.origin === 'platform'); // a dispute ruled `redo`: always done, never refused
-  const previous = round > 1 ? await market.delivered(id) : '';
+  const previous = round > 1 ? await door.delivered(id) : '';
   // After a delivery a refusal would refund the customer in full: the last answer stands instead, with a note.
   const stand = (why: string): Decision => ({ submit: `${previous}\n\n> Round ${round}: ${why}` });
   const refuse = (reason: 'rejected' | 'failed', detail: string): Decision => (round > 1 ? stand(detail) : { decline: { reason, detail } });
@@ -150,14 +152,14 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const screened = await llm.screen({ title: job.title, description: task });
   if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
 
-  const net = budget(usdc(a.escrowAmount), feeBps, usdc(cfg.OVERHEAD_USD)) - (await owedBefore(id, round));
+  const net = budget(usdc(a.escrowAmount), feeBps, door.overhead, door.fee) - (await owedBefore(id, round, door));
   if (round > 1 && net <= 0n) return stand('the budget of this task went to the experts of its earlier rounds. Please post further changes as a new job.');
-  const { considered, picked, members: planned, search: queries } = await team(task, pool, net);
+  const { considered, picked, members: planned, search: queries } = await team(task, pool, net, door.perAgent);
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
   // The customer's materials: attached files, the links in the brief and messages, and search results if a key is set.
   // Each expert later gets the parts closest to its own question; what could not be read is told to the customer.
-  const files = await Promise.all(job.attachments.slice(0, 5).map((f) => market.attachment(f).then(
+  const files = await Promise.all(job.attachments.slice(0, 5).map((f) => door.attachment(f).then(
     (bytes) => textOf(bytes, f.contentType, f.filename).then((text) => ({ url: `attachment: ${f.filename}`, text: text.trim() })),
   ).catch((e: Error): Unread => ({ url: `attachment: ${f.filename}`, why: e.message.slice(0, 80) }))));
   const found = await gather(task, queries);
@@ -167,8 +169,8 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
-  if (!a.startedAt) await market.start(id);
-  const key = `${id}#${round}`;
+  if (!a.startedAt) await door.start(id);
+  const key = door.key(id, round);
   const members = await commit(key, planned);
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
   const parts = await Promise.all(members.map((t) => contribute(task, t, shelf)));
@@ -195,19 +197,19 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
 }
 
 /** Puts a decision into effect. Every step is safe to repeat: a restart simply calls this again. */
-async function settle(id: string, key: string, d: Decision) {
+async function settle(id: string, key: string, d: Decision, door: Door) {
   const open = d.outcomes && (await chain.job(key));
   if (open && !open.done) await chain.finish(key, d.outcomes!);
-  if (d.submit) await market.submit(id, d.submit);
-  else if (d.decline) await market.decline(id, d.decline.reason, d.decline.detail);
+  if (d.submit) await door.submit(id, d.submit);
+  else if (d.decline) await door.decline(id, d.decline.reason, d.decline.detail);
   log(d.submit ? 'submitted' : 'declined', { assignment: id, job: key, outcomes: d.outcomes, ...d.decline });
 }
 
 const busy = new Set<string>();
 const failed = new Map<string, { n: number; next: number }>(); // per assignment: failures of the current round
 
-/** Serves an assignment that is waiting for us. Rounds of different assignments run side by side. */
-export function serve(row: market.Row, feeBps: number) {
+/** Serves a task that is waiting for us. Rounds of different tasks run side by side. */
+export function serve(row: market.Row, feeBps: number, door: Door = market.door) {
   const id = row.assignment.assignmentId;
   if (row.assignment.status !== 'in_progress' || row.job.jobKind === 'competition' || busy.has(id)) return;
   const f = failed.get(id);
@@ -215,17 +217,17 @@ export function serve(row: market.Row, feeBps: number) {
   busy.add(id);
   let key = '';
   void (async () => {
-    const round = (await market.versions(id)).length + 1;
-    key = `${id}#${round}`;
+    const round = (await door.versions(id)).length + 1;
+    key = door.key(id, round);
     const known = await store.recall<Decision>(key);
-    if (known) return settle(id, key, known);
+    if (known) return settle(id, key, known, door);
     const open = await chain.job(key);
-    if (open?.done) return market.decline(id, 'failed', 'The answer was lost in a runner restart.'); // only if the store was lost
+    if (open?.done) return door.decline(id, 'failed', 'The answer was lost in a runner restart.'); // only if the store was lost
     if (open) await chain.finish(key, open.slots.map(() => ({ cost: '0', delivered: false, violation: false }))); // cut by a restart: holds back, run again
-    const d = await work(row, round, feeBps, (failed.get(id)?.n ?? 0) >= TRIES);
+    const d = await work(row, round, feeBps, (failed.get(id)?.n ?? 0) >= TRIES, door);
     if (!d) return log('no_agents', { assignment: id });
     await store.remember(key, d);
-    await settle(id, key, d);
+    await settle(id, key, d, door);
     failed.delete(id);
   })()
     .catch((e) => {
@@ -250,7 +252,7 @@ export async function bid(job: market.BoardJob, agents: Agent[], feeBps: number)
   const screened = await llm.screen({ title: job.title, description: task });
   if (!screened.allow) return;
   const ceilingBudget = job.budgetAmount ? budget(usdc(job.budgetAmount), feeBps, usdc(cfg.OVERHEAD_USD)) : 1_000n * 1_000_000n;
-  const { members } = await team(task, pool, ceilingBudget);
+  const { members } = await team(task, pool, ceilingBudget, usdc(cfg.OVERHEAD_PER_AGENT_USD));
   if (members.length === 0) return;
   const price = quote(members.map((t) => t.rate), feeBps, usdc(cfg.OVERHEAD_USD), usdc(cfg.OVERHEAD_PER_AGENT_USD));
   const amount = (Number(price) / 1e6).toFixed(2);

@@ -1,8 +1,9 @@
 // The runner's public face. GET /attestation: what anyone checks before trusting it (scripts/verify.ts).
 // GET /info: what the pages need. POST /upload/<owner>/<name>: sealed materials of a registered agent.
 // POST /cabinet: a sponsor's own agents, after signing in with a wallet. GET /demand: tasks by topic.
+// POST /orders: a customer's own orders placed in the contract, with their answers, after the same sign-in.
 // GET /agents: the public catalog, active experts with their record.
-// Pages (node/ui): / for everyone, /experts for customers, /app for sponsors (wallet, sealing, dashboard).
+// Pages (node/ui): / for everyone, /experts for customers, /order to order on chain, /app for sponsors.
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -13,6 +14,7 @@ import * as chain from './chain.ts';
 import { allowedModels, cfg, log } from './config.ts';
 import { CHUNK, NEAREST } from './library.ts';
 import { priceOf } from './llm.ts';
+import * as orders from './orders.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
 import { MAX_OUT, ready, TOPICS } from './rules.ts';
@@ -99,7 +101,8 @@ function info(sealKey: string): Promise<Reply> {
     const agents = chain.listed();
     const stats = { active: agents.filter((a) => a.status === 'Active').length, pending: agents.filter((a) => a.status === 'Pending').length };
     // How a price is made, so the site can quote a team the way the runner bids: rates + overhead, then both fees.
-    const pricing = { market_fee_bps: 500, overhead: cfg.OVERHEAD_USD, per_agent: cfg.OVERHEAD_PER_AGENT_USD, reworks: cfg.MAX_REWORKS, listing: cfg.MARKET_LISTING_URL ?? null, plans: PLANS };
+    const pricing = { market_fee_bps: 500, overhead: cfg.OVERHEAD_USD, per_agent: cfg.OVERHEAD_PER_AGENT_USD, reworks: cfg.MAX_REWORKS, listing: cfg.MARKET_LISTING_URL ?? null, plans: PLANS,
+      order: { overhead: c.overhead, per_agent: c.overhead_per_agent, run_secs: c.run_secs } }; // an order placed in the contract: its numbers are the contract's
     return [200, { contract: cfg.CONTRACT, token, network, sealKey, models, fees, limits, stats, pricing, topics: TOPICS }];
   });
   cached = { at: Date.now(), reply };
@@ -107,13 +110,19 @@ function info(sealKey: string): Promise<Reply> {
   return reply;
 }
 
+/** The account whose wallet signed the request, or null. */
+async function signedIn(req: IncomingMessage) {
+  let body = '';
+  for await (const part of req as AsyncIterable<Buffer>) if ((body += part).length > 4_000) return null;
+  const signed = SignedIn.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
+  return signed.success ? signer(signed.data) : null;
+}
+const SIGN_IN: Reply = [401, { error: 'sign in with your wallet again' }];
+
 /** Everything the runner knows about the signed-in sponsor's agents. Never a question, a task or an answer. */
 async function cabinet(req: IncomingMessage): Promise<Reply> {
-  let body = '';
-  for await (const part of req as AsyncIterable<Buffer>) if ((body += part).length > 4_000) return [413, { error: 'too long' }];
-  const signed = SignedIn.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
-  const account = signed.success ? await signer(signed.data) : null;
-  if (!account) return [401, { error: 'sign in with your wallet again' }];
+  const account = await signedIn(req);
+  if (!account) return SIGN_IN;
   const [owned, balance] = await Promise.all([chain.ownedBy(account), chain.balance(account)]);
   const agents = await Promise.all(owned.map(async (a) => {
     const [audit, rounds] = await Promise.all([store.auditOf(a.id), store.historyOf(a.id)]);
@@ -122,12 +131,20 @@ async function cabinet(req: IncomingMessage): Promise<Reply> {
   return [200, { account, balance, agents }];
 }
 
+/** The signed-in customer's orders: open ones and, once settled, their answers and what the contract paid. Nobody else's. */
+async function myOrders(req: IncomingMessage): Promise<Reply> {
+  const account = await signedIn(req);
+  if (!account) return SIGN_IN;
+  return [200, { account, balance: await chain.balance(account), orders: await orders.of(account) }];
+}
+
 async function route(req: IncomingMessage, attestation: { sealKey: string }): Promise<Reply> {
   const path = (req.url ?? '').split('?')[0]!;
   if (!path.startsWith('/') || path.startsWith('//')) return [400, { error: 'bad path' }];
   const up = /^\/upload\/([^/]+)\/([^/]+)$/.exec(path); // an account and a name need no escaping: anything escaped is refused
   if (req.method === 'POST' && up) return upload(up[1]!, up[2]!, req);
   if (req.method === 'POST' && path === '/cabinet') return cabinet(req);
+  if (req.method === 'POST' && path === '/orders') return myOrders(req);
   if (req.method !== 'GET') return [405, { error: 'method not allowed' }];
   if (path === '/health') return [200, { ok: true, state }];
   if (path === '/attestation') return [200, attestation];
@@ -152,16 +169,17 @@ const PAGES: Record<string, { file: string; csp: string }> = {
   '/builders': { file: 'builders.html', csp: STRICT_CSP },
   '/experts': { file: 'experts.html', csp: STRICT_CSP },
   '/app': { file: 'app.html', csp: WALLET_CSP }, // seals in the browser too: wallets run in sandboxes with no access to the page
+  '/order': { file: 'order.html', csp: WALLET_CSP }, // the customer pays from a wallet and reads the answer
 };
 const JS = 'text/javascript; charset=utf-8';
 const ASSETS: Record<string, string> = {
-  '/ui.css': 'text/css; charset=utf-8', '/favicon.svg': 'image/svg+xml', '/ui.js': JS, '/home.js': JS, '/builders.js': JS, '/experts.js': JS, '/app.js': JS, '/seal.js': JS,
+  '/ui.css': 'text/css; charset=utf-8', '/favicon.svg': 'image/svg+xml', '/ui.js': JS, '/home.js': JS, '/builders.js': JS, '/experts.js': JS, '/order.js': JS, '/app.js': JS, '/seal.js': JS,
   '/vendor/near-connect.js': JS, // npm run ui
 };
 const HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()' };
 
 /** What the runner is doing, for GET /health and the container's health check. */
-let state: 'starting' | 'waiting_for_key' | 'ready' | 'paused' = 'starting';
+let state: 'starting' | 'waiting_for_key' | 'ready' | 'paused' | 'out_of_budget' = 'starting';
 export const setState = (s: typeof state) => (state = s);
 
 export function listen(attestation: { sealKey: string }) {
