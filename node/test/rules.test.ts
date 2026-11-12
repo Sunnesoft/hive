@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
+import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, partsOf, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -117,6 +117,21 @@ test('piecesOf packs chunks of knowledge into the parts a review reads, in order
   // Chunks of at most 1,500 with five to a part always fit 16 parts of 9,000: what review.ts relies on for a large knowledge.
   const worst = Array.from({ length: 80 }, (_, i) => 'x'.repeat(i % 2 ? 1_500 : 1_499));
   assert.ok(piecesOf(worst).length <= 16);
+});
+
+test('partsOf: a file of knowledge is a pass, a long file several; too many parts are packed across files', () => {
+  const [a, b, c] = [['a'.repeat(400)], ['b'.repeat(700), 'B'.repeat(700)], ['c'.repeat(300)]];
+  assert.deepEqual(partsOf([a, b, c], 1_000, 16).map((p) => p.length), [400, 700, 700, 300]); // b is too long for one part
+  assert.deepEqual(partsOf([a, b, c], 1_000, 3).map((p) => p.replace(/[^a-cB]/g, '').length), [400, 700, 1_000]); // four parts are over the limit: packed in order
+  assert.deepEqual(partsOf([]), []);
+});
+
+test('findingsIn: evidence may be quoted in a fence; other code and a proof are not part of the finding', () => {
+  const text = ['### High | refund() | The player is cleared after the ether is sent', 'A contract re-enters refund().', 'Evidence:', '```solidity', 'payable(msg.sender).sendValue(entranceFee);', '```', 'Fix: Clear the player first.', 'Proof of concept (written, not run):', '```solidity', 'function test_reenter() public {}', '```', '### Low | fee() | Rounds down', 'Dust is lost.', '```', '### High | not() | a heading inside code is code', '```'].join('\n');
+  const [first, second, ...rest] = findingsIn(text);
+  assert.equal(first!.evidence, 'payable(msg.sender).sendValue(entranceFee);');
+  assert.equal(first!.fix, 'Clear the player first.'); // nothing of the proof
+  assert.deepEqual([second!.title, second!.how, rest.length], ['Rounds down', 'Dust is lost.', 0]);
 });
 
 test('alike: two findings worded alike are close by their words; two different ones in the same place are not', () => {

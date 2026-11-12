@@ -55,7 +55,7 @@ if (reviews) {
   console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(piecesOf(docs).length, MAX_PASSES)} parts of the knowledge; your max cost ${show(hold)} USDC`);
   const r = await review({ m, lib, digest: '', links: linksOf(m) }, question, pages, hold, flag('--code'));
   const c = r.counts;
-  console.log(`passes read ${c.passes}; findings raised ${c.raised}, in ${c.groups} groups; groups checked ${c.checked}; findings that held ${c.held}; proofs ${c.proofs}; cost ${show(r.cost)} USDC${r.why ? `; stopped: ${r.why}` : ''}`);
+  console.log(`passes read ${c.passes}; findings raised ${c.raised}, in ${c.groups} groups; groups checked ${c.checked}; findings that held ${c.held}; not confirmed but listed ${c.leads}; proofs ${c.proofs}; cost ${show(r.cost)} USDC${r.why ? `; stopped: ${r.why}` : ''}`);
   if (r.why) process.exit(1);
   const text = reportOf(r);
   console.log(`\n--- contribution ---\n${text}`);

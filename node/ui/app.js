@@ -448,7 +448,7 @@ function renderNew() {
     const size = files.reduce((s, f) => s + f.size, 0);
     if (!size) return 0n; // nothing to review with: it answers
     const around = own + info.limits.public_bytes;
-    const passes = Math.min(v.passes, Math.ceil(size / (0.8 * v.pass_knowledge)) + 1); // parts are rarely full
+    const passes = Math.min(v.passes, files.reduce((n, f) => n + Math.ceil(f.size / (0.8 * v.pass_knowledge)), 0)); // a file is a part, a long file several; parts are rarely full
     return cents(passes * ((v.pass_bytes + v.pass_knowledge + around) * p.in + v.pass_out * p.out)
       + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
       + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out));
@@ -570,7 +570,7 @@ function renderNew() {
             h('span', { class: 'hint' }, 'One to three real questions. Customers choose experts by them, and the audit checks your files back them.')),
           h('div', { class: 'field' }, h('div', { class: 'head' }, h('span', { class: 'label', id: 'topicsLabel' }, 'Topics'), vis('public')), topicPicks, topicNote),
           field('prompt', 'Prompt', prompt, 'Who your expert is and how it should answer. It is guidance inside the swarm\'s template: it cannot change the swarm\'s rules.', vis('sealed')),
-          field('work', 'How it works', work, 'A review is for checklists: when a customer gives files, your expert reads them once with every part of your files, checks each finding on its own and must quote the lines it rests on. It takes many calls, so it needs a larger max spend; the form sets it. Asked a question without files, it answers like any other expert.', vis('sealed'))),
+          field('work', 'How it works', work, 'A review is for checklists: when a customer gives files, your expert reads them once with each of your files (a file is one pass: put together what is checked together), checks each finding on its own and must quote the lines it rests on. It takes many calls, so it needs a larger max spend; the form sets it. Asked a question without files, it answers like any other expert.', vis('sealed'))),
         stage(3, 'Your files', vis('sealed'), drop, fileList),
         stage(4, 'Your price', null,
           h('div', { class: 'pair' },

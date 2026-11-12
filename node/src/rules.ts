@@ -26,10 +26,11 @@ export const LOOKUP_OUT = 300; // output tokens of that look-up
 
 // A review: an agent goes through the customer's materials with every part of its knowledge, one pass a piece,
 // then each finding is checked against the materials on its own. These bound what one review can cost.
-export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole
-export const MAX_PASSES = 16; // pieces read in one review: 144,000 characters of knowledge
+export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole: a file of it, or a part of a longer file
+export const MAX_PASSES = 16; // parts read in one review: up to 144,000 characters of knowledge
 export const PASS_OUT = 1_500; // output tokens of one pass
-export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first; the rest are not reported
+export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first
+export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed
 export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
 export const CHECK_OUT = 600;
 export const MAX_PROOFS = 5; // proofs written in one review, for the gravest findings
@@ -57,6 +58,14 @@ export function piecesOf(chunks: string[], size = PASS_CHARS): string[] {
     room -= c.length;
   }
   return parts.map((p) => p.join('\n---\n'));
+}
+
+/** The parts of the knowledge a review reads, a pass each. A file is a part, a long file several: its owner put
+ *  into one file what belongs together, and a pass that holds one subject against the materials finds more than a
+ *  pass that holds two. If that makes more than `most` parts, the files are packed together in their order. */
+export function partsOf(files: string[][], size = PASS_CHARS, most = MAX_PASSES): string[] {
+  const perFile = files.flatMap((chunks) => piecesOf(chunks, size));
+  return perFile.length <= most ? perFile : piecesOf(files.flat(), size);
 }
 
 /** A text cut to at most `bytes` bytes: what a step is given is bounded in the unit its worst cost is counted in. */
@@ -163,12 +172,16 @@ const HEADING = /^\s*(?:[-*]\s+)?(?:#{1,4}\s*)?\**\s*(?:\d+[.)]\s*)?\**\s*(Criti
 const LABEL = /^\**\s*(Evidence|Fix)\s*:?\**\s*:?\s*(.*)$/i;
 const plain = (s: string) => s.replace(/^[\s*`|—–:-]+|[\s*`|—–:-]+$/g, '');
 
-/** The findings in a model's text. Tolerant of how a model draws the heading; what is not under a heading is dropped. */
+/** The findings in a model's text. Tolerant of how a model draws the heading; what is not under a heading is dropped.
+ *  Code in a fence is read only as evidence (a model may quote the lines that way); any other fenced code, and
+ *  whatever follows a line that starts a proof, is not part of the finding: a proof has its own step. */
 export function findingsIn(text: string): Finding[] {
   const out: Finding[] = [];
-  let last: 'how' | 'evidence' | 'fix' = 'how';
+  let last: 'how' | 'evidence' | 'fix' | 'rest' = 'how';
+  let fenced = false;
   for (const line of text.split('\n')) {
-    const h = HEADING.exec(line);
+    if (/^\s*```/.test(line)) { fenced = !fenced; continue; }
+    const h = fenced ? null : HEADING.exec(line);
     if (h) {
       const [where = '', ...rest] = h[2]!.split(/\s*\|\s*|\s+[—–]\s+/);
       const severity = SEVERITIES.find((s) => s.toLowerCase() === h[1]!.toLowerCase())!;
@@ -178,8 +191,11 @@ export function findingsIn(text: string): Finding[] {
     }
     const f = out.at(-1);
     if (!f || !line.trim()) continue;
-    const l = LABEL.exec(line.trim());
+    if (fenced && last !== 'evidence') continue;
+    const l = fenced ? null : LABEL.exec(line.trim());
     if (l) last = l[1]!.toLowerCase() as 'evidence' | 'fix';
+    else if (!fenced && /^[\s*_#]*proof\b/i.test(line)) last = 'rest';
+    if (last === 'rest') continue;
     f[last] = `${f[last]}${f[last] ? '\n' : ''}${(l ? l[2]! : line).trim()}`.slice(0, last === 'how' ? 900 : 500);
   }
   return out.filter((f) => f.title);

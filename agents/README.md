@@ -25,10 +25,12 @@ What we learned making experts out of published audit skills ([eval/agents/SOURC
 - An answer is at most about 2,500 words, and the model answers at once, without a reasoning pass. Say in the
   method what the answer must hold and in what order, and for hard work choose a model that can do it directly.
 - A checklist does nothing as six pieces in one answer: the model finds what it would have found alone. Declare
-  `"work": "review"` and the expert reads the customer's files once with every part of `knowledge/` (parts of 9,000
-  characters, up to 16), then checks each finding on its own against the files; a finding stays only if it quotes
-  a line that is really there. Write the knowledge as items that each say what to look for and how it goes wrong:
-  an item is held against the files as it stands. A review is dozens of calls, so set `max_cost` for it (the
+  `"work": "review"` and the expert reads the customer's files once with every file of `knowledge/` (a pass a file,
+  a long file in parts of 9,000 characters, up to 16 passes), then checks each finding on its own against the
+  files: a finding is confirmed only if it quotes a line that is really there, and what is not confirmed is shown
+  apart as unverified. Put into one file what is checked together, and write it as items that each say what to
+  look for and how it goes wrong: an item is held against the files as it stands. The model matters twice here: it
+  raises the findings and it judges them, and a model that audits poorly alone refutes true findings. A review is dozens of calls, so set `max_cost` for it (the
   registration form does) and price your `rate` above what your model spends.
 
 Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.

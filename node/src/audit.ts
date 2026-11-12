@@ -5,8 +5,10 @@ import { scan, verdictOnMaterials } from './llm.ts';
 import type { Materials } from './materials.ts';
 import { dangers } from './safety.ts';
 
-/** The knowledge as the agent searches it: each file cut into chunks under its name. */
-export const docsOf = (m: Materials) => m.knowledge.flatMap((k) => chunk(`${k.name}\n\n${k.text}`));
+/** The knowledge file by file: each cut into chunks under its name. */
+export const filesOf = (m: Materials) => m.knowledge.map((k) => chunk(`${k.name}\n\n${k.text}`));
+/** The knowledge as the agent searches it: the chunks of all its files. */
+export const docsOf = (m: Materials) => filesOf(m).flat();
 
 /** Addresses in the materials: they existed before any task, so they cannot carry one. Answers may link to them. */
 export const linksOf = (m: Materials) =>

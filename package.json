@@ -14,7 +14,8 @@
     "ui": "esbuild node_modules/@hot-labs/near-connect/build/index.js --bundle --format=esm --platform=browser --target=es2022 --legal-comments=inline --outfile=node/ui/vendor/near-connect.js --log-level=warning",
     "start:testnet": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet node/src/main.ts",
     "stand-ins": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stand-ins.ts",
-    "eval": "STORE_DIR=eval/out/store TRACE_DIR=eval/out/trace node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet eval/run.ts"
+    "eval": "STORE_DIR=eval/out/store TRACE_DIR=eval/out/trace node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet eval/run.ts",
+    "eval:review": "STORE_DIR=eval/out/store TRACE_DIR=eval/out/trace node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet eval/review.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.82",
