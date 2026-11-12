@@ -119,3 +119,20 @@ The list joined by code: 113 items on the bridge, about 34 of them distinct; 111
 the sampled items outside the reference set, 3 of 14 are wrong on the bridge (7 hold, 4 cannot be told from the
 code shown) and 6 of 17 on the loan (9 hold, 2 cannot be told).
 
+
+## The review, first trials (`bridge audit`, 9 findings)
+
+One reader, five answers under random names, 2026-11-12. For answers that end with a "Not confirmed" list the
+reader gave `L` to a reference finding stated only there. The reader's count of items, of distinct flaws among
+them, of distinct items the code refutes, of lines in the "Not confirmed" list and of test functions:
+
+| answer | verdicts, finding by finding | stated | items | distinct | wrong | not confirmed | tests | cut off |
+|---|---|---|---|---|---|---|---|---|
+| a review by solidity-attack-paths on Qwen3.8-27B (trial 2) | `LALSPSAAA` | 2 | 9 | 7 | 2 | 13 | 5 | no |
+| a review by solidity-attack-paths on DeepSeek-V4.1-Flash-1017 (trial 3) | `SASSSSALA` | 5 | 38 | 19 | 3 | 12 | 5 | no |
+| swarm, experts named by the customer | `SASSSAASA` | 5 | 11 | 11 | 0 | | 3 | no |
+| alone, at once: DeepSeek-V4.1-Flash-1017 #1 | `SASSSAPAA` | 4 | 11 | 10 | 1 | | 2 | yes |
+| expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 | `SASSSSASA` | 6 | 16 | 13 | 1 | | 1 | yes |
+
+The three earlier answers are in the table above, read by other readers: 5, 4 and 6 stated. This reader gave them
+the same counts, and the same verdict on every finding but one (finding 7 of DeepSeek alone: `P` here, `A` there).

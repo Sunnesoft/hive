@@ -427,6 +427,38 @@ Findings stated as an item of their own, read blind ([BLIND.md](BLIND.md)); the 
 - Joined more loosely, the list lost the bridge's unbacked mint inside the finding next to it. The join is kept
   conservative, and a group shows the first line of every finding in it.
 
+## The review as the runner now does it: first trials
+
+After the passes joined by code, the runner got a way of working of its own for experts with checklists
+(`"work": "review"`, [node/src/review.ts](../node/src/review.ts)): a pass a file of knowledge, findings read by code,
+each group checked on its own with a quote that code looks up in the customer's file, proofs for the gravest. Its
+first trials were single experts on the bridge contract, run with `scripts/try.ts --material`, on a day when NEAR
+AI's embedding model did not answer, so findings were grouped by their words alone. One reader read them blind
+with three earlier answers ([BLIND.md](BLIND.md)):
+
+| answer | reference findings stated, of 9 | more, as "not confirmed" | items, distinct | wrong | cost, USD |
+|---|---|---|---|---|---|
+| DeepSeek alone, one call | 4 | | 11, 10 | 1 | about 0.01 |
+| the swarm of the second run, three auditors, one call each | 5 | | 11, 11 | 0 | about 0.04 |
+| the attack-paths auditor on DeepSeek, one call | 6 | | 16, 13 | 1 | about 0.01 |
+| a review by the attack-paths auditor on Qwen3.8 | 2 | 2 | 9, 7 | 2 | 0.024 |
+| a review by the attack-paths auditor on DeepSeek | 5 | 1 | 38, 19 | 3 | 0.10 |
+
+**The review did not beat one call.** On DeepSeek it stated five of nine, as single calls do, for ten times the
+money and ten minutes, and its report said the same thing over and over: 38 items for 19 flaws. What it has that
+the others lack is a quoted line under every finding and five proofs.
+
+The calls say why. Each of the 13 passes began with the flaws anyone sees first and 8 of them ran into the output
+limit of 1,500 tokens before they reached what their own file is for; the limit had been set from Qwen3.8, which
+writes a third as much (replies of 440 tokens at the median against DeepSeek's 1,400). The finding the passes
+had surfaced the day before, the vault passed as `from`, was raised by no pass this time. Qwen3.8 as the checker
+refuted a true finding five times with the same wrong reason; it reached the customer only as "not confirmed".
+
+Changed after these trials, and not yet measured: a pass is told what earlier passes raised and reports only what
+they missed; a pass may write 2,400 tokens and a check 900; findings that say the same in other words are joined
+by one narrow question to the model (58 confirmed wordings of the DeepSeek trial became 15 findings, on both
+models, for a tenth of a cent); what a check does not confirm is listed apart instead of dropped.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
