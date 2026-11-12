@@ -362,8 +362,8 @@ added to the runner's record of rounds, which did not keep it then.
 | what would have counted as working | 7 | 6 | |
 
 - The answer in passes states fewer findings than the model alone, at about seven times the cost.
-- It mentions more than it states: counting what is only named in passing, 5 and 6, against 5 or 6 and 4 for the
-  model alone. The passes wrote 70,000 characters on each contract; the last call had 4,000 tokens for its
+- It mentions more than it states: counting what is only named in passing, 5 and 6, against 4 and 6, and 4 and 4,
+  for the model alone. The passes wrote 70,000 characters on each contract; the last call had 4,000 tokens for its
   report, was cut off both times, and by the skill's own rules turned findings into "leads". What twelve passes
   found did not fit through one report. Whether another last step would carry it through was not tried.
 - On the bridge it asserted nothing false; on the loan, as much as the others.

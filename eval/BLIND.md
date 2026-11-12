@@ -81,7 +81,7 @@ by the text the reader quoted; three readers had swapped two names each, and tho
 ## The second round: a skill in passes, and an order after the router replaced its pick
 
 One reader per contract. Each batch held answers that had been read before, to see whether this reader counts as
-the earlier ones did: seven of the eight repeated counts are the same, one differs by one.
+the earlier ones did: five of the six repeated counts are the same, one differs by one.
 
 ### Boss Bridge (9 findings)
 
