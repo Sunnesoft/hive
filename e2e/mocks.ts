@@ -111,6 +111,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       return reply(`${facts}${previous ? ' Revised: it launches at 09:00 UTC.' : ''}\n\n${extras}`);
     }
     if (is('You are an expert about to answer')) return (lookups.push(`${system}\n${user}`), reply({ queries: ['Project Alpha'] }));
+    if (is('You decide whether an expert agent could be asked')) return reply({ ids: [] });
     if (is('You review code blocks')) return reply({ dangerous: [] }); // the static check must catch the curl | sh itself
     if (is("You check a customer's request")) return reply({ in_scope: !/new|marketing/i.test(data().feedback), reason: 'mock scope' });
 

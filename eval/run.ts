@@ -1,7 +1,7 @@
 // The measurements behind eval/README.md: the same questions answered in several ways and scored against facts
 // written down in advance (eval/tasks.ts). Every stage keeps what it got in eval/out/, so a rerun pays only for
 // what is missing.
-//   npm run eval -- bare solo swarm compose modes market ablate score report        any subset, in this order
+//   npm run eval -- bare solo swarm compose modes market ablate passes score report        any subset, in this order
 // Needs a runner on testnet started with TRACE_DIR (its trace is how the swarm's answers and costs are read), the
 // experts of eval/agents and agents/ registered there, and CUSTOMER: an account with test USDC whose key is in
 // ~/.near-credentials. RUNNER_URL and RUNNER_TRACE say where the runner and its trace are.
@@ -52,6 +52,10 @@ const UNPREPARED: Group = 'an audit nothing was prepared for';
 const aloneKey = (model: string, n: number) => `alone, at once: ${short(model)} #${n}`;
 const expertKey = (school: string, model: string) => `expert ${school} on ${short(model)}`;
 const THINKING = 'alone, thinking first, 16,000 tokens: kimi-k2.6';
+// A skill used as it was written to be used: one pass over the contract for each file of its checklist, then a verdict.
+const PASSES = 'the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017';
+const PASS_RULE = 'This is one pass of several over the same contract. Go through the checklist in your knowledge item by item and report only what it finds here: each finding in at most 80 words, with its severity and its function. No code. If the checklist finds nothing in this contract, say so in one line.';
+const VERDICT_RULE = 'Below are the findings of several passes over the same contract, each made with one part of your checklist. Check each finding against the contract by the rules in your knowledge, drop the ones that do not hold, state each remaining one once, and write the report the task asks for.';
 const short = (model: string) => model.split('/')[1]!;
 const MARKET = [
   { id: 'market: answer', what: 'a hire on Agent Market is answered' },
@@ -305,6 +309,31 @@ const stages: Record<string, () => Promise<void>> = {
       });
     }
     await few(jobs, (job) => job(), Number(process.env.EVAL_AT_ONCE ?? 6)); // fewer at once if a model starts timing out
+  },
+
+  /** The attack-paths skill as its authors meant it to be used: twelve passes over the contract, each with one file
+   *  of the checklist whole in the expert's prompt and told to apply it item by item, then one more call that checks
+   *  the passes' findings by the skill's own rules and writes the report. On the model that did best alone. */
+  async passes() {
+    const model = TRIO[1]!;
+    const m = { ...Materials.parse(readAgent(folder('solidity-attack-paths')).materials), model };
+    for (const t of TASKS.filter((x) => ['bridge audit', 'loan audit'].includes(x.id) && !answers[x.id]?.[PASSES]?.text.trim())) {
+      const [page] = await materialOf(t);
+      const material = `# Public materials\n\n<material url="${page!.url}">\n${page!.text}\n</material>`;
+      const found: { name: string; text: string; usd: number; seconds: number }[] = [];
+      await few(m.knowledge.filter((k) => k.name !== 'judging.md'), async (k) => {
+        const a = await ask(model, llm.instructions(m, [`${k.name}\n\n${k.text}`]), `# Question\n\n${t.task}\n\n${PASS_RULE}\n\n${material}`, { limit: 1_500 });
+        found.push({ name: k.name.replace('.md', ''), text: a.text, usd: a.usd, seconds: a.seconds });
+      });
+      found.sort((a, b) => a.name.localeCompare(b.name));
+      const rules = m.knowledge.find((k) => k.name === 'judging.md')!;
+      const notes = found.map((f) => `## Pass: ${f.name}\n\n${f.text}`).join('\n\n');
+      const last = await ask(model, llm.instructions(m, [`${rules.name}\n\n${rules.text}`]), `# Question\n\n${t.task}\n\n${VERDICT_RULE}\n\n# Findings of the passes\n\n${notes}\n\n${material}`);
+      keep(t.id, PASSES, {
+        text: last.text, usd: found.reduce((s, f) => s + f.usd, last.usd), seconds: Math.max(...found.map((f) => f.seconds)) + last.seconds,
+        parts: found.map((f) => ({ agent: `pass/${f.name}`, delivered: f.text.trim() !== '', why: 'pass', text: f.text })),
+      });
+    }
   },
 
   /** Facts by pattern, and a second opinion from a judge that sees the facts and one answer, not who wrote it. */

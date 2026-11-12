@@ -196,7 +196,7 @@ export const TASKS: Task[] = [
     ],
   },
   {
-    id: 'bridge audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: BRIDGE, named: 'only', alone: [],
+    id: 'bridge audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: BRIDGE, named: true, alone: [], // also ordered without names, after the router learned to replace a weak pick
     task: audit(BRIDGE, 'src/L1BossBridge.sol'),
     facts: [
       { text: 'H-1: depositTokensToL2 takes `from` from the caller, so anyone can move the tokens of a user who has approved the bridge and credit them to an L2 address of their own', match: near('depositTokensToL2', 'arbitrary .?from|any(one)? .{0,40}from|approv(al|ed)[\\s\\S]{0,120}(steal|drain|take|victim)', 500) },

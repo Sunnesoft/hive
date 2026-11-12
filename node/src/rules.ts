@@ -91,6 +91,28 @@ export function sharesOf(answer: string) {
   return new Map([...count].map(([id, n]) => [id, Math.round((10 * n) / marks.length) * 10]));
 }
 
+/** How much of the answers an expert worked on came from it, against an equal split with the experts it worked
+ *  with: 1 is an equal part, 0.5 half of one. From its rounds with a known share in a team of two or more; alone, a
+ *  share says nothing. Null if there is no such round. The router reads it: nothing else it sees says how good an
+ *  expert is. */
+export function usedOf(rounds: { share?: number; parts?: number }[]) {
+  const known = rounds.filter((r): r is { share: number; parts: number } => typeof r.share === 'number' && typeof r.parts === 'number' && r.parts >= 2);
+  if (!known.length) return null;
+  return Math.round((10 * known.reduce((s, r) => s + (r.share * r.parts) / 100, 0)) / known.length) / 10;
+}
+
+/** The agents that the numbers put clearly above the router's pick, best first: their parts are used more by
+ *  `MARGIN` of an equal part or over, and they cost the customer no more. The router chooses by how well the words
+ *  of an agent's skills match the task, which says little about how good the agent is. Whether one of these could
+ *  be asked the same question is then a separate, narrow question (policies/stand-in.md). An agent with no history
+ *  is neither a rival nor replaced. */
+export const MARGIN = 0.2;
+export function rivals<T extends { used: number | null; rate: bigint }>(pick: T, others: T[]): T[] {
+  if (pick.used === null) return [];
+  const clearlyMore = (a: T): a is T & { used: number } => a.used !== null && Math.round((a.used - pick.used!) * 10) >= MARGIN * 10;
+  return others.filter(clearlyMore).filter((a) => a.rate <= pick.rate).sort((x, y) => y.used - x.used);
+}
+
 /** An answer with [[n]] source marks -> the text without them, and which contributions it used. */
 export function provenance(answer: string) {
   const used = new Set([...answer.matchAll(/\[\[(\d+)\]\]/g)].map((m) => Number(m[1])));

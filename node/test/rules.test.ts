@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, share, sharesOf, usdc, type Agent } from '../src/rules.ts';
+import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, rivals, share, sharesOf, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -51,6 +51,22 @@ test('sharesOf: each contribution\'s part of the marks, to the nearest ten perce
   assert.deepEqual([...sharesOf('A [[0]]. B [[2]][[0]]. C [[0]].')].sort(), [[0, 80], [2, 30]]); // 3 of 4 and 1 of 4, each rounded on its own
   assert.deepEqual([...sharesOf('One [[1]]. Two [[0]].')].sort(), [[0, 50], [1, 50]]);
   assert.equal(sharesOf('No marks at all.').size, 0);
+});
+
+test('usedOf: an expert\'s part of the answers against an equal split, from rounds in a team only', () => {
+  assert.equal(usedOf([{ share: 30, parts: 3 }, { share: 20, parts: 3 }]), 0.8); // 0.9 and 0.6 of an equal part
+  assert.equal(usedOf([{ share: 40, parts: 3 }, { share: 50, parts: 2 }]), 1.1);
+  assert.equal(usedOf([{ share: 100, parts: 1 }, {}, { share: 50 }]), null); // alone, or nothing recorded: unknown
+});
+
+test('rivals: the agents whose parts are used clearly more than the pick\'s, at no higher price, best first', () => {
+  const a = (id: string, used: number | null, rate = 1n) => ({ id, used, rate });
+  const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
+  assert.deepEqual(ids(rivals(a('pick', 0.8), [a('y', 1.0), a('x', 1.1)])), ['x', 'y']); // 0.2 above counts, exactly
+  assert.deepEqual(ids(rivals(a('pick', 0.8), [a('x', 0.9)])), []); // under the margin: no difference
+  assert.deepEqual(ids(rivals(a('pick', 0.8), [a('dear', 1.5, 2n)])), []); // never a dearer one
+  assert.deepEqual(ids(rivals(a('pick', null), [a('x', 1.5)])), []); // a new agent is not replaced
+  assert.deepEqual(ids(rivals(a('pick', 0.8), [a('new', null)])), []); // nor does one replace
 });
 
 test('provenance strips the source marks and remembers which were used', () => {

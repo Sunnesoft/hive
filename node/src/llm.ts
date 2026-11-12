@@ -149,6 +149,11 @@ export async function plan(task: string, budget: number, agents: { id: number; s
   return { picks: valid.map((p) => ({ id: p.id, question: p.question.slice(0, MAX_QUESTION) })), search: search.slice(0, 3) };
 }
 
+type Card = { skills: string; examples?: string[] };
+/** Which of the candidates could be asked this question instead of the picked agent: those whose own skills cover it. */
+export const standIns = (question: string, picked: Card, candidates: (Card & { id: number })[]) =>
+  protocol('stand-in', { question, picked, candidates }, z.object({ ids: z.array(z.number()) })).then((r) => r.ids.filter((id) => candidates.some((c) => c.id === id)));
+
 /** What an agent is told: our template, its expertise and method, the chunks of its knowledge found for the question.
  *  Replaced by functions, so `$&` or `$'` in a sponsor's text stays text. */
 export const instructions = (m: Materials, found: string[]) =>

@@ -323,6 +323,32 @@ What this result is about, and what it is not:
   files by what it quotes and put right. The swarm's answer, read by three readers on every contract, got the
   same count from all three each time.
 
+## Two things tried next: the design, fixed before the runs
+
+**Why the materials added nothing.** The recorded prompts and answers of the 27 expert answers above say three
+things. One answer sees 8 to 16% of its skill: six pieces of 33 to 76. The method is obeyed: 22 of the 27 answers
+say, as it asks, that their tests were not run. The pieces are not used: 23 of the 27 answers share not one run of
+five words with the pieces they were given. And what the expert looks up is what it has already noticed in the
+contract ("swapExactOutput missing minInputAmount slippage"), so its knowledge can confirm a suspicion but cannot
+send it to look where it had not looked, which is what a checklist is for.
+
+**A skill in passes.** So the attack-paths skill is run as its authors meant it: twelve passes over the contract,
+each with one file of the checklist whole in the prompt and the instruction to apply it item by item, then one
+call that checks the findings by the skill's own rules and writes the report. On DeepSeek, the model that did
+best alone, on the two contracts where it left room: Boss Bridge (alone 4 and 5 of 9) and Thunder Loan (4 and 3).
+Read blind, with the answers it is compared with in the same batch. It counts as working if on both contracts it
+states at least two findings more than the better of the model's two answers alone: 7 and 6. One more is what
+chance gives.
+
+**A router that replaces a weak pick.** The router reads skills and takes the closest match of words; shown how
+much of each expert's parts were used, it took the same one, and asked to name interchangeable experts it named
+none. Now the numbers name the rivals of its pick (experts whose parts were used clearly more, at no higher
+price) and the protocol's model gets one narrow question: could any of them be asked this question instead
+([policies/stand-in.md](../policies/stand-in.md))? On five cases with a known answer it was right five times
+at the first wording. It counts as working if the order for the bridge audit, placed without naming anyone, goes
+to an auditor other than the one whose parts were used least. For this the team size of four earlier orders was
+added to the runner's record of rounds, which did not keep it then.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.

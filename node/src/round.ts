@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { budget, ceiling, coarse, fit, provenance, quote, ready, sharesOf, usdc, type Agent, type Outcome } from './rules.ts';
+import { budget, ceiling, coarse, fit, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { shelve, type Shelf } from './shelf.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
@@ -58,11 +58,12 @@ async function shortlist(task: string, pool: Member[]) {
   return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, SHORTLIST).map((x) => x.c);
 }
 
-/** An expert's recent record for the router: "delivered/picked" over its last tasks, or null for a new one.
- *  An expert that keeps failing gets fewer tasks, so its failures cost it, not the experts it works with. */
+/** An expert's recent record for the router: "delivered/picked" over its last tasks, and how much of the answers it
+ *  worked on came from it (`usedOf`); null for a new one. An expert that keeps failing, or whose parts are not
+ *  used, gets fewer tasks, so its failures cost it, not the experts it works with. */
 async function record(agent: string) {
   const picked = (await store.historyOf(agent, 200)).filter((r) => r.picked).slice(-50);
-  return picked.length ? `${picked.filter((r) => r.delivered).length}/${picked.length}` : null;
+  return { record: picked.length ? `${picked.filter((r) => r.delivered).length}/${picked.length}` : null, used: usedOf(picked) };
 }
 
 /** What the earlier rounds of an assignment still owe: each delivered expert's rate and its overhead. All rounds
@@ -86,9 +87,24 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
   const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
   const units = (x: bigint) => Number(x) / 1e6;
   const records = await Promise.all(list.map((c) => record(c.agent.id)));
-  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, examples: c.expert.m.examples, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]! })));
-  const picks = plan.picks.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
-  return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search };
+  const plan = await llm.plan(task, units(net), list.map((c, id) => ({ id, skills: c.agent.skills, examples: c.expert.m.examples, rate: units(BigInt(c.agent.rate)), requested: asked.has(c.agent.id), record: records[id]!.record })));
+  // The router picks by the words of the skills. Where the numbers put another agent clearly above its pick
+  // (rules.rivals) and that agent could be asked the same question, the better one is asked instead. An expert the
+  // customer named is never replaced, and nobody is asked twice.
+  const taken = new Set(plan.picks.map((p) => p.id));
+  const scored = (id: number) => ({ id, used: records[id]!.used, rate: BigInt(list[id]!.agent.rate) });
+  const card = (id: number) => ({ id, skills: list[id]!.agent.skills, examples: list[id]!.expert.m.examples });
+  const replaced: [from: string, to: string][] = [];
+  const chosen: typeof plan.picks = [];
+  for (const p of plan.picks) {
+    const above = asked.has(list[p.id]!.agent.id) ? [] : rivals(scored(p.id), list.map((_, id) => id).filter((id) => !taken.has(id)).map(scored));
+    const could = above.length ? await llm.standIns(p.question, card(p.id), above.map((a) => card(a.id))).catch(() => []) : [];
+    const id = above.find((a) => could.includes(a.id))?.id ?? p.id;
+    if (id !== p.id) (taken.delete(p.id), taken.add(id), replaced.push([list[p.id]!.agent.id, list[id]!.agent.id]));
+    chosen.push({ ...p, id });
+  }
+  const picks = chosen.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
+  return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search, replaced };
 }
 
 /** One agent's part: its knowledge searched for its question and, when the question came with materials, for what
@@ -115,10 +131,11 @@ async function contribute(task: string, t: Member & { question: string }, shelf:
 function noteRound(key: string, topic: string, considered: Member[], members: Member[], parts: { outcome: Outcome; why: llm.Why }[], marked: string) {
   const at = new Date().toISOString();
   const shares = sharesOf(marked); // empty if the answer carries no marks: then nobody's share is known
+  const composed = parts.filter((p) => p.outcome.delivered).length; // the parts the answer was composed from
   return Promise.all(considered.map((c) => {
     const i = members.findIndex((m) => m.agent.id === c.agent.id);
     const part = parts[i];
-    const share = part?.outcome.delivered && shares.size ? { share: shares.get(i) ?? 0 } : {};
+    const share = part?.outcome.delivered && shares.size ? { share: shares.get(i) ?? 0, parts: composed } : {};
     const line = part ? { at, job: key, topic, picked: true, ...part.outcome, why: part.why, pay: part.outcome.delivered ? c.agent.rate : '0', ...share } : { at, job: key, topic, picked: false };
     return store.note(c.agent.id, line);
   })).catch((e) => log('note_failed', { job: key, error: String(e) }));
@@ -174,9 +191,9 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
 
   const net = budget(usdc(a.escrowAmount), feeBps, door.overhead, door.fee) - (await owedBefore(id, round, door));
   if (round > 1 && net <= 0n) return stand('the budget of this task went to the experts of its earlier rounds. Please post further changes as a new job.');
-  const { considered, picked, members: planned, search: queries } = await team(task, pool, net, door.perAgent);
+  const { considered, picked, members: planned, search: queries, replaced } = await team(task, pool, net, door.perAgent);
   const ids = (list: Member[]) => list.map((c) => c.agent.id);
-  log('team', { net: net.toString(), considered: ids(considered), picked, members: ids(planned) }, { questions: planned.map((t) => t.question), search: queries });
+  log('team', { net: net.toString(), considered: ids(considered), picked, members: ids(planned), replaced }, { questions: planned.map((t) => t.question), search: queries });
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
   // The customer's materials: attached files, the links in the brief and messages, and search results if a key is set.
