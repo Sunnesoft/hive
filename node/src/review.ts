@@ -57,16 +57,19 @@ async function parts(expert: Expert, question: string, pages: Page[], hold: bigi
 
 /** What two findings are compared by: the place, the claim and how it happens, as the model worded them. */
 const wordsOf = (f: Finding) => `${f.where} | ${f.title}\n${f.how}`.slice(0, 500);
+const claimOf = (f: Finding) => `${f.where} | ${f.title}`;
 
 /** The items in groups that say the same thing (rules.groupsOf): by their embeddings, which the protocol pays for.
- *  If the embedding service does not answer, by the words they share: fewer are joined, so more are checked, and
- *  the review still ends. */
-async function same<T>(items: T[], findingOf: (item: T) => Finding): Promise<T[][]> {
+ *  If the embedding service does not answer, by the words they share, in the claim or in the whole of it: fewer
+ *  are joined, so more are checked, and the review still ends. */
+export async function same<T>(items: T[], findingOf: (item: T) => Finding): Promise<T[][]> {
   if (items.length < 2) return items.map((x) => [x]);
-  const words = items.map((x) => wordsOf(findingOf(x)));
+  const [words, claims] = [items.map((x) => wordsOf(findingOf(x))), items.map((x) => claimOf(findingOf(x)))];
   const vectors = await llm.embed('findings', words, EMBED_WAIT).then((r) => r.vectors.map(unit), () => null);
   if (!vectors) log('degraded', { step: 'findings', by: 'words' });
-  const close = vectors ? (i: number, j: number) => similarity(vectors[i]!, vectors[j]!) >= SAME : (i: number, j: number) => alike(words[i]!, words[j]!) >= SAME_WORDS;
+  const close = vectors
+    ? (i: number, j: number) => similarity(vectors[i]!, vectors[j]!) >= SAME
+    : (i: number, j: number) => alike(claims[i]!, claims[j]!) >= SAME_WORDS || alike(words[i]!, words[j]!) >= SAME_WORDS;
   return groupsOf(items.length, close).map((g) => g.map((i) => items[i]!));
 }
 

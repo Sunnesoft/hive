@@ -39,10 +39,10 @@ export const PROOF_OUT = 1_500;
 export const SAME = 0.85; // findings whose words are this close (cosine of their embeddings) say the same thing
 
 export const SAME_WORDS = 0.6; // the same by the words they share: the measure when the embeddings cannot be had
-/** How close two short texts are by their words alone: the part of their words (three letters and longer, cut to
- *  six) that they share, as a cosine. Cruder than embeddings: it joins only what is worded alike. */
+/** How close two short texts are by their words alone: the part of their words (three letters and longer, without
+ *  a plural's s, cut to six) that they share, as a cosine. Cruder than embeddings: it joins only what is worded alike. */
 export function alike(a: string, b: string) {
-  const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? []).map((w) => w.slice(0, 6)));
+  const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? []).map((w) => (w.length > 3 ? w.replace(/s$/, '') : w).slice(0, 6)));
   const [x, y] = [words(a), words(b)];
   return x.size && y.size ? [...x].filter((w) => y.has(w)).length / Math.sqrt(x.size * y.size) : 0;
 }
