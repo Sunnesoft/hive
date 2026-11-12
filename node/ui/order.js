@@ -2,7 +2,7 @@
 // contract pays the experts that delivered and sends the rest back. A NEP-413 signature, the same one as in the
 // builder's app, shows the customer its own orders and their answers: nobody else's.
 import nc from '/vendor/near-connect.js';
-import { $, account, busy, getJSON, h, hex, icon, say, short, units, usd } from '/ui.js';
+import { $, account, busy, getJSON, h, hex, icon, markdown, say, short, units, usd } from '/ui.js';
 
 const MAX_BRIEF = 4_000; // bytes, as the contract takes it
 const info = await getJSON('/info');
@@ -125,7 +125,7 @@ function card(o) {
   return h('article', { class: 'card order' },
     h('header', {}, h('b', { class: 'mono' }, o.id), h('span', { class: `pill ${kind}` }, label), h('span', { class: 'faint end' }, `${placed(o)} · budget ${usd(o.amount)} USDC`)),
     h('details', {}, h('summary', {}, 'Your task'), h('pre', { class: 'brief' }, o.brief)),
-    o.state === 'delivered' ? [h('div', { class: 'answer-text' }, o.answer), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.hash}`)] : '',
+    o.state === 'delivered' ? [h('div', { class: 'answer-text' }, markdown(o.answer)), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.hash}`)] : '',
     o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All ${usd(o.amount)} USDC went back to your wallet.`)) : '',
     o.state === 'waiting' ? h('span', { class: 'muted' }, 'The swarm reads the task and picks the experts it needs.') : '',
     o.state === 'working' ? h('span', { class: 'muted' }, 'Each expert is answering its own question; then each answer is checked and one answer is composed.') : '');

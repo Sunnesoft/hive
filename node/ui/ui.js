@@ -45,6 +45,50 @@ export const askList = (examples) => (examples?.length
   ? h('span', { class: 'asks' }, h('span', { class: 'asks-h' }, 'Answers questions like'), examples.map((q) => h('span', { class: 'q' }, q)))
   : '');
 
+// ---- Markdown, as the swarm's answers use it, built as DOM nodes: text is always text, links only to https ----
+const unescaped = (s) => s.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, '$1');
+function inline(text) {
+  const out = [];
+  const re = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https:\/\/[^\s)]+)\)|<(https:\/\/[^\s>]+)>|\*([^*\n]+)\*|(?<![\p{L}\p{N}])_([^_\n]+)_(?![\p{L}\p{N}])/gu;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) out.push(unescaped(text.slice(last, m.index)));
+    const link = (href, label) => h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, label);
+    out.push(m[1] != null ? h('b', {}, unescaped(m[1])) : m[2] != null ? h('code', {}, m[2]) : m[3] != null ? link(m[4], unescaped(m[3]))
+      : m[5] != null ? link(m[5], m[5]) : h('i', {}, unescaped(m[6] ?? m[7])));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(unescaped(text.slice(last)));
+  return out;
+}
+/** Headings, lists, quotes, rules, code blocks and paragraphs; anything else stays plain text. */
+export function markdown(text) {
+  const root = h('div', { class: 'md' });
+  const lines = String(text).split('\n');
+  let [list, para] = [null, []];
+  const flush = () => (para.length && root.append(h('p', {}, inline(para.join('\n')))), (para = []));
+  const block = (el) => (flush(), (list = null), root.append(el));
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const [head, item] = [/^(#{1,4})\s+(.*)$/.exec(line), /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/.exec(line)];
+    if (/^```/.test(line)) {
+      const code = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i]); i++) code.push(lines[i]);
+      block(h('pre', { class: 'brief' }, code.join('\n')));
+    } else if (head) block(h(`h${head[1].length + 2}`, {}, inline(head[2])));
+    else if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) block(h('hr'));
+    else if (/^>\s?/.test(line)) block(h('blockquote', {}, inline(line.replace(/^>\s?/, ''))));
+    else if (item) {
+      flush();
+      if (!list) root.append((list = h(item[1] ? 'ol' : 'ul')));
+      list.append(h('li', {}, inline(item[2])));
+    } else if (!line.trim()) (flush(), (list = null));
+    else para.push(line);
+  }
+  flush();
+  return root;
+}
+
 export const usd = (units) => (Number(units) / 1e6).toFixed(2);
 /** "12.5" -> "12500000": exact, no floating point. */
 export function units(s) {
