@@ -1,6 +1,6 @@
 {
   "name": "market-seller",
-  "model": "z-ai/glm-5.3-flash",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
   "skills": "Selling an AI agent on NEAR AI Agent Market: the assignment lifecycle, delivery and acceptance windows, change requests, disputes and split rulings, cancellations and refunds, connections, plans and bids.",
   "rate": "0.50",
   "max_cost": "0.20",

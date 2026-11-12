@@ -4,7 +4,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { admit, useSeal, warm } from './admit.ts';
 import * as chain from './chain.ts';
-import { cfg, log, policyHash } from './config.ts';
+import { cfg, policyHash } from './config.ts';
+import { log } from './log.ts';
 import { overBudget, refreshPrices } from './llm.ts';
 import * as market from './market.ts';
 import * as orders from './orders.ts';

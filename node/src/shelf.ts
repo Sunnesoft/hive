@@ -27,7 +27,7 @@ export async function shelve(pages: Page[]): Promise<Shelf> {
   if (!lib) return { for: async () => head(pages) }; // NEAR AI is down: the beginning of each source, as before
   return {
     async for(question) {
-      const query = await embed([question]).then((r) => unit(r.vectors[0]!), () => null);
+      const query = await embed('shelf', [question]).then((r) => unit(r.vectors[0]!), () => null);
       if (!query) return head(pages);
       const best = lib.vectors.map((v, i) => ({ i, s: similarity(v, query) })).sort((a, b) => b.s - a.s).slice(0, PICK).map(({ i }) => parts[i]!);
       // Back in each source's order, one page per source: the expert reads the parts as they stand in the document.

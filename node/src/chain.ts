@@ -1,6 +1,7 @@
 // The contract as the runner sees it: views plus the runner's methods.
 import { Account, JsonRpcProvider, KeyPairSigner, teraToGas, type KeyPair } from 'near-api-js';
 import { cfg } from './config.ts';
+import { log } from './log.ts';
 import type { Agent, Job, Outcome } from './rules.ts';
 
 export type Config = { runner: string; fee_bps: number; audit_base: string; audit_per_mb: string; min_deposit: string; overhead: string; overhead_per_agent: string; run_secs: number };
@@ -15,16 +16,24 @@ const view = <T>(method: string, args: Record<string, unknown> = {}) =>
 let runner: Account | undefined;
 export const useKey = (key: KeyPair) => (runner = new Account(cfg.RUNNER_ACCOUNT, provider, new KeyPairSigner(key)));
 
-// One transaction at a time: they share one access key, and so one nonce.
+/** The events of a call: they say what the contract did with the money. */
+const events = (r: { receipts_outcome: { outcome: { logs: string[] } }[] }): Event[] =>
+  r.receipts_outcome.flatMap((o) => o.outcome.logs).filter((l) => l.startsWith('EVENT_JSON:')).map((l) => JSON.parse(l.slice(11)));
+
+// One transaction at a time: they share one access key, and so one nonce. Each is logged with what the contract
+// did; all of it is public on chain anyway.
 let lane: Promise<unknown> = Promise.resolve();
-const call = (methodName: string, args: Record<string, unknown>) => {
-  const next = lane.then(() => runner!.callFunctionRaw({ contractId: cfg.CONTRACT, methodName, args, gas: teraToGas('100') }));
+const call = (method: string, args: Record<string, unknown>) => {
+  const next = lane.then(async () => {
+    const at = Date.now();
+    const failed = (e: unknown) => (log('tx', { method, args, ms: Date.now() - at, error: String(e).slice(0, 300) }), Promise.reject(e));
+    const r = await runner!.callFunctionRaw({ contractId: cfg.CONTRACT, methodName: method, args, gas: teraToGas('100') }).catch(failed);
+    log('tx', { method, args, hash: r.transaction_outcome.id, ms: Date.now() - at, events: events(r) });
+    return r;
+  });
   lane = next.catch(() => {});
   return next;
 };
-/** The events of a call: they say what the contract did with the money. */
-const events = (r: Awaited<ReturnType<typeof call>>): Event[] =>
-  r.receipts_outcome.flatMap((o) => o.outcome.logs).filter((l) => l.startsWith('EVENT_JSON:')).map((l) => JSON.parse(l.slice(11)));
 
 export async function agents(): Promise<Agent[]> {
   const all: Agent[] = [];

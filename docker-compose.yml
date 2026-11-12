@@ -13,8 +13,8 @@ services:
       NEAR_RPC: https://rpc.mainnet.fastnear.com
       CONTRACT: swarm.OWNER.near
       RUNNER_ACCOUNT: runner.OWNER.near
-      PROTOCOL_MODEL: z-ai/glm-5.3
-      AUDIT_MODEL: z-ai/glm-5.3-flash
+      PROTOCOL_MODEL: Qwen/Qwen3.8-27B
+      AUDIT_MODEL: Qwen/Qwen3.8-27B
       EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B
       OVERHEAD_USD: "0.50"
       OVERHEAD_PER_AGENT_USD: "0.10"

@@ -5,6 +5,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { embedMany, generateText, Output } from 'ai';
 import { z } from 'zod';
 import { cfg, policy } from './config.ts';
+import { log } from './log.ts';
 import type { Materials } from './materials.ts';
 import { ceiling, MAX_OUT, microUsd, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
@@ -28,42 +29,71 @@ export async function refreshPrices() {
   prices = Object.fromEntries(models.map((m) => [m.modelId, { in: perMillion(m.inputCostPerToken), out: perMillion(m.outputCostPerToken) }]));
 }
 
-// ---- the operator's own money: every call is priced and counted by UTC day ----
+// ---- the operator's own money: every call is priced, counted by UTC day and logged ----
 
 const today = () => new Date().toISOString().slice(0, 10);
-const count = (model: string, usage: Usage) => {
-  const price = priceOf(model);
-  if (price) void store.spent(today(), microUsd(usage, price)).catch(() => {});
-};
 /** Has the runner spent its daily limit at NEAR AI? Then it starts no new work until the next UTC day. */
 export const overBudget = async () => BigInt(Math.ceil((await store.spendNow())[today()] ?? 0)) >= usdc(cfg.DAILY_BUDGET_USD);
 
+type Used = Usage & { outputTokenDetails?: { reasoningTokens?: number | undefined } };
+
+/** One call to NEAR AI, under the name of its step. Its price is counted against the day's limit, a call that
+ *  answered badly included: NEAR AI bills it too. Its size and time go to the log; what was sent and what came
+ *  back go only to the trace. */
+async function metered<R>(step: string, model: string, sent: object, limit: number, call: () => Promise<R>, read: (r: R) => { usage: Used; got: unknown; finish?: string }): Promise<R> {
+  const at = Date.now();
+  const line = (usage: Used | undefined, more: object, got: unknown) => {
+    const price = priceOf(model);
+    const cost = usage && price ? microUsd(usage, price) : 0n;
+    if (cost) void store.spent(today(), cost).catch(() => {});
+    const size = { in: usage?.inputTokens, out: usage?.outputTokens, reasoning: usage?.outputTokenDetails?.reasoningTokens };
+    log('llm', { step, model, ...size, micro_usd: Number(cost), ms: Date.now() - at, ...more }, { sent, got });
+  };
+  try {
+    const r = await call();
+    const { usage, got, finish } = read(r);
+    line(usage, { finish }, got);
+    return r;
+  } catch (e) {
+    const failed = e as { name?: string; usage?: Used; text?: string; finishReason?: string };
+    // A call we stopped waiting for went on at NEAR AI, and what it used is unknown: it is counted at its worst.
+    const worst = failed.name === 'TimeoutError' ? { inputTokens: Buffer.byteLength(JSON.stringify(sent)), outputTokens: limit } : undefined;
+    line(failed.usage ?? worst, { finish: failed.finishReason, error: String(e).slice(0, 300) }, failed.text);
+    throw e;
+  }
+}
+
 // ---- building blocks ----
 
-export async function embed(values: string[], timeoutMs = cfg.AGENT_TIMEOUT_MS) {
-  const model = nearai.embeddingModel(cfg.EMBED_MODEL);
-  const { embeddings, usage } = await embedMany({ model, values, maxParallelCalls: 4, abortSignal: AbortSignal.timeout(timeoutMs) });
-  count(cfg.EMBED_MODEL, { inputTokens: usage.tokens });
+/** `step` says what the vectors are for: `index` a library, `search` it, `shortlist` experts, `shelf` a customer's materials. */
+export async function embed(step: string, values: string[], timeoutMs = cfg.AGENT_TIMEOUT_MS) {
+  const call = () => embedMany({ model: nearai.embeddingModel(cfg.EMBED_MODEL), values, maxParallelCalls: 4, abortSignal: AbortSignal.timeout(timeoutMs) });
+  const { embeddings, usage } = await metered(step, cfg.EMBED_MODEL, { values }, 0, call, (r) => ({ usage: { inputTokens: r.usage.tokens }, got: `${r.embeddings.length} vectors` }));
   return { vectors: embeddings, tokens: usage.tokens };
 }
 
 const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a composed answer, a ceiling for a runaway one
+// A model answers at once, without a reasoning pass. Reasoning counts against the same output limit, so a hard
+// question could spend the whole limit thinking and return nothing; without it a call's time and cost are bounded.
+const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false } } };
+type Step = Exclude<keyof typeof policy, 'agent'>; // a protocol step is named after the public policy it applies
 
-/** One structured call: rules as instructions, the input only as JSON data. */
-async function ask<T>(model: string, instructions: string, data: unknown, schema: z.ZodType<T>): Promise<T> {
-  const { output, usage } = await generateText({
+/** One structured call: the step's policy as instructions, the input only as JSON data. */
+async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
+  const prompt = JSON.stringify(data);
+  const call = () => generateText({
     model: nearai(model),
-    instructions,
-    prompt: JSON.stringify(data),
+    instructions: policy[step],
+    prompt,
     output: Output.object({ schema }),
     temperature: 0,
     maxOutputTokens: PROTOCOL_OUT,
+    providerOptions: DIRECT,
     abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
   });
-  count(model, usage);
-  return output;
+  return (await metered(step, model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason }))).output;
 }
-const protocol = <T>(rules: string, data: unknown, schema: z.ZodType<T>) => ask(cfg.PROTOCOL_MODEL, rules, data, schema);
+const protocol = <T>(step: Step, data: unknown, schema: z.ZodType<T>) => ask(cfg.PROTOCOL_MODEL, step, data, schema);
 
 const Verdict = z.object({ allow: z.boolean(), reason: z.string() });
 export type Verdict = z.infer<typeof Verdict>;
@@ -87,7 +117,7 @@ export async function scan(chunks: string[]): Promise<Flag[]> {
   });
   const flags: Flag[] = [];
   for (let i = 0; i < batches.length; i += 4) {
-    const found = await Promise.all(batches.slice(i, i + 4).map((b) => ask(cfg.AUDIT_MODEL, policy.scan, { chunks: b }, Flags)));
+    const found = await Promise.all(batches.slice(i, i + 4).map((b) => ask(cfg.AUDIT_MODEL, 'scan', { chunks: b }, Flags)));
     flags.push(...found.flatMap((f) => f.flags));
   }
   return flags;
@@ -96,12 +126,12 @@ export async function scan(chunks: string[]): Promise<Flag[]> {
 /** Why an agent was denied, in words that name a rule, never the material. */
 export const DENIALS = ['instructions_to_ai', 'hidden_content', 'malware', 'personal_data', 'deception_or_copyright', 'skills_unsupported'] as const;
 const Audit = z.object({ allow: z.boolean(), category: z.enum(['ok', ...DENIALS]), reason: z.string() });
-export const verdictOnMaterials = (summary: object) => protocol(policy.audit, summary, Audit);
+export const verdictOnMaterials = (summary: object) => protocol('audit', summary, Audit);
 
 // ---- a job ----
 
 const Screened = Verdict.extend({ topic: z.enum(TOPICS) });
-export const screen = (job: { title: string; description: string }) => protocol(policy.job, job, Screened);
+export const screen = (job: { title: string; description: string }) => protocol('job', job, Screened);
 
 export const MAX_QUESTION = 4_000; // characters of one agent's question
 
@@ -111,7 +141,7 @@ const Plan = z.object({
 });
 /** Which agents the task needs, most important first, each with its own question; and web searches, if any. */
 export async function plan(task: string, budget: number, agents: { id: number; skills: string; examples?: string[]; rate: number; requested?: boolean; record?: string | null }[]) {
-  const { picks, search } = await protocol(policy.route, { task, budget, agents }, Plan);
+  const { picks, search } = await protocol('route', { task, budget, agents }, Plan);
   const seen = new Set<number>();
   const valid = picks.filter((p) => agents.some((a) => a.id === p.id) && p.question.trim() && !seen.has(p.id) && !!seen.add(p.id));
   return { picks: valid.map((p) => ({ id: p.id, question: p.question.slice(0, MAX_QUESTION) })), search: search.slice(0, 3) };
@@ -133,19 +163,13 @@ export async function answer(m: Materials, found: string[], question: string, pa
   const [system, prompt] = [instructions(m, found), materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`];
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' }; // the model left the catalog: no work, no charge
   if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
+  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, maxOutputTokens: MAX_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
   try {
-    const r = await generateText({
-      model: nearai(m.model),
-      instructions: system,
-      prompt,
-      maxOutputTokens: MAX_OUT,
-      abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
-    });
+    const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason }));
     const cost = microUsd(r.usage, price);
-    count(m.model, r.usage);
     return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap };
   } catch {
-    return { text: '', cost: 0n, why: 'model_failed' }; // a failed call: NEAR AI does not bill it
+    return { text: '', cost: 0n, why: 'model_failed' }; // a failed call costs the agent nothing: what NEAR AI billed for it is ours
   }
 }
 
@@ -154,15 +178,15 @@ export const WHYS = ['answered', 'empty', 'off_topic', 'refused', 'repeated_ques
 export type Why = (typeof WHYS)[number] | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
 const Check = z.object({ delivered: z.boolean(), violation: z.boolean(), why: z.enum(WHYS), reason: z.string() });
 /** Did this agent do its part? Sees only its question and answer, so no agent can sway another's verdict. */
-export const evaluate = (task: string, question: string, text: string) => protocol(policy.evaluate, { task, question, answer: text }, Check);
+export const evaluate = (task: string, question: string, text: string) => protocol('evaluate', { task, question, answer: text }, Check);
 
 const Composed = z.object({ answer: z.string() });
 /** Joins the contributions into the customer's answer; every statement carries [[id]] of its source. */
 export const compose = (task: string, previous: string, contributions: { id: number; question: string; text: string }[], sources: string[]) =>
-  protocol(policy.compose, { task, previous, contributions, sources: sources.map((url) => ({ url })) }, Composed).then((c) => c.answer);
+  protocol('compose', { task, previous, contributions, sources: sources.map((url) => ({ url })) }, Composed).then((c) => c.answer);
 
 const Dangerous = z.object({ dangerous: z.array(z.object({ id: z.number(), reason: z.string() })) });
-export const reviewCode = (blocks: { id: number; code: string }[]) => protocol(policy.code, { blocks }, Dangerous).then((d) => d.dangerous);
+export const reviewCode = (blocks: { id: number; code: string }[]) => protocol('code', { blocks }, Dangerous).then((d) => d.dangerous);
 
 const Scope = z.object({ in_scope: z.boolean(), reason: z.string() });
-export const inScope = (task: string, feedback: string) => protocol(policy.scope, { task, feedback }, Scope);
+export const inScope = (task: string, feedback: string) => protocol('scope', { task, feedback }, Scope);

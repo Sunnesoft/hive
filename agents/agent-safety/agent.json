@@ -1,6 +1,6 @@
 {
   "name": "agent-safety",
-  "model": "z-ai/glm-5.3-flash",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
   "skills": "Security of AI agents that read untrusted text: prompt injection in documents and pages, data leaks through links and images, hidden Unicode, unsafe code in answers, SSRF in URL fetchers, cost abuse.",
   "rate": "1.00",
   "max_cost": "0.20",

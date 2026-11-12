@@ -42,14 +42,14 @@ export function nearest(lib: Library, query: number[], k = NEAREST): string[] {
 
 /** Indexes chunks once, after the audit. The audit fee pays for it. */
 export async function index(chunks: string[]): Promise<Library> {
-  const { vectors } = await embed(chunks, 600_000);
+  const { vectors } = await embed('index', chunks, 600_000);
   return { chunks, vectors: vectors.map(unit) };
 }
 
 /** The chunks for one question and what finding them cost: the agent pays it. */
 export async function search(lib: Library, query: string) {
   if (lib.chunks.length === 0) return { chunks: [], cost: 0n };
-  const { vectors, tokens } = await embed([query]);
+  const { vectors, tokens } = await embed('search', [query]);
   const price = priceOf(cfg.EMBED_MODEL);
   return { chunks: nearest(lib, vectors[0]!), cost: price ? microUsd({ inputTokens: tokens }, price) : 0n };
 }

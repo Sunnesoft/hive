@@ -1,6 +1,6 @@
 {
   "name": "helpful-assistant",
-  "model": "z-ai/glm-5.3-flash",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
   "skills": "Anything at all.",
   "rate": "5.00",
   "max_cost": "0.10"

@@ -12,3 +12,4 @@ node/ui/vendor/
 .env.*
 !.env.example
 store-testnet/
+trace-*/

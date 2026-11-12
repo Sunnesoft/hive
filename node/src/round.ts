@@ -4,10 +4,11 @@
 // is checked alone and is owed its fixed rate or nothing. What a round decided is stored before it is sent.
 import { expertOf, type Expert } from './admit.ts';
 import * as chain from './chain.ts';
-import { cfg, log } from './config.ts';
+import { cfg } from './config.ts';
 import { gate } from './filter.ts';
 import { CHUNK, NEAREST, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
+import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
 import { budget, ceiling, coarse, fit, provenance, quote, ready, usdc, type Agent, type Outcome } from './rules.ts';
@@ -49,7 +50,7 @@ const skillVectors = new Map<string, Float32Array>();
 async function shortlist(task: string, pool: Member[]) {
   if (pool.length <= SHORTLIST) return pool;
   const missing = [...new Set(pool.map((c) => c.agent.skills))].filter((s) => !skillVectors.has(s));
-  const { vectors } = await llm.embed([task.slice(0, 8_000), ...missing]);
+  const { vectors } = await llm.embed('shortlist', [task.slice(0, 8_000), ...missing]);
   missing.forEach((s, i) => skillVectors.set(s, unit(vectors[i + 1]!)));
   const q = unit(vectors[0]!);
   const score = (c: Member) => similarity(skillVectors.get(c.agent.skills)!, q);
@@ -99,6 +100,7 @@ async function contribute(task: string, t: Member & { question: string }, shelf:
   const failed = { delivered: false, violation: false, why: (r.why ?? (r.text.trim() ? 'not_checked' : 'empty')) as llm.Why };
   const check = r.text.trim() ? await llm.evaluate(task, t.question, r.text).catch(() => failed) : failed;
   const outcome: Outcome = { cost: coarse(found.cost + r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
+  log('contribution', { agent: t.agent.id, ...outcome, why: check.why, chunks: found.chunks.length, pages: pages.length }, { question: t.question, answer: r.text, check });
   return { text: r.text, outcome, why: check.why };
 }
 
@@ -140,6 +142,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const stand = (why: string): Decision => ({ submit: `${previous}\n\n> Round ${round}: ${why}` });
   const refuse = (reason: 'rejected' | 'failed', detail: string): Decision => (round > 1 ? stand(detail) : { decline: { reason, detail } });
 
+  log('task', { round, escrow: a.escrowAmount, chars: task.length, attachments: job.attachments.length, messages: thread.length }, { task });
   if (giveUp) return refuse('failed', 'The swarm kept failing on our side.');
   if (round > cfg.MAX_REWORKS + 1 && !redo) return stand(`the ${cfg.MAX_REWORKS} reworks included in the price are used up. Please post further changes as a new job.`);
   // Before any paid call: is there anyone to work at all? (After a restart agents are still loading.)
@@ -150,11 +153,14 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
     if (!scope.in_scope) return stand(`this change is new work beyond the original task (${scope.reason}) Please post it as a new job.`);
   }
   const screened = await llm.screen({ title: job.title, description: task });
+  log('screened', { allow: screened.allow, topic: screened.topic }, { reason: screened.reason });
   if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
 
   const net = budget(usdc(a.escrowAmount), feeBps, door.overhead, door.fee) - (await owedBefore(id, round, door));
   if (round > 1 && net <= 0n) return stand('the budget of this task went to the experts of its earlier rounds. Please post further changes as a new job.');
   const { considered, picked, members: planned, search: queries } = await team(task, pool, net, door.perAgent);
+  const ids = (list: Member[]) => list.map((c) => c.agent.id);
+  log('team', { net: net.toString(), considered: ids(considered), picked, members: ids(planned) }, { questions: planned.map((t) => t.question), search: queries });
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
   if (planned.length === 0) return (void store.count(screened.topic, 'over_budget'), refuse('rejected', 'The budget does not cover the experts this task needs.'));
   // The customer's materials: attached files, the links in the brief and messages, and search results if a key is set.
@@ -165,6 +171,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const found = await gather(task, queries);
   const pages = [...files.filter((f): f is Page => 'text' in f && f.text !== ''), ...found.pages];
   const unread = [...files.filter((f): f is Unread => 'why' in f), ...found.unread];
+  log('materials', { pages: pages.length, unread: unread.length }, { sources: pages.map((p) => ({ url: p.url, chars: p.text.length })), failed: unread });
   const shelf = await shelve(pages);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
 
@@ -186,6 +193,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
   const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);
   const answer = await gate(provenance(marked).text, known);
+  log('composed', { from: good.length, chars: answer.length }, { marked, answer });
   const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
   const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
   const label = (url: string) => url.replace(/^attachment: /, '');
@@ -202,7 +210,7 @@ async function settle(id: string, key: string, d: Decision, door: Door) {
   if (open && !open.finished) await chain.finish(key, d.outcomes!);
   if (d.submit) await door.submit(id, d.submit);
   else if (d.decline) await door.decline(id, d.decline.reason, d.decline.detail);
-  log(d.submit ? 'submitted' : 'declined', { assignment: id, job: key, outcomes: d.outcomes, ...d.decline });
+  log(d.submit ? 'submitted' : 'declined', { assignment: id, job: key, outcomes: d.outcomes, reason: d.decline?.reason }, { detail: d.decline?.detail, answer: d.submit });
 }
 
 const busy = new Set<string>();
@@ -216,7 +224,7 @@ export function serve(row: market.Row, feeBps: number, door: Door = market.door)
   if (f && Date.now() < f.next) return;
   busy.add(id);
   let key = '';
-  void (async () => {
+  void inJob(id, async () => {
     const round = (await door.versions(id)).length + 1;
     key = door.key(id, round);
     const known = await store.recall<Decision>(key);
@@ -229,7 +237,7 @@ export function serve(row: market.Row, feeBps: number, door: Door = market.door)
     await store.remember(key, d);
     await settle(id, key, d, door);
     failed.delete(id);
-  })()
+  })
     .catch((e) => {
       const n = (failed.get(id)?.n ?? 0) + 1;
       failed.set(id, { n, next: Date.now() + 60_000 * 2 ** (n - 1) });

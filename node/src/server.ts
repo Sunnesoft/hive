@@ -12,9 +12,10 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as chain from './chain.ts';
-import { allowedModels, cfg, log } from './config.ts';
+import { allowedModels, cfg } from './config.ts';
 import { CHUNK, NEAREST } from './library.ts';
 import { priceOf } from './llm.ts';
+import { log } from './log.ts';
 import * as orders from './orders.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
@@ -143,6 +144,7 @@ async function brief(req: IncomingMessage): Promise<Reply> {
   if (++briefs.n > 20) return [429, { error: 'busy: try again in a minute' }];
   const sent = (() => { try { return JSON.parse(body); } catch { return null; } })();
   const hash = await orders.keepBrief(sent?.salt, sent?.brief);
+  if (hash) log('brief', { brief_hash: hash });
   return hash ? [200, { hash }] : [400, { error: `send {salt: 32 hex characters, brief: 1 to ${orders.MAX_BRIEF} characters}` }];
 }
 

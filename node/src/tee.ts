@@ -7,7 +7,8 @@ import { DstackClient } from '@phala/dstack-sdk';
 import { KeyPair, type KeyPairString } from 'near-api-js';
 import { reportDataOf, type Attestation } from './attest.ts';
 import { hasKey } from './chain.ts';
-import { cfg, log, policyHash } from './config.ts';
+import { cfg, policyHash } from './config.ts';
+import { log } from './log.ts';
 import { devSecret, publicKeyOf } from './seal.ts';
 
 export type Keys = { key: KeyPair; seal: Uint8Array; attestation: Attestation | { dev: true; publicKey: string; sealKey: string; policies: string } };

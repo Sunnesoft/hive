@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { docsOf, linksOf, audit, type Flag } from './audit.ts';
 import * as chain from './chain.ts';
-import { log } from './config.ts';
+import { log } from './log.ts';
 import { index, type Library } from './library.ts';
 import { Refused, unseal, type Materials } from './materials.ts';
 import type { Agent } from './rules.ts';

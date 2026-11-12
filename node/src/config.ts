@@ -11,7 +11,7 @@ const Env = z.object({
   NEARAI_URL: z.url().default('https://cloud-api.near.ai/v1'),
   NEARAI_API_KEY: z.string().min(1),
   PROTOCOL_MODEL: z.string().min(1), // screens tasks, picks teams, evaluates, composes, reviews agents
-  AUDIT_MODEL: z.string().default('z-ai/glm-5.3-flash'), // reads every chunk of uploaded materials
+  AUDIT_MODEL: z.string().default('Qwen/Qwen3.8-27B'), // reads every chunk of uploaded materials
   EMBED_MODEL: z.string().default('Qwen/Qwen3-Embedding-0.6B'), // indexes knowledge, matches skills
   MARKET_URL: z.url().default('https://market.near.ai'),
   MARKET_TOKEN: z.string().startsWith('aat_').optional(), // without it the swarm serves only orders placed in the contract
@@ -27,11 +27,9 @@ const Env = z.object({
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)
   STORE_DIR: z.string().default('./store'), // sealed uploads; an encrypted volume in the TEE
   FETCH_ALLOW: z.string().default(''), // IPs reachable despite the SSRF filter, comma separated: local tests only
-});
+  TRACE_DIR: z.string().min(1).optional(), // tests only: the log with every prompt and answer in the clear (log.ts)
+}).refine((e) => !e.TRACE_DIR || e.DEV_KEY, 'TRACE_DIR needs DEV_KEY: a trace holds what the TEE hides, so a runner in a TEE never writes one');
 
 export const cfg = Env.parse(process.env);
 
 export { allowedModels, policy, policyHash } from './policies.ts';
-
-export const log = (event: string, data: object = {}) =>
-  console.log(JSON.stringify({ t: new Date().toISOString(), event, ...data }));

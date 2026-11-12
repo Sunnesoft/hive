@@ -4,8 +4,8 @@
 //   NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "your question" [--prompt]
 //   NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor --audit
 // --prompt prints the whole prompt the model gets. --audit runs the entry audit and shows what it noticed.
-// PROTOCOL_MODEL (default z-ai/glm-5.3) evaluates and audits; AUDIT_MODEL and EMBED_MODEL as in the runner.
-for (const [k, v] of Object.entries({ NEAR_RPC: 'http://127.0.0.1:1', CONTRACT: 'try', RUNNER_ACCOUNT: 'try', MARKET_TOKEN: 'aat_try', PROTOCOL_MODEL: 'z-ai/glm-5.3', STORE_DIR: '/tmp/swarm-try' }))
+// PROTOCOL_MODEL (default Qwen/Qwen3.8-27B) evaluates and audits; AUDIT_MODEL and EMBED_MODEL as in the runner.
+for (const [k, v] of Object.entries({ NEAR_RPC: 'http://127.0.0.1:1', CONTRACT: 'try', RUNNER_ACCOUNT: 'try', MARKET_TOKEN: 'aat_try', PROTOCOL_MODEL: 'Qwen/Qwen3.8-27B', STORE_DIR: '/tmp/swarm-try' }))
   process.env[k] ??= v; // the runner's config wants them; nothing here uses them
 
 const [dir, question] = process.argv.slice(2);
