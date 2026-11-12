@@ -85,7 +85,9 @@ async function reviewed(t: ReviewTask, name: string, pages: Page[]) {
  *  set, also the same list with the controller's word beside each finding. */
 async function joined(t: ReviewTask, pages: Page[]) {
   const parts = t.experts.map((name, id) => ({ id, r: kept[t.id]?.[`review${TAG}: ${name}`] })).filter((p) => p.r?.review);
-  const [plain, second] = [`review${TAG}: the swarm`, `review${TAG}: the swarm, with the controller ${(process.env.CONTROL_MODEL ?? '').split('/').at(-1)}`];
+  // EVAL_REJOIN names a new joining of reviews already kept: the experts are not asked again, only joined by the code as it is now.
+  const again = process.env.EVAL_REJOIN ? `, joined again (${process.env.EVAL_REJOIN})` : '';
+  const [plain, second] = [`review${TAG}: the swarm${again}`, `review${TAG}: the swarm${again}, with the controller ${(process.env.CONTROL_MODEL ?? '').split('/').at(-1)}`];
   const wanted = [...(kept[t.id]?.[plain] ? [] : [plain]), ...(process.env.CONTROL_MODEL && !kept[t.id]?.[second] ? [second] : [])];
   if (parts.length < t.experts.length || !wanted.length) return;
   const all = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));

@@ -55,6 +55,14 @@ test('the list the customer gets: who found each finding, as marks for the recor
   assert.match(listOf({ findings: [], leads: [{ ...mint, seen: [1] }] }, 2), /^## Findings\n\nNo finding was confirmed/);
 });
 
+test('findings sorted as the same stand together, each in its own words, and a doubted one keeps its place', () => {
+  const list = listOf({ findings: [{ ...drain, by: [0], seen: [0] }, { ...mint, severity: 'Medium', sortedWith: drain.title, by: [1], seen: [1] }, { ...dust, second: 'it doubts this. Dust is meant.', doubted: true, by: [0], seen: [0] }], leads: [] }, 2);
+  assert.match(list, /### 2\. Medium: Shares are minted for nothing \[\[1\]\]\n\n\*Where:\* deposit\(\)\. \*Found by 1 of 2 experts\.\*\n\n\*Sorted with "Anyone can withdraw the pool" above as the same finding; kept apart in case it is not\.\*/);
+  assert.match(list, /doubts 1 of them: its word stands under each/);
+  assert.match(list, /### 3\. Low: The fee rounds to zero[\s\S]*\*Second opinion, from the controller:\* it doubts this\. Dust is meant\./);
+  assert.ok(!list.includes('## Findings the controller doubts'));
+});
+
 test('a finding one expert confirmed and another only raised is one finding: found by both, the confirming expert\'s', () => {
   const list = listOf({ findings: [{ ...drain, by: [1], seen: [0, 1, 2] }], leads: [] }, 3);
   assert.match(list, /Anyone can withdraw the pool \[\[1\]\]\n\n\*Where:\* withdraw\(\)\. \*Found by 3 of 3 experts\.\*/);

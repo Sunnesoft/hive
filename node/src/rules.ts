@@ -33,7 +33,7 @@ export const READ_FINDINGS = 20; // findings taken from it
 export const KNOWN_IN = 3_000; // bytes of what earlier passes raised, a line each, that a later pass is told not to repeat
 export const PASS_FINDINGS = 12; // findings taken from one pass, the first ones: a model that has run out of findings goes on with "no check for ..." until its limit
 export const PASS_OUT = 1_800; // output tokens of one pass: room for the twelve findings taken from it, at the 140 tokens a finding that models write
-export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first
+export const MAX_CHECKS = 30; // groups of findings checked in one review, the gravest first; the rest are given as not confirmed
 export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed
 export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
 export const CHECK_AT_ONCE = 5; // wordings one check is shown: a model that joined twenty findings into a group must not have them dismissed in one line
@@ -44,7 +44,7 @@ export const MAX_COMBINED = 5; // findings that step may add: each is checked li
 export const SUMMARY_OUT = 300; // output tokens of the paragraph that opens a review: room for 120 words, none for a report of its own
 export const SAME_IN = 12_000; // bytes of findings, a line each, that one question "which of these are the same" is given
 export const SAME_OUT = 500;
-export const MAX_PROOFS = 5; // proofs written in one review, for the gravest findings
+export const MAX_PROOFS = 3; // proofs written in one review, for its gravest findings: of several experts' proofs of one finding the answer keeps one
 export const PROOF_IN = 2_500; // bytes of the finding a proof is written for
 export const PROOF_OUT = 2_500; // a test cut short is thrown away, paid for: two models of three ran past 1,500
 export const SAME = 0.85; // findings whose words are this close (cosine of their embeddings) say the same thing
@@ -217,6 +217,11 @@ export function findingsIn(text: string): Finding[] {
 /** A finding as text, in the form `findingsIn` reads. */
 export const showFinding = (f: Finding, n?: number) =>
   [`### ${n ? `${n}. ` : ''}${f.severity} | ${f.where || '—'} | ${f.title}`, f.how, f.evidence && `Evidence: ${f.evidence}`, f.fix && `Fix: ${f.fix}`].filter(Boolean).join('\n');
+
+/** Of findings that say the same thing, the one in the middle by severity (of two in the middle, the graver).
+ *  The gravest wording used to stand for them all, which let one exaggerated wording become the headline of a
+ *  finding that four others had put lower: a Critical that was wrong, over a Medium that was right. */
+export const middleOf = <T extends { severity: Finding['severity'] }>(items: T[]) => bySeverity(items)[Math.floor((items.length - 1) / 2)]!;
 
 /** The gravest first; among equals, the order they came in. */
 export const bySeverity = <T extends { severity: Finding['severity'] }>(items: T[]) =>

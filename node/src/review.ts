@@ -20,7 +20,9 @@
 //   together the confirmed findings are looked at together: what do two of them allow that neither says alone?
 //            (One gives a permission, another lets anyone use it.) What that raises is checked like any finding
 //   same     the expert's model is asked one narrow question: which of these say the same thing in other words?
-//            Code joins what it names, and the other wordings stay under the finding: the model sorts, never drops
+//            Before the checks its answer decides what is checked together. After them it only puts findings
+//            side by side: each wording stays a finding of its own, marked as sorted with the one above it. Folded
+//            into one, a true finding was once headed by a wrong neighbour's title, and doubted for it
 //   proofs   code for the gravest confirmed findings, when the task asks for code
 // Every call is the expert's own model under a public policy (policies/pass.md, check.md, proof.md), paid from the
 // expert's hold. The worst case of the whole review must fit the hold before the first call is sent.
@@ -30,12 +32,14 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, middleOf, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
-export type Raised = Finding & { also?: string[]; checkSaid?: string }; // checkSaid: what its check answered, if it did not confirm it
+/** `checkSaid`: what its check answered, if it did not confirm it. `sortedWith`: the title of the finding above it
+ *  that a model took it to be the same as; it is kept apart, in case it is not. */
+export type Raised = Finding & { also?: string[]; checkSaid?: string; sortedWith?: string };
 /** `second`: what the controller said of it, if it did not simply agree; `doubted`: it said the materials stop it. */
 export type Checked = Raised & { proof?: string; second?: string; doubted?: boolean };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
@@ -107,8 +111,9 @@ function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
 }
 
 type Item = { f: Checked; held: boolean; id?: number };
-/** What a group of items that say the same is known by: its gravest confirmed wording, or its gravest. */
-const headOf = (g: Item[]) => gravest((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
+/** What a group of items that say the same is known by: of its confirmed wordings, or of all of them if none is
+ *  confirmed, the one in the middle by severity (rules.middleOf). */
+const headOf = (g: Item[]) => middleOf((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
 /** Groups that code could not join because they are worded differently, joined by a model's answer to one narrow
  *  question (policies/same.md): which of these say the same thing? The gravest are asked about first, as many as
  *  fit the question. Returns each joined group as the groups it was made of. */
@@ -126,10 +131,19 @@ const withAlso = <T extends Raised>(f: T, wordings: string[]): T => {
   const others = wordings.filter((t) => !seen.has(t.toLowerCase()) && !!seen.add(t.toLowerCase()));
   return { ...f, ...(others.length ? { also: others } : {}) };
 };
-/** Every wording in a joined group: each group's own, and what each member was already joined from. */
-const wordingsOf = (joined: Item[][]) => [...joined.map((g) => headOf(g).title), ...joined.flat().flatMap((x) => x.f.also ?? [])];
-/** The finding of a joined group: its gravest confirmed wording, or its gravest, with the others under it. */
-const oneOf = (joined: Item[][]): Checked => withAlso(headOf(joined.flat()), wordingsOf(joined));
+/** What code took for one thing, as one finding: its middle wording, with what its members were joined from before. */
+const oneOf = (g: Item[]): Checked => withAlso(headOf(g), g.flatMap((x) => x.f.also ?? []));
+/** Groups a model named the same, laid out and not folded: each wording that code could tell from the others
+ *  stays a finding of its own, the middle one by severity first, the rest after it and marked as sorted with it.
+ *  The groups come gravest first. If the model was wrong to put two together, both are still there to read. */
+function unfolded<T extends Raised>(groups: Item[][][], made: (g: Item[]) => T): { heads: T[]; all: T[] } {
+  const laid = groups.map((joined) => {
+    const each = joined.map(made);
+    const head = middleOf(each);
+    return { head, rest: bySeverity(each.filter((f) => f !== head)).map((f) => ({ ...f, sortedWith: head.title })) };
+  }).sort((a, b) => rank(a.head) - rank(b.head));
+  return { heads: laid.map((x) => x.head), all: laid.flatMap((x) => [x.head, ...x.rest]) };
+}
 const confirmedIn = (joined: Item[][]) => joined.some((g) => g.some((x) => x.held));
 const rank = (f: Finding) => SEVERITIES.indexOf(f.severity);
 const grave = (f: Finding) => f.severity === 'Critical' || f.severity === 'High';
@@ -246,11 +260,12 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const byCode = await same(items, (x) => x.f);
   const [sure, unsure] = [await sortedBy(m.model, byCode.filter((g) => g.some((x) => x.held)), hold), await sortedBy(m.model, byCode.filter((g) => !g.some((x) => x.held)), hold)];
   cost += sure.cost + unsure.cost;
-  const findings: Checked[] = bySeverity(sure.groups.map(oneOf));
-  const leads = bySeverity(unsure.groups.map(oneOf)).filter(worthALook).slice(0, MAX_LEADS);
+  const [confirmed, open2] = [unfolded(sure.groups, oneOf), unfolded(unsure.groups, oneOf)];
+  const findings: Checked[] = confirmed.all;
+  const leads = open2.all.filter(worthALook).slice(0, MAX_LEADS);
   Object.assign(counts, { groups: groups.length, checked: checks.filter((r) => !r.failed).length, held: findings.length, leads: leads.length });
 
-  const toProve = code ? findings.filter(grave).slice(0, MAX_PROOFS) : [];
+  const toProve = code ? confirmed.heads.filter(grave).slice(0, MAX_PROOFS) : []; // one proof for what was sorted as one finding
   const proofs = await each(toProve, (f) => step('proof', '', section('Finding to prove', showFinding(f), PROOF_IN)).then(codeOf));
   toProve.forEach((f, i) => proofs[i] && (f.proof = proofs[i]));
   counts.proofs = proofs.filter(Boolean).length;
@@ -267,6 +282,7 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
+    f.sortedWith && `*Sorted with "${f.sortedWith}" above as the same finding; kept apart in case it is not.*`,
     f.how,
     f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
@@ -279,6 +295,7 @@ const unconfirmed = (f: Raised, n: number, note = '') =>
   [
     `### ${n}. ${f.severity}, not confirmed: ${f.title}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
+    f.sortedWith && `*Sorted with "${f.sortedWith}" above as the same; kept apart in case it is not.*`,
     f.how,
     f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
     f.checkSaid && `*Its check said:* ${f.checkSaid}`,
@@ -325,13 +342,16 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   const sorted = reviews.length < 2 ? byCode.map((g) => [g])
     : [...(await sortedBy(model, byCode.filter((g) => g.some((x) => x.held)))).groups, ...(await sortedBy(model, byCode.filter((g) => !g.some((x) => x.held)))).groups];
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
-  const findings = sorted.filter(confirmedIn).map((joined): Joined => {
-    const [held, first] = [joined.flat().filter((x) => x.held), oneOf(joined)];
+  // What code took for one thing is one finding, with everyone who found it. What the model named the same is laid
+  // side by side, each wording a finding of its own.
+  const found = (g: Item[]): Joined => {
+    const [held, first] = [g.filter((x) => x.held), oneOf(g)];
     const proof = first.proof ?? held.find((x) => x.f.proof)?.f.proof;
-    return { ...first, ...(proof ? { proof } : {}), by: ids(held), seen: ids(joined.flat()) };
-  });
-  const leads = sorted.filter((j) => !confirmedIn(j)).map((j): Lead => ({ ...oneOf(j), seen: ids(j.flat()) }));
-  return { findings: bySeverity(findings), leads: bySeverity(leads.sort((a, b) => b.seen.length - a.seen.length)).slice(0, MAX_LEADS) };
+    return { ...first, ...(proof ? { proof } : {}), by: ids(held), seen: ids(g) };
+  };
+  const findings = unfolded(sorted.filter(confirmedIn), found).all;
+  const leads = unfolded(sorted.filter((j) => !confirmedIn(j)), (g): Lead => ({ ...oneOf(g), seen: ids(g) })).all;
+  return { findings, leads: leads.slice(0, MAX_LEADS) };
 }
 
 /** A second pair of eyes on the joined findings: the controller's model (policies/control.md) reads them all with
@@ -356,15 +376,15 @@ export async function controlled<T extends Checked>(findings: T[], pages: Page[]
  *  experts that confirmed it; a lead carries none: it is nobody's finding yet. `experts`: how many reviewed, so
  *  that "found by 2 of 3" says how sure a finding is. */
 export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number) => {
-  // Findings the controller doubts are not taken out: they come after the others, whole, each with its reason.
-  const [clear, doubted] = [r.findings.filter((f) => !f.doubted), r.findings.filter((f) => f.doubted)];
+  // A finding the controller doubts stays where it is, whole, with the doubt under it: the controller is a model
+  // too, and on one answer it doubted two findings an audit had made.
+  const doubted = r.findings.filter((f) => f.doubted).length;
   const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '');
   return [
     r.findings.length
-      ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on.${doubted.length ? ` The controller, a second model that read them all, doubts ${doubted.length} of them: those come after the others, under their own heading.` : ''}`
+      ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on. Findings that may be one and the same stand together, each in its own words.${doubted ? ` The controller, a second model that read them all, doubts ${doubted} of them: its word stands under each. Both are models: read the finding and the doubt.` : ''}`
       : '## Findings\n\nNo finding was confirmed against your materials.',
-    ...clear.map((f, i) => shown(f, i + 1)),
-    ...(doubted.length ? [`## Findings the controller doubts\n\nAn expert confirmed each of these and the controller named a line of your materials that, in its reading, stops it. Both are models: read the finding and the doubt.`, ...doubted.map((f, i) => shown(f, clear.length + i + 1))] : []),
+    ...r.findings.map((f, i) => shown(f, i + 1)),
     ...(r.leads.length
       ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.${r.leads.some(grave) ? ' The grave ones are given whole, with what their check said: a check is a model too, and can be wrong.' : ''}`,
         ...notConfirmed(r.leads, r.findings.length, (f, whole) => { const seen = (f as Lead).seen.length; return experts > 1 && (whole || seen > 1) ? (whole ? `*Raised by ${seen} of ${experts} experts.*` : ` *(raised by ${seen} of ${experts} experts)*`) : ''; })]

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, partition, partsOf, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
+import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, middleOf, partition, partsOf, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -88,6 +88,14 @@ test('findingsIn reads findings however a model draws the heading, and showFindi
   assert.deepEqual(findingsIn(showFinding(a!, 1)), [a]);
   assert.deepEqual(findingsIn('NOT CONFIRMED: the call is guarded.'), []);
   assert.deepEqual(findingsIn('High-risk functions are listed below.\nLow gas use is not a finding.'), []); // prose, not headings
+});
+
+test('middleOf: of wordings of one finding the one in the middle by severity stands for them, not the gravest', () => {
+  const said = (severity: 'Critical' | 'High' | 'Medium' | 'Low', n: number) => ({ severity, n });
+  assert.equal(middleOf([said('Medium', 1), said('High', 2), said('Critical', 3), said('Low', 4), said('Medium', 5)]).n, 1); // one Critical among five does not head them
+  assert.equal(middleOf([said('High', 1), said('Critical', 2)]).n, 2); // of two, the graver
+  assert.equal(middleOf([said('Low', 1)]).n, 1);
+  assert.equal(middleOf([said('Low', 1), said('High', 2), said('High', 3)]).n, 3); // the middle of High, High, Low is a High: the second of them as they came
 });
 
 test('bySeverity puts the gravest first and keeps the order of equals', () => {
