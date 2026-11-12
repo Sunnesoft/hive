@@ -18,10 +18,10 @@ const given = flag('--material') ? process.argv[process.argv.indexOf('--material
 const { readAgent } = await import('./agent-folder.ts');
 const { Materials } = await import('../node/src/materials.ts');
 const llm = await import('../node/src/llm.ts');
-const { audit, docsOf } = await import('../node/src/audit.ts');
+const { audit, docsOf, filesOf } = await import('../node/src/audit.ts');
 const { index, search } = await import('../node/src/library.ts');
 const { review, reportOf } = await import('../node/src/review.ts');
-const { ceiling, MAX_PASSES, piecesOf, show, usdc } = await import('../node/src/rules.ts');
+const { ceiling, MAX_PASSES, partsOf, show, usdc } = await import('../node/src/rules.ts');
 const { linksOf } = await import('../node/src/audit.ts');
 const { readFileSync } = await import('node:fs');
 const { basename } = await import('node:path');
@@ -44,7 +44,8 @@ if (question === '--audit') {
 const pages = given ? [{ url: `attachment: ${basename(given)}`, text: readFileSync(given, 'utf8') }] : [];
 const reviews = m.work === 'review' && pages.length > 0 && docs.length > 0;
 // A review that reads all of the knowledge needs no index of it: only a larger knowledge is searched for its closest parts.
-const lib = reviews && piecesOf(docs).length <= MAX_PASSES ? { chunks: docs, vectors: [] } : await index(docs);
+const parts = partsOf(filesOf(m)).length; // a file of knowledge is a pass, a long file several
+const lib = reviews && parts <= MAX_PASSES ? { chunks: docs, vectors: [] } : await index(docs);
 const hold = usdc(card.max_cost);
 const paid = async (text: string) => {
   const check = await llm.evaluate(question, question, text);
@@ -52,7 +53,7 @@ const paid = async (text: string) => {
 };
 
 if (reviews) {
-  console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(piecesOf(docs).length, MAX_PASSES)} parts of the knowledge; your max cost ${show(hold)} USDC`);
+  console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(parts, MAX_PASSES)} parts of the knowledge; your max cost ${show(hold)} USDC`);
   const r = await review({ m, lib, digest: '', links: linksOf(m) }, question, pages, hold, flag('--code'));
   const c = r.counts;
   console.log(`passes read ${c.passes}; findings raised ${c.raised}, in ${c.groups} groups; groups checked ${c.checked}; findings that held ${c.held}; not confirmed but listed ${c.leads}; proofs ${c.proofs}; replies cut at their limit ${c.cut}; cost ${show(r.cost)} USDC${r.why ? `; stopped: ${r.why}` : ''}`);
