@@ -456,6 +456,7 @@ function renderNew() {
     return cents(passes * ((v.pass_bytes + v.pass_knowledge + v.pass_known + around) * reads.in + v.pass_out * reads.out)
       + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
       + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out)
+      + (v.combine_bytes + v.combine_in + around) * p.in + v.combine_out * p.out
       + (v.same_bytes + v.same_in) * p.in + v.same_out * p.out);
   };
   const worst = () => {

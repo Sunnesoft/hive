@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -78,7 +78,7 @@ const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a co
 // Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
-type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'same' | 'proof'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'combine' | 'same' | 'proof'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -192,7 +192,7 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-const STEP_OUT = { pass: PASS_OUT, check: CHECK_OUT, proof: PROOF_OUT };
+const STEP_OUT = { pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
 export type ReviewStep = keyof typeof STEP_OUT;
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
@@ -203,8 +203,8 @@ const stepPrompt = (question: string, pages: Page[], about: string) => (about ? 
 export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>
   microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: STEP_OUT[kind] }, price);
 
-/** One step of a review: a pass with one part of the agent's knowledge, the check of a group of findings, or the
- *  proof of one. `about` is the section the step is given after the question and the materials: the findings to
+/** One step of a review: a pass with one part of the agent's knowledge, the check of a group of findings, a look at
+ *  the confirmed findings together, or the proof of one. `about` is the section the step is given after the question and the materials: the findings to
  *  check, the finding to prove. Sent only if its worst case fits `cap`; a step that fails costs the agent nothing
  *  and returns nothing. `cut`: the reply ran into the step's output limit. */
 export async function step(kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {

@@ -8,7 +8,7 @@ const mint: Finding = { severity: 'High', where: 'deposit()', title: 'Shares are
 const dust: Finding = { severity: 'Low', where: 'fee()', title: 'The fee rounds to zero', how: 'amount * 3 / 1000 is 0 below 334.', evidence: '`return amount * 3 / 1000;`', fix: 'Round up.' };
 
 test('a review as one contribution: the count by severity, then every finding with its evidence, fix and proof', () => {
-  const text = reportOf({ findings: [{ ...drain, proof: '```solidity\nfunction test_drain() public {}\n```' }, dust], leads: [], counts: { passes: 3, raised: 9, groups: 5, checked: 5, held: 2, leads: 0, proofs: 1, cut: 0 } });
+  const text = reportOf({ findings: [{ ...drain, proof: '```solidity\nfunction test_drain() public {}\n```' }, dust], leads: [], counts: { passes: 3, raised: 9, groups: 5, checked: 5, combined: 0, held: 2, leads: 0, proofs: 1, cut: 0 } });
   assert.match(text, /^Checked findings: 2 \(1 High, 1 Low\)\./);
   assert.match(text, /### 1\. High: Anyone can withdraw the pool\n\n\*Where:\* withdraw\(\)\.\n\nwithdraw\(\) sends/);
   assert.match(text, /\*\*Evidence:\*\* `payable\(msg\.sender\)/);
@@ -17,17 +17,17 @@ test('a review as one contribution: the count by severity, then every finding wi
 });
 
 test('a finding joined from several wordings shows the others under it: nothing a pass raised is hidden', () => {
-  const text = reportOf({ findings: [{ ...drain, also: ['withdraw() has no owner check', 'The pool can be emptied by any caller', 'a', 'b', 'c'] }], leads: [], counts: { passes: 2, raised: 6, groups: 6, checked: 6, held: 1, leads: 0, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [{ ...drain, also: ['withdraw() has no owner check', 'The pool can be emptied by any caller', 'a', 'b', 'c'] }], leads: [], counts: { passes: 2, raised: 6, groups: 6, checked: 6, combined: 0, held: 1, leads: 0, proofs: 0, cut: 0 } });
   assert.match(text, /withdraw\(\) sends the whole balance to msg\.sender\.\n\n\*The same was raised as:\* withdraw\(\) has no owner check; The pool can be emptied by any caller; a; b; and 1 more\n\n\*\*Evidence:\*\*/);
 });
 
 test('a review that found nothing says what it did, not nothing', () => {
-  const text = reportOf({ findings: [], leads: [], counts: { passes: 4, raised: 1, groups: 1, checked: 1, held: 0, leads: 0, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [], leads: [], counts: { passes: 4, raised: 1, groups: 1, checked: 1, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0 } });
   assert.match(text, /^Checked findings: none\. .*4 parts of its checklist and raised 1 candidate; none was confirmed/);
 });
 
 test('what the check did not confirm is listed after the findings, in a line each, as not confirmed', () => {
-  const text = reportOf({ findings: [drain], leads: [mint], counts: { passes: 4, raised: 3, groups: 2, checked: 2, held: 1, leads: 1, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [drain], leads: [mint], counts: { passes: 4, raised: 3, groups: 2, checked: 2, combined: 0, held: 1, leads: 1, proofs: 0, cut: 0 } });
   assert.match(text, /Not confirmed: 1\. [^\n]*\n\n- \*\*High\*\*, deposit\(\): Shares are minted for nothing$/);
   assert.ok(text.indexOf('Not confirmed') > text.indexOf('**Fix:** Add onlyOwner.'));
 });

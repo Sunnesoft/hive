@@ -19,7 +19,7 @@ import { log } from './log.ts';
 import * as orders from './orders.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
-import { CHECK_IN, CHECK_OUT, KNOWN_IN, LOOKUP_OUT, MAX_CHECKS, MAX_OUT, MAX_PASSES, MAX_PROOFS, PASS_CHARS, PASS_OUT, PROOF_IN, PROOF_OUT, ready, SAME_IN, SAME_OUT, TOPICS } from './rules.ts';
+import { CHECK_IN, CHECK_OUT, COMBINE_IN, COMBINE_OUT, KNOWN_IN, LOOKUP_OUT, MAX_CHECKS, MAX_COMBINED, MAX_OUT, MAX_PASSES, MAX_PROOFS, PASS_CHARS, PASS_OUT, PROOF_IN, PROOF_OUT, ready, SAME_IN, SAME_OUT, TOPICS } from './rules.ts';
 import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
@@ -102,7 +102,8 @@ function info(sealKey: string): Promise<Reply> {
     // `review`: the steps of a review (review.ts), each with the bytes of its policy, what it is given and its output limit.
     const review = {
       passes: MAX_PASSES, pass_bytes: Buffer.byteLength(policy.pass), pass_knowledge: PASS_CHARS, pass_known: KNOWN_IN, pass_out: PASS_OUT,
-      checks: MAX_CHECKS, check_bytes: Buffer.byteLength(policy.check), check_in: CHECK_IN, check_out: CHECK_OUT,
+      checks: MAX_CHECKS + MAX_COMBINED, check_bytes: Buffer.byteLength(policy.check), check_in: CHECK_IN, check_out: CHECK_OUT,
+      combine_bytes: Buffer.byteLength(policy.combine), combine_in: COMBINE_IN, combine_out: COMBINE_OUT,
       proofs: MAX_PROOFS, proof_bytes: Buffer.byteLength(policy.proof), proof_in: PROOF_IN, proof_out: PROOF_OUT,
       same_bytes: Buffer.byteLength(policy.same), same_in: 2 * SAME_IN, same_out: SAME_OUT,
     };

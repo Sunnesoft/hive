@@ -11,6 +11,8 @@
 //            rests on, and code looks those lines up in the materials: no such line, not confirmed
 //   leads    what a check did not confirm is not thrown away either: a model's "no" is a judgement like any
 //            other. If it would be grave, it is listed apart, as unconfirmed
+//   together the confirmed findings are looked at together: what do two of them allow that neither says alone?
+//            (One gives a permission, another lets anyone use it.) What that raises is checked like any finding
 //   same     the expert's model is asked one narrow question: which of these say the same thing in other words?
 //            Code joins what it names, and the other wordings stay under the finding: the model sorts, never drops
 //   proofs   code for the gravest confirmed findings, when the task asks for code
@@ -22,13 +24,13 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. */
 export type Checked = Finding & { proof?: string; also?: string[] };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
-export type Counts = { passes: number; raised: number; groups: number; checked: number; held: number; leads: number; proofs: number; cut: number };
+export type Counts = { passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
 export type Review = { findings: Checked[]; leads: Finding[]; cost: bigint; counts: Counts; why?: llm.Why };
 
@@ -116,7 +118,7 @@ const codeOf = (r: { text: string; cut?: boolean }) =>
 /** One expert's review of the materials it was given. `code`: the task asks for code, so the gravest findings get proofs. */
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
-  const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // cut: replies that ran into their limit, the sign that a limit is too low for this model
+  const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // cut: replies that ran into their limit, the sign that a limit is too low for this model
   const [price, reading] = [llm.priceOf(m.model), llm.priceOf(llm.modelOf('pass', m))]; // the passes may run on a cheaper model
   if (!price || !reading) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
   const chosen = await parts(expert, question, pages, hold);
@@ -125,7 +127,8 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
 
   const worst =
     chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
-    BigInt(MAX_CHECKS) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
+    BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
+    llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
     llm.sameCeiling(2 * SAME_IN, price) + // the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
   if (cost + worst > hold) return stop('too_expensive');
@@ -160,14 +163,23 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const groups = (await same(raised, (f) => f)).sort((a, b) => rank(gravest(a)) - rank(gravest(b)) || b.length - a.length);
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
-  const checks = await each(toCheck, (group) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN)));
+  const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN));
+  const confirmedBy = (r: Awaited<ReturnType<typeof step>>) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material)));
+  const checks = await each(toCheck, checked);
   if (toCheck.length && checks.every((r) => r.why) && Date.now() < deadline) return stop(checks[0]!.why!); // the model is not there; out of time, what was raised is still given
-  const held = checks.map((r) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material))));
+  const held = checks.map(confirmedBy);
+
+  // What the confirmed findings allow together: raised by one call that sees them all, a line each, then checked
+  // one by one like any finding. It can only add: what it raises and its check does not confirm is left out.
+  const soFar = bySeverity(held.flat());
+  const together = soFar.length > 1 ? await step('combine', '', section('Confirmed findings', soFar.map((f, i) => `${i + 1}. ${lineOf(f)}\n   ${f.how.slice(0, 200)}`).join('\n'), COMBINE_IN)) : { text: '' };
+  const combined = (await each(findingsIn(together.text).slice(0, MAX_COMBINED), (f) => checked([f]))).flatMap(confirmedBy);
+  counts.combined = combined.length;
   // A group of which nothing held, or that was never checked, stays as the pass raised it: not confirmed.
   const open = groups.filter((_, i) => !held[i]?.length).map(gravest);
   // Two groups may have held the same thing, and a lead may say what a finding says: of those that say the same,
   // by code's measure or by the model's answer, the confirmed one stays, in its gravest wording.
-  const items: Item[] = [...held.flat().map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
+  const items: Item[] = [...[...held.flat(), ...combined].map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
   const sorted = await sortedBy(m.model, await same(items, (x) => x.f), hold);
   cost += sorted.cost;
   const findings: Checked[] = bySeverity(sorted.groups.filter(confirmedIn).map(oneOf));
