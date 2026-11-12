@@ -1,5 +1,5 @@
 // The runner's public face. GET /attestation: what anyone checks before trusting it (scripts/verify.ts).
-// GET /info: what the pages need. POST /upload/<owner>/<name>: sealed materials of a registered agent.
+// GET /info: what the pages need. POST /upload/<sponsor>/<name>: sealed materials of a registered agent.
 // POST /cabinet: a sponsor's own agents, after signing in with a wallet. GET /demand: tasks by topic.
 // POST /orders: a customer's own orders placed in the contract, with their answers, after the same sign-in.
 // POST /brief: the description of an order, handed over before the order is placed; the contract keeps its hash.
@@ -34,11 +34,11 @@ type Reply = [status: number, body: unknown, type?: string, csp?: string, cache?
 const uploading = new Set<string>();
 
 /** Takes the upload only for an agent that registered (and paid) with exactly these bytes, and still waits for review. */
-async function upload(owner: string, name: string, req: IncomingMessage): Promise<Reply> {
-  const id = `${owner}/${name}`;
-  const agent = ACCOUNT.test(owner) && NAME.test(name) ? await chain.recent(id) : null;
+async function upload(sponsor: string, name: string, req: IncomingMessage): Promise<Reply> {
+  const id = `${sponsor}/${name}`;
+  const agent = ACCOUNT.test(sponsor) && NAME.test(name) ? await chain.recent(id) : null;
   if (agent?.status !== 'Pending') return [409, { error: 'this agent does not wait for its materials: register it first, or retry in a minute' }];
-  if (await store.has(agent.hash)) return [200, { ok: true, hash: agent.hash }]; // these bytes are here already
+  if (await store.has(agent.materials_hash)) return [200, { ok: true, hash: agent.materials_hash }]; // these bytes are here already
   const limit = agent.size_mb * MB;
   const tooBig: Reply = [413, { error: `larger than the registered ${agent.size_mb} MB` }];
   if (Number(req.headers['content-length'] ?? 0) > limit) return tooBig;
@@ -59,10 +59,10 @@ async function upload(owner: string, name: string, req: IncomingMessage): Promis
     const done = await pipeline(req, meter, createWriteStream(draft)).then(() => true, () => false);
     if (size > limit) return tooBig;
     if (!done) return [400, { error: 'the upload broke off' }];
-    if (digest.digest('hex') !== agent.hash) return [409, { error: 'these bytes are not the registered hash' }];
-    await store.commit(draft, agent.hash);
+    if (digest.digest('hex') !== agent.materials_hash) return [409, { error: 'these bytes are not the registered hash' }];
+    await store.commit(draft, agent.materials_hash);
     log('uploaded', { agent: id, bytes: size });
-    return [200, { ok: true, hash: agent.hash }];
+    return [200, { ok: true, hash: agent.materials_hash }];
   } finally {
     uploading.delete(id);
     await store.discard(draft);
@@ -81,7 +81,7 @@ function agents(): Promise<Reply> {
     const earned = delivered.reduce((s, r) => s + BigInt(r.pay), 0n);
     const ours = audit?.registration === a.registration && audit.allow; // the audit of this very card admitted it
     return {
-      id: a.id, owner: a.owner, skills: a.skills, rate: a.rate, topics: ours ? (audit.topics ?? []) : [], examples: ours ? (audit.examples ?? []) : [],
+      id: a.id, sponsor: a.sponsor, skills: a.skills, rate: a.rate, topics: ours ? (audit.topics ?? []) : [], examples: ours ? (audit.examples ?? []) : [],
       checked: !!ours, picked: picked.length, delivered: delivered.length, earned: `${earned}`, last: picked.at(-1)?.at ?? null,
     };
   })).then((list): Reply => [200, list.sort((x, y) => y.delivered - x.delivered)]);
@@ -124,7 +124,7 @@ const SIGN_IN: Reply = [401, { error: 'sign in with your wallet again' }];
 async function cabinet(req: IncomingMessage): Promise<Reply> {
   const account = await signedIn(req);
   if (!account) return SIGN_IN;
-  const [owned, balance] = await Promise.all([chain.ownedBy(account), chain.balance(account)]);
+  const [owned, balance] = await Promise.all([chain.agentsOf(account), chain.balance(account)]);
   const agents = await Promise.all(owned.map(async (a) => {
     const [audit, rounds] = await Promise.all([store.auditOf(a.id), store.historyOf(a.id)]);
     return { ...a, audit: audit?.registration === a.registration ? audit : null, rounds };

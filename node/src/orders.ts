@@ -14,7 +14,7 @@ const SALT = /^[0-9a-f]{32}$/;
 
 /** What the contract did with an order's money when the answer was delivered. */
 export type Receipt = { charge: string; refund: string; fee: string; paid: [agent: string, amount: string][]; operator: string };
-type Placed = { id: string; customer: string; amount: string; hash: string; brief: string | null; placed: number };
+type Placed = { id: string; customer: string; amount: string; briefHash: string; brief: string | null; placed: number };
 export type Settled = Placed & { at: string } & ({ state: 'delivered'; answer: string; answerHash: string; receipt: Receipt | null } | { state: 'declined'; why: string });
 type Brief = { salt: string; brief: string; at: string };
 
@@ -30,15 +30,9 @@ export async function keepBrief(salt: unknown, brief: unknown) {
 }
 const briefOf = (hash: string) => store.briefOf<Brief>(hash).then((b) => (b && briefHash(b.salt, b.brief) === hash ? b.brief : null));
 
-const MAX_REASON = 200; // bytes, as the contract takes it
-function short(text: string) {
-  let s = text.slice(0, MAX_REASON);
-  while (Buffer.byteLength(s) > MAX_REASON) s = s.slice(0, -1);
-  return s;
-}
 const decimal = (units: string) => `${BigInt(units) / 1_000_000n}.${`${BigInt(units) % 1_000_000n}`.padStart(6, '0')}`;
 const placed = async (id: string, o: Omit<chain.Order, 'id'>): Promise<Placed> =>
-  ({ id, customer: o.customer, amount: o.amount, hash: o.hash, brief: await briefOf(o.hash), placed: o.at });
+  ({ id, customer: o.customer, amount: o.amount, briefHash: o.brief_hash, brief: await briefOf(o.brief_hash), placed: o.at });
 
 function receiptOf(events: chain.Event[]): Receipt | null {
   const [d, r] = [events.find((e) => e.event === 'deliver')?.data, events.find((e) => e.event === 'revenue')?.data];
@@ -48,7 +42,7 @@ function receiptOf(events: chain.Event[]): Receipt | null {
 /** Open orders whose description has reached us, as round.ts serves any task: the brief is the description, the
  *  money is the order's amount. An order without its text waits; after run_secs anyone sends it back. */
 export async function rows(orders: chain.Order[]): Promise<Row[]> {
-  const briefs = await Promise.all(orders.map((o) => briefOf(o.hash)));
+  const briefs = await Promise.all(orders.map((o) => briefOf(o.brief_hash)));
   return orders.flatMap((o, i) => (briefs[i] === null ? [] : [{
     assignment: { assignmentId: o.id, status: 'in_progress', escrowAmount: decimal(o.amount), startedAt: 'placed', submittedAt: null, deliverableUrl: null },
     job: { jobId: o.id, title: '', description: briefs[i]!, jobKind: 'standard', attachments: [] },
@@ -71,15 +65,15 @@ export const door = (c: chain.Config): Door => ({
     const record = { ...(await placed(id, o)), at: new Date().toISOString(), state: 'delivered' as const, answer, answerHash };
     await store.keepOrder<Settled>({ ...record, receipt: null }); // first, so a paid answer is never lost; shown only once the order is settled
     await store.keepOrder<Settled>({ ...record, receipt: receiptOf(await chain.deliver(id, answerHash)) });
-    await store.dropBrief(o.hash); // the text now lives in the order's record
+    await store.dropBrief(o.brief_hash); // the text now lives in the order's record
   },
-  async decline(id, _reason, detail) {
+  async decline(id, _reason, detail) { // why is told to the customer alone: on chain it would say what the task was about
     const o = await chain.order(id);
     if (!o) return;
     const record = await placed(id, o);
-    await chain.refuse(id, short(detail));
+    await chain.decline(id);
     await store.keepOrder<Settled>({ ...record, at: new Date().toISOString(), state: 'declined', why: detail });
-    await store.dropBrief(o.hash);
+    await store.dropBrief(o.brief_hash);
   },
 });
 
@@ -100,5 +94,5 @@ let swept = 0;
 export function sweep(open: chain.Order[]) {
   if (Date.now() - swept < 600_000) return;
   swept = Date.now();
-  void store.sweepBriefs(new Set(open.map((o) => o.hash)), 2 * 3_600_000).catch(() => {});
+  void store.sweepBriefs(new Set(open.map((o) => o.brief_hash)), 2 * 3_600_000).catch(() => {});
 }

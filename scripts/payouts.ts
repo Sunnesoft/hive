@@ -46,7 +46,7 @@ async function owedRounds(id: string) {
   const rounds: { job: string; due: bigint; last: boolean }[] = [];
   for (let k = 1; k <= last; k++) {
     const j = await view<Job | null>('job', { job: `${id}#${k}` });
-    if (j?.done) rounds.push({ job: `${id}#${k}`, due: j.slots.reduce((s, x) => s + BigInt(x.pay), 0n), last: k === last });
+    if (j?.finished) rounds.push({ job: `${id}#${k}`, due: j.slots.reduce((s, x) => s + BigInt(x.pay), 0n), last: k === last });
   }
   return rounds;
 }

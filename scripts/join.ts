@@ -25,5 +25,5 @@ writeFileSync(join(dir, 'sealed.bin'), sealed);
 
 const hash = createHash('sha256').update(sealed).digest('hex');
 const fee = BigInt(info.fees.audit_base) + BigInt(info.fees.audit_per_mb) * BigInt(size_mb);
-const msg = { Register: { name: card.name, skills: card.skills, rate: `${usdc(card.rate)}`, max_cost: `${usdc(card.max_cost)}`, hash, size_mb } };
+const msg = { Register: { name: card.name, skills: card.skills, rate: `${usdc(card.rate)}`, max_cost: `${usdc(card.max_cost)}`, materials_hash: hash, size_mb } };
 console.log(JSON.stringify({ id, msg, file: join(dir, 'sealed.bin'), least: `${fee + BigInt(info.fees.min_deposit)}` }));

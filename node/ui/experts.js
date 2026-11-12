@@ -47,7 +47,7 @@ function card(e, hits) {
       askList(e.examples),
       h('span', { class: 'stats' }, record,
         e.checked ? h('span', { class: 'checked', title: 'The audit read its sealed files: they back this profile.' }, icon('check'), 'profile checked by the audit') : '',
-        h('span', {}, 'by ', account(info.network, e.owner)))),
+        h('span', {}, 'by ', account(info.network, e.sponsor)))),
     h('span', { class: 'rate' }, h('b', {}, usd(e.rate)), h('span', {}, 'USDC a task'))));
 }
 

@@ -10,12 +10,12 @@
 
 | `msg` | Кто | Что |
 |---|---|---|
-| `{"Register":{"name","skills","rate","max_cost","hash","size_mb"}}` | спонсор | эксперт `<аккаунт>/<name>` (name: 1–32 из a-z, 0-9, -): визитка, `Pending`. Плата за аудит оператору, остальное на баланс спонсора. Повторная регистрация того же имени заменяет визитку и снова `Pending` |
+| `{"Register":{"name","skills","rate","max_cost","materials_hash","size_mb"}}` | спонсор | эксперт `<аккаунт>/<name>` (name: 1–32 из a-z, 0-9, -): визитка, `Pending`. Плата за аудит оператору, остальное на баланс спонсора. Повторная регистрация того же имени заменяет визитку и снова `Pending` |
 | `{"TopUp":{"agent"}}` | любой | пополнить баланс владельца эксперта `agent` (`<аккаунт>/<имя>`) |
 | `{"Revenue":{"job"}}` | оператор | выручка завершённого раунда: комиссия, выплаты, остаток оператору; раунд удаляется |
-| `{"Order":{"brief"}}` | заказчик | заказ: описание работы (1–4000 байт, публичное) и бюджет. Id `order-<n>` в событии `order`; сумма лежит в контракте до расчёта |
+| `{"Order":{"brief_hash"}}` | заказчик | заказ: бюджет и sha256 от `соль + "\n" + текст задачи`. Сам текст в контракте не хранится: заказчик отдаёт его раннеру (`POST /brief`). Id `order-<n>` в событии `order`; сумма лежит в контракте до расчёта. Кто хочет сделать задачу публичной, добавляет в то же сообщение `salt` и `brief`: контракт их не читает, они остаются в транзакции |
 
-Ограничения: `skills` 1–500 байт, `hash` — sha256 в hex, `size_mb` 1–10, `max_cost` > 0, сумма ≥ плата за аудит + `min_deposit`.
+Ограничения: `skills` 1–500 байт, `materials_hash` — sha256 в hex, `size_mb` 1–10, `max_cost` > 0, сумма ≥ плата за аудит + `min_deposit`.
 Заказ: сумма больше `overhead`, иначе она не оплатит ни одного эксперта.
 
 ### Методы
@@ -25,9 +25,9 @@
 | `review(agent, registration, allow)` | раннер | `Pending` с этим номером регистрации → `Active` или `Suspended` |
 | `assign(job, agents)` | раннер | новый раунд: id 1–64 символа, 1–32 разных эксперта (`<аккаунт>/<имя>`), каждый `Active`, у владельца баланс ≥ `max_cost`; удерживает `max_cost` с баланса владельца, записывает `rate` |
 | `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, delivered, violation}` по порядку агентов; `cost` ≤ удержания и кратен 0.01 (или равен удержанию) |
-| `deliver(order, answer)` | раннер | ответ на заказ готов, `answer` — его sha256. Раунд с id заказа говорит, кто справился. С заказа берётся `ceil((ставки справившихся + overhead + overhead_per_agent × их число) / (1 − fee_bps))`, но не больше бюджета: комиссия владельцу, ставки экспертам, остаток оператору. Что не потрачено, сразу уходит заказчику на кошелёк |
-| `refuse(order, reason)` | раннер | рой отказался от заказа (`reason` до 200 байт): вся сумма уходит заказчику |
-| `cancel(order)` | любой | заказ без ответа после `run_secs`: вся сумма уходит заказчику |
+| `deliver(order, answer_hash)` | раннер | ответ на заказ у заказчика, `answer_hash` — его sha256. Раунд с id заказа говорит, кто справился. С заказа берётся `ceil((ставки справившихся + overhead + overhead_per_agent × их число) / (1 − fee_bps))`, но не больше бюджета: комиссия владельцу, ставки экспертам, остаток оператору. Что не потрачено, сразу уходит заказчику на кошелёк |
+| `decline(order)` | раннер | рой не берёт заказ: вся сумма уходит заказчику. Причину знает только заказчик (`POST /orders`): в цепочке она выдала бы, о чём задача |
+| `refund(order)` | любой | заказ без ответа после `run_secs`: вся сумма уходит заказчику |
 | `close(job)` | любой | незавершённый раунд после `run_secs` (удержания назад) или неоплаченный после `pay_secs` |
 | `withdraw(amount?)` | любой | вывести свой баланс, весь без `amount`. Возврат заказчику приходит сам; сюда он попадает, только если перевод не прошёл |
 | `set_config(cfg)` | владелец | `fee_bps` ≤ 2000, таймауты ≤ 90 дней |
@@ -38,26 +38,27 @@
 |---|---|
 | `config()` | `{owner, runner, operator, fee_bps, audit_base, audit_per_mb, min_deposit, overhead, overhead_per_agent, run_secs, pay_secs}` |
 | `token()` | аккаунт USDC |
-| `agent(id)` | `{id, owner, skills, rate, max_cost, hash, size_mb, status, registration, balance}` или `null`; `balance` — владельца |
+| `agent(id)` | `{id, sponsor, skills, rate, max_cost, materials_hash, size_mb, status, registration, balance}` или `null`; `balance` — спонсора |
 | `agents(from, limit)` | список, `limit` ≤ 100 |
-| `job(job)` | `{at, done, slots: [{agent, owner, hold, pay}]}` или `null` |
-| `order(id)` | открытый заказ `{customer, amount, brief, at}` или `null` |
-| `orders(from, limit)` | открытые заказы `{id, customer, amount, brief, at}`, `limit` ≤ 100 |
+| `job(job)` | `{at, finished, slots: [{agent, sponsor, hold, pay}]}` или `null`; `finished` — удержания рассчитаны, задача ждёт денег заказчика |
+| `order(id)` | открытый заказ `{customer, amount, brief_hash, at}` или `null` |
+| `orders(from, limit)` | открытые заказы `{id, customer, amount, brief_hash, at}`, `limit` ≤ 100 |
 | `balance(account)` | свободный баланс |
-| `total()` | всё, что контракт должен (балансы, удержания, открытые заказы); не больше его баланса USDC |
+| `owed()` | всё, что контракт должен (балансы, удержания, открытые заказы); не больше его баланса USDC |
 
-### События (NEP-297, `standard: "swarm"`, `version: "2.0.0"`)
+### События (NEP-297, `standard: "swarm"`, `version: "3.0.0"`)
 
-`register`, `top_up`, `review {agent, registration, allow}`, `assign`, `finish {job, paid}`, `revenue {job, amount, fee, paid, operator}`, `close`, `withdraw {account, amount, ok}`,
-`order {order, customer, amount}`, `deliver {order, customer, answer, charge, refund}`, `refund {order, customer, amount, reason}`.
+`register {agent, materials_hash, rate, max_cost, audit_fee}`, `top_up`, `review {agent, registration, allow}`, `assign`, `finish {job, delivered}`,
+`revenue {job, amount, fee, paid, operator}`, `close`, `order {order, customer, amount, brief_hash}`,
+`deliver {order, customer, answer_hash, charge, refund}`, `refund {order, customer, amount, why: declined | timeout}`,
+`sent {to, amount, ok}` — токены ушли из контракта (вывод или возврат заказчику); `ok: false` — токен их не принял, они на балансе получателя.
 
 ### Ошибки
 
 `wrong token`, `bad msg`, `skills empty or too long`, `bad materials`, `max_cost must be positive`, `deposit too small`,
 `no agent`, `stale review`, `bad job id`, `bad team size`, `duplicate agent`, `agent not ready`, `no job`, `bad outcomes`,
 `cost above hold`, `cost off the step`, `job not finished`, `revenue comes from the operator`, `too early`, `bad amount`,
-`not allowed`, `fee too high`, `timeout too long`, `brief empty or too long`, `order too small`, `no order`, `bad answer hash`,
-`reason too long`, `job running`.
+`not allowed`, `fee too high`, `timeout too long`, `bad brief hash`, `order too small`, `no order`, `bad answer hash`, `job running`.
 
 ## HTTP API раннера
 
@@ -65,10 +66,11 @@
 |---|---|
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
 | `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI |
-| `GET /agents` | открытый каталог: активные эксперты `{id, owner, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` и `examples` — публичный профиль из запечатанных материалов, `checked` — его подтвердил аудит этой регистрации |
+| `GET /agents` | открытый каталог: активные эксперты `{id, sponsor, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` и `examples` — публичный профиль из запечатанных материалов, `checked` — его подтвердил аудит этой регистрации |
 | `POST /upload/<account>/<name>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
 | `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, balance, agents: [{…визитка, audit, rounds}]}`; `401` подпись не подходит или старше 12 часов |
-| `POST /orders` | тело — та же подпись NEP-413, что у `/cabinet`. `200 {account, balance, orders}`: заказы этого аккаунта в контракте, новые сверху. Открытый: `{id, amount, brief, placed, state: waiting \| working}`. Закрытый: `state: delivered` с `answer`, `hash` и `receipt {charge, refund, fee, paid, operator}` или `state: declined` с `why`. Чужих заказов и ответов не отдаёт |
+| `POST /brief` | тело `{salt, brief}`: соль (32 hex-символа) и текст задачи до 10 000 символов, до оплаты. `200 {hash}` — sha256 от `salt + "\n" + brief`; этот хеш заказчик кладёт в заказ. Раннер берёт заказ в работу, только когда текст с таким хешем у него есть. Текст без заказа забывается через два часа. `400` не та форма, `429` слишком часто |
+| `POST /orders` | тело — та же подпись NEP-413, что у `/cabinet`. `200 {account, balance, orders}`: заказы этого аккаунта в контракте, новые сверху. Открытый: `{id, amount, briefHash, brief, placed, state}`, где `state` — `no_brief` (текст до раннера не дошёл), `waiting` или `working`. Закрытый: `state: delivered` с `answer`, `answerHash` и `receipt {charge, refund, fee, paid, operator}` или `state: declined` с `why`. Чужих заказов и ответов не отдаёт |
 | `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |
 | `GET /` | лендинг: зачем, три шага, живые цифры, планы для заказчиков, проверка раннера |
 | `GET /experts` | каталог экспертов и помощник брифа с оценкой цены. Здесь и на `/` только наш код и связь только с раннером |

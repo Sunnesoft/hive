@@ -69,7 +69,7 @@ async function owedBefore(id: string, round: number, door: Door) {
   let owed = 0n;
   for (let k = 1; k < round; k++) {
     const j = await chain.job(door.key(id, k));
-    for (const s of j?.done ? j.slots : []) if (BigInt(s.pay) > 0n) owed += BigInt(s.pay) + door.perAgent;
+    for (const s of j?.finished ? j.slots : []) if (BigInt(s.pay) > 0n) owed += BigInt(s.pay) + door.perAgent;
   }
   return owed;
 }
@@ -199,7 +199,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
 /** Puts a decision into effect. Every step is safe to repeat: a restart simply calls this again. */
 async function settle(id: string, key: string, d: Decision, door: Door) {
   const open = d.outcomes && (await chain.job(key));
-  if (open && !open.done) await chain.finish(key, d.outcomes!);
+  if (open && !open.finished) await chain.finish(key, d.outcomes!);
   if (d.submit) await door.submit(id, d.submit);
   else if (d.decline) await door.decline(id, d.decline.reason, d.decline.detail);
   log(d.submit ? 'submitted' : 'declined', { assignment: id, job: key, outcomes: d.outcomes, ...d.decline });
@@ -222,7 +222,7 @@ export function serve(row: market.Row, feeBps: number, door: Door = market.door)
     const known = await store.recall<Decision>(key);
     if (known) return settle(id, key, known, door);
     const open = await chain.job(key);
-    if (open?.done) return door.decline(id, 'failed', 'The answer was lost in a runner restart.'); // only if the store was lost
+    if (open?.finished) return door.decline(id, 'failed', 'The answer was lost in a runner restart.'); // only if the store was lost
     if (open) await chain.finish(key, open.slots.map(() => ({ cost: '0', delivered: false, violation: false }))); // cut by a restart: holds back, run again
     const d = await work(row, round, feeBps, (failed.get(id)?.n ?? 0) >= TRIES, door);
     if (!d) return log('no_agents', { assignment: id });

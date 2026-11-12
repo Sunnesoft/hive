@@ -1,18 +1,18 @@
 // Pure rules: money, budgets, who may work, where each statement came from. No I/O; see test/rules.test.ts.
 
 export type Agent = {
-  id: string; // `<owner>/<name>`
-  owner: string; // the sponsor's account: its balance holds and gets paid
+  id: string; // `<sponsor>/<name>`
+  sponsor: string; // the account whose balance pays its holds and receives its pay
   skills: string;
   rate: string;
   max_cost: string;
-  hash: string;
+  materials_hash: string; // sha256 of its sealed materials
   size_mb: number;
   status: 'Pending' | 'Active' | 'Suspended';
   registration: number; // which registration this card is; a review names it
   balance: string;
 };
-export type Job = { at: number; done: boolean; slots: { agent: string; hold: string; pay: string }[] };
+export type Job = { at: number; finished: boolean; slots: { agent: string; hold: string; pay: string }[] }; // finished: the holds are settled, it waits to be paid for
 export type Outcome = { cost: string; delivered: boolean; violation: boolean };
 export type Usage = { inputTokens?: number | undefined; outputTokens?: number | undefined };
 export type Price = { in: number; out: number }; // USD per 1M tokens

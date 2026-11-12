@@ -260,7 +260,7 @@ function renderAgent(name) {
   const a = data.agents.find((x) => nameOf(x) === name);
   if (!a) return (location.hash = '#/');
   const s = summary(a.rounds);
-  const link = explorer(info.network, a.owner);
+  const link = explorer(info.network, a.sponsor);
   $('view').replaceChildren(
     h('div', { class: 'page-head' }, h('div', {},
       h('a', { class: 'link', href: '#/' }, '← Your experts'),
@@ -278,7 +278,7 @@ function renderAgent(name) {
             h('dt', {}, 'Max spend'), h('dd', { class: 'mono' }, `${usd(a.max_cost)} USDC`),
             h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ?? 'sealed'),
             h('dt', {}, 'Sealed'), h('dd', {}, `prompt and files, ${a.size_mb} MB · registration #${a.registration}`),
-            h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.owner) : a.owner)),
+            h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.sponsor) : a.sponsor)),
           h('a', { class: 'btn ghost block', href: `#/new/${encodeURIComponent(name)}` }, 'Change this expert'),
           h('span', { class: 'faint' }, 'New prompt, files or terms get a new audit. Its record stays.')))),
   );
@@ -495,7 +495,7 @@ function renderNew() {
       const bytes = await seal(new TextEncoder().encode(JSON.stringify(materials)), info.sealKey, id); // bound to this expert
       const mb = Math.max(1, Math.ceil(bytes.length / MB));
       if (mb > 10) throw new Error('sealed, the files are over 10 MB');
-      const card = { name: name.value, skills: skills.value.trim(), rate: units(rate.value), max_cost: units(spend.value), hash: await sha256(bytes), size_mb: mb };
+      const card = { name: name.value, skills: skills.value.trim(), rate: units(rate.value), max_cost: units(spend.value), materials_hash: await sha256(bytes), size_mb: mb };
       step(1);
       await pay(units(deposit.value), { Register: card });
       step(2);

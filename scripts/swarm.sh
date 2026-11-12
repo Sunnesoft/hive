@@ -28,7 +28,7 @@
 #   order "<the work>" <usdc>      the task's text to the runner (RUNNER_URL), its hash and budget into the contract;
 #                                  prints the order's id. PUBLISH=1 puts the text into the transaction as well
 #   answers                        the customer's orders and their answers, from the runner (RUNNER_URL), signed with its key
-#   cancel <order>                 send back an order nobody answered within run_secs (anyone may call it)
+#   refund <order>                 send back an order nobody answered within run_secs (anyone may call it)
 # anyone
 #   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
 #   withdraw <account> [usdc]      take a balance, all of it if no amount
@@ -71,7 +71,7 @@ pay() { send "$TOKEN" ft_transfer_call "$(jq -nc --arg r "$C" --arg a "$2" --arg
 # to anyone it chooses: an order's money goes only where the contract's rules send it.
 runner_key() {
   near account add-key "runner.$ROOT" grant-function-call-access --allowance '5 NEAR' \
-    --contract-account-id "$C" --function-names 'review, assign, finish, deliver, refuse' \
+    --contract-account-id "$C" --function-names 'review, assign, finish, deliver, decline' \
     use-manually-provided-public-key "$1" network-config "$NETWORK" sign-with-$KC send
 }
 set_cfg() { send "$C" set_config "$(view "$C" config | jq -c --arg k "$1" --arg v "$2" '{cfg: (.[$k] = (if .[$k] | type == "number" then ($v | tonumber) else $v end))}')" "$ROOT"; }
@@ -158,14 +158,14 @@ order) # the contract keeps only the hash; the answer is read with `answers`, or
   hash=$(printf '%s\n%s' "$salt" "$2" | openssl dgst -sha256 -r | cut -d' ' -f1) # computed here: the runner cannot name the task by another
   told=$(curl -fsS "$RUNNER_URL/brief" -H 'content-type: application/json' -d "$(jq -nc --arg s "$salt" --arg b "$2" '{salt:$s, brief:$b}')" | jq -r .hash)
   [[ $told == "$hash" ]] || { echo "the runner did not take the text under its hash" >&2; exit 1; }
-  msg=$(jq -nc --arg h "$hash" '{Order:{hash:$h}}')
-  [[ ${PUBLISH:-} == 1 ]] && msg=$(jq -nc --arg h "$hash" --arg s "$salt" --arg b "$2" '{Order:{hash:$h, salt:$s, brief:$b}}')
+  msg=$(jq -nc --arg h "$hash" '{Order:{brief_hash:$h}}')
+  [[ ${PUBLISH:-} == 1 ]] && msg=$(jq -nc --arg h "$hash" --arg s "$salt" --arg b "$2" '{Order:{brief_hash:$h, salt:$s, brief:$b}}')
   pay "$CUSTOMER" "$(usdc "$3")" "$msg"
-  view "$C" orders '{"from":0,"limit":100}' | jq -c --arg h "$hash" '.[] | select(.hash == $h) | {id, amount, hash}' ;;
+  view "$C" orders '{"from":0,"limit":100}' | jq -c --arg h "$hash" '.[] | select(.brief_hash == $h) | {id, amount, brief_hash}' ;;
 answers) # reads the key from ~/.near-credentials, as near-cli-rs saves it with KEYCHAIN=legacy-keychain
   ts scripts/cabinet.ts "${CUSTOMER:?account that ordered}" "${RUNNER_URL:?the runner, e.g. http://127.0.0.1:8080}" "$NETWORK" --orders ;;
-cancel)
-  send "$C" cancel "$(jq -nc --arg o "$2" '{order:$o}')" "${SIGNER:-${CUSTOMER:-$ROOT}}" ;;
+refund)
+  send "$C" refund "$(jq -nc --arg o "$2" '{order:$o}')" "${SIGNER:-${CUSTOMER:-$ROOT}}" ;;
 withdraw)
   args='{}'
   [[ -n ${3:-} ]] && args=$(jq -nc --arg a "$(usdc "$3")" '{amount:$a}')
@@ -173,10 +173,10 @@ withdraw)
 close)
   send "$C" close "$(jq -nc --arg j "$2" '{job:$j}')" "${SIGNER:-$ROOT}" ;;
 status)
-  total=$(view "$C" total | jq -r .)
+  owed=$(view "$C" owed | jq -r .)
   held=$(view "$TOKEN" ft_balance_of "$(jq -nc --arg a "$C" '{account_id:$a}')" | jq -r .)
-  if [[ $(jq -n "$total <= $held") == true ]]; then echo "books OK: owed $total <= held $held"
-  else echo "BOOKS MISMATCH: owed $total > held $held. Run: scripts/swarm.sh pause"; fi
+  if [[ $(jq -n "$owed <= $held") == true ]]; then echo "books OK: owed $owed <= held $held"
+  else echo "BOOKS MISMATCH: owed $owed > held $held. Run: scripts/swarm.sh pause"; fi
   view "$C" config | jq .
   if [[ ${2:-} == */* ]]; then
     view "$C" agent "$(jq -nc --arg a "$2" '{id:$a}')" | jq .
@@ -184,7 +184,7 @@ status)
     echo "balance: $(view "$C" balance "$(jq -nc --arg a "$2" '{account:$a}')")"
     for from in $(seq 0 100 10000); do # the agents it owns
       page=$(view "$C" agents "$(jq -nc --argjson f "$from" '{from:$f, limit:100}')")
-      jq -c --arg o "$2" '.[] | select(.owner == $o) | {id, status, rate, max_cost, registration}' <<<"$page"
+      jq -c --arg o "$2" '.[] | select(.sponsor == $o) | {id, status, rate, max_cost, registration}' <<<"$page"
       (( $(jq length <<<"$page") == 100 )) || break
     done
   fi ;;

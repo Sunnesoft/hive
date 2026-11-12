@@ -27,7 +27,7 @@ const experts = new Map<string, Expert>();
 export const expertOf = (a: Agent) => experts.get(cardOf(a));
 
 async function open(a: Agent) {
-  const sealed = await store.upload(a.hash);
+  const sealed = await store.upload(a.materials_hash);
   if (!sealed) return null; // not uploaded yet
   if (sealed.length > a.size_mb * MB) throw new Refused(`larger than the registered ${a.size_mb} MB`);
   const m = unseal(sealed, secret, a.id); // sealed for this very agent: a copy registered as any other does not open

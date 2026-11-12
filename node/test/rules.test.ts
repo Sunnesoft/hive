@@ -43,7 +43,7 @@ test('a quote covers the rates and the overhead after both fees', () => {
 
 test('only active agents with money for one more job are ready', () => {
   const a = (status: Agent['status'], balance: bigint): Agent =>
-    ({ id: 'a.near/x', owner: 'a.near', skills: '', rate: '0', max_cost: `${U}`, hash: '', size_mb: 1, status, registration: 1, balance: `${balance}` });
+    ({ id: 'a.near/x', sponsor: 'a.near', skills: '', rate: '0', max_cost: `${U}`, materials_hash: '', size_mb: 1, status, registration: 1, balance: `${balance}` });
   assert.equal(ready([a('Active', U), a('Active', U - 1n), a('Pending', 9n * U), a('Suspended', 9n * U)]).length, 1);
 });
 

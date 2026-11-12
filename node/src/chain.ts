@@ -4,7 +4,7 @@ import { cfg } from './config.ts';
 import type { Agent, Job, Outcome } from './rules.ts';
 
 export type Config = { runner: string; fee_bps: number; audit_base: string; audit_per_mb: string; min_deposit: string; overhead: string; overhead_per_agent: string; run_secs: number };
-export type Order = { id: string; customer: string; amount: string; hash: string; at: number }; // an open order; `hash` names its description
+export type Order = { id: string; customer: string; amount: string; brief_hash: string; at: number }; // an open order; `brief_hash` names its description
 export type Event = { event: string; data: Record<string, any> }; // what the contract logged
 
 export const provider = new JsonRpcProvider({ url: cfg.NEAR_RPC });
@@ -44,9 +44,9 @@ export async function recent(id: string) {
   return known.agents.find((a) => a.id === id) ?? null;
 }
 /** A sponsor's agents, as of a listing at most 5 s old. */
-export async function ownedBy(owner: string) {
+export async function agentsOf(sponsor: string) {
   if (Date.now() - known.at > 5_000) await agents();
-  return known.agents.filter((a) => a.owner === owner);
+  return known.agents.filter((a) => a.sponsor === sponsor);
 }
 
 export const agent = (id: string) => view<Agent | null>('agent', { id });
@@ -75,5 +75,5 @@ export async function orders(): Promise<Order[]> {
 /** Open orders as of a listing at most 3 s old: for requests from outside. */
 export const recentOrders = async () => (Date.now() - open.at > 3_000 ? orders() : open.orders);
 export const order = (id: string) => view<Omit<Order, 'id'> | null>('order', { id });
-export const deliver = (order: string, answer: string) => call('deliver', { order, answer }).then(events);
-export const refuse = (order: string, reason: string) => call('refuse', { order, reason });
+export const deliver = (order: string, answerHash: string) => call('deliver', { order, answer_hash: answerHash }).then(events);
+export const decline = (order: string) => call('decline', { order });

@@ -103,7 +103,7 @@ async function place() {
     if ((await getJSON('/brief', json({ salt, brief: text }))).hash !== hash) throw new Error('the runner named the task by another hash');
     keep(hash, { salt, brief: text });
     status('Confirm the payment in your wallet…', 'wait');
-    await call(info.token, 'ft_transfer_call', { receiver_id: info.contract, amount: `${a}`, msg: JSON.stringify({ Order: $('publish').checked ? { hash, salt, brief: text } : { hash } }) }, '1');
+    await call(info.token, 'ft_transfer_call', { receiver_id: info.contract, amount: `${a}`, msg: JSON.stringify({ Order: $('publish').checked ? { brief_hash: hash, salt, brief: text } : { brief_hash: hash } }) }, '1');
     sessionStorage.removeItem(DRAFT);
     $('brief').value = '';
     status('Your order is in the contract. The swarm takes it within a minute; the answer appears below.', 'ok');
@@ -122,7 +122,7 @@ $('place').onclick = place;
 // ---- the customer's orders ----
 const STATE = { no_brief: ['warn', 'the task\'s text is missing'], waiting: ['info', 'waiting for the swarm'], working: ['honey', 'experts at work'], delivered: ['ok', 'answered'], declined: ['warn', 'declined, refunded'] };
 /** The runner lost, or never got, the text of an open order: hand it over again if this browser has it. */
-const resend = (o) => (sent()[o.hash] ? getJSON('/brief', json(sent()[o.hash])).then(() => true, () => false) : false);
+const resend = (o) => (sent()[o.briefHash] ? getJSON('/brief', json(sent()[o.briefHash])).then(() => true, () => false) : false);
 const placed = (o) => new Date(o.placed * 1000).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 function receipt(o) {
@@ -140,11 +140,11 @@ function card(o) {
   const [kind, label] = STATE[o.state] ?? ['', o.state];
   return h('article', { class: 'card order' },
     h('header', {}, h('b', { class: 'mono' }, o.id), h('span', { class: `pill ${kind}` }, label), h('span', { class: 'faint end' }, `${placed(o)} · budget ${usd(o.amount)} USDC`)),
-    h('details', {}, h('summary', {}, 'Your task'), h('pre', { class: 'brief' }, o.brief ?? sent()[o.hash]?.brief ?? '(its text is not here)'),
-      h('span', { class: 'faint hash' }, `In the contract, this task is the hash ${o.hash}`)),
+    h('details', {}, h('summary', {}, 'Your task'), h('pre', { class: 'brief' }, o.brief ?? sent()[o.briefHash]?.brief ?? '(its text is not here)'),
+      h('span', { class: 'faint hash' }, `In the contract, this task is the hash ${o.briefHash}`)),
     o.state === 'delivered' ? [h('div', { class: 'answer-text' }, markdown(o.answer)), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.answerHash}`)] : '',
     o.state === 'no_brief' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm does not have the text of this task'),
-      h('span', {}, sent()[o.hash] ? 'Sending it again from this browser…' : `It was placed from another browser or device. Open this page there, or get all ${usd(o.amount)} USDC back ${Math.round(terms.run_secs / 60)} minutes after it was placed.`)) : '',
+      h('span', {}, sent()[o.briefHash] ? 'Sending it again from this browser…' : `It was placed from another browser or device. Open this page there, or get all ${usd(o.amount)} USDC back ${Math.round(terms.run_secs / 60)} minutes after it was placed.`)) : '',
     o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All ${usd(o.amount)} USDC went back to your wallet.`)) : '',
     o.state === 'waiting' ? h('span', { class: 'muted' }, 'The swarm reads the task and picks the experts it needs.') : '',
     o.state === 'working' ? h('span', { class: 'muted' }, 'Each expert is answering its own question; then each answer is checked and one answer is composed.') : '');
@@ -160,7 +160,7 @@ async function refresh(ticks = 0) {
   const data = await load();
   for (const o of data.orders) {
     if (o.state === 'no_brief') void resend(o);
-    else if (o.state === 'delivered' || o.state === 'declined') keep(o.hash, null); // answered: the text is in the order's record now
+    else if (o.state === 'delivered' || o.state === 'declined') keep(o.briefHash, null); // answered: the text is in the order's record now
   }
   $('orders').replaceChildren(...(data.orders.length ? data.orders.map(card) : [h('p', { class: 'muted' }, 'No orders yet. Place one above.')]));
   // A refund goes to the wallet by itself; only one that bounced waits here, in the customer's balance in the contract.

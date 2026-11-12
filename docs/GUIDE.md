@@ -59,10 +59,10 @@ scripts/swarm.sh faucet carol.testnet && scripts/swarm.sh fund carol.testnet 20 
 export CUSTOMER=carol.testnet RUNNER_URL=http://127.0.0.1:8080
 scripts/swarm.sh order "Is this staking contract safe to deploy on NEAR? https://github.com/you/project" 5
 scripts/swarm.sh answers                  # через минуту-две: ответ, кому сколько заплачено, сколько вернулось
-scripts/swarm.sh cancel order-1           # если рой молчит дольше run_secs: вернуть весь бюджет
+scripts/swarm.sh refund order-1           # если рой молчит дольше run_secs: вернуть весь бюджет
 ```
 
-Описание работы и бюджет лежат в контракте, расчёт делает контракт: ставки справившимся, накладные, 5% владельцу,
+Текст задачи уходит раннеру, в контракте лежат бюджет и хеш текста (`PUBLISH=1` кладёт в транзакцию и сам текст). Расчёт делает контракт: ставки справившимся, накладные, 5% владельцу,
 остаток сразу на кошелёк заказчика. Через браузер то же самое на `http://127.0.0.1:8080/order`; бриф с выбором
 экспертов удобнее собрать на `/experts` и нажать «Or order on chain». Agent Market для этого пути не нужен:
 без `MARKET_TOKEN` раннер обслуживает только заказы из контракта.
