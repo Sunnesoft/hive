@@ -51,7 +51,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
   const embedded: number[] = []; // how many texts each embeddings call carried: indexing a library is a large one
-  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], summaries: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
+  const review = { reads: [] as string[], passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], summaries: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -128,6 +128,11 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     // A review. The materials are what the user message holds before the section a step adds to it.
     const HEAD = /^### (?:\d+\. )?(\w+) \| ([^|\n]+) \| (.+)$/gm;
     const lineWith = (text: string, word: string) => text.split('\n').find((l) => l.includes(word) && !l.startsWith('#') && !l.startsWith('<'))?.trim() ?? '';
+    if (is("You are an expert reading a customer's materials")) {
+      // The expert's own reading, before any checklist: it sees one thing of its own, which no line of the file bears out.
+      review.reads.push(`${system}\n${user}`);
+      return reply(general ? 'NOTHING FOUND' : '### Low | ledger | Project Alpha ledger has no version line\nNothing says which version of the ledger this is.');
+    }
     if (is("You are an expert going through a customer's materials")) {
       review.passes.push(`${system}\n${user}`);
       review.models.push(['pass', body.model]);

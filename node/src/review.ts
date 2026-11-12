@@ -1,6 +1,9 @@
 // A review: how an expert that declares `work: 'review'` goes through a customer's materials. An answer is one
 // call with the six chunks of knowledge closest to the question: measured on audits, that uses a tenth of a
 // checklist and finds no more than the model alone (eval/README.md). A review uses all of the knowledge:
+//   reading  first the expert reads the materials with no checklist at all and writes down what it sees. A
+//            checklist narrows a model to its items: on a contract where one call of a model found seven of an
+//            audit's findings, passes that reported "only what this part leads to" raised none of the main ones
 //   passes   one call per part of the knowledge (a file of it): what does this part find in the materials?
 //            A pass is told what earlier passes raised and reports only what they missed: left alone, every
 //            pass spends its reply on the flaws anyone sees first and never gets to what its own part is for
@@ -25,7 +28,7 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
@@ -34,7 +37,7 @@ export type Raised = Finding & { also?: string[] };
 /** `second`: what the controller said of it, if it did not simply agree; `doubted`: it said the materials stop it. */
 export type Checked = Raised & { proof?: string; second?: string; doubted?: boolean };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
-export type Counts = { passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
+export type Counts = { own: number; passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
 export type Review = { findings: Checked[]; leads: Raised[]; cost: bigint; counts: Counts; why?: llm.Why };
 
@@ -87,6 +90,20 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
 
+/** The files a check is shown: those the findings name, by file name or by a name they use that stands in the
+ *  file; all of them if the findings name none. A check of one finding does not need ten files, and reading all
+ *  of them for every check is most of what a review costs. Evidence is still looked up in all the materials. */
+function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
+  if (pages.length < 2) return pages;
+  const said = group.map((f) => `${f.where} ${f.title} ${f.how}`).join(' ');
+  const names = new Set(said.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []);
+  const placed = new Set(group.flatMap((f) => f.where.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []));
+  const fileOf = (p: Page) => p.url.split(/[\/ ]/).at(-1) ?? p.url;
+  const named = pages.filter((p) => said.includes(fileOf(p)) || [...placed].some((n) => new RegExp(`\\b(fn|function|struct|impl|contract|def)\\s+${n}\\b`).test(p.text)));
+  const used = named.length ? named : pages.filter((p) => [...names].some((n) => new RegExp(`\\b(fn|function)\\s+${n}\\b`).test(p.text)));
+  return used.length ? used : pages;
+}
+
 type Item = { f: Checked; held: boolean; id?: number };
 /** What a group of items that say the same is known by: its gravest confirmed wording, or its gravest. */
 const headOf = (g: Item[]) => gravest((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
@@ -125,7 +142,7 @@ const codeOf = (r: { text: string; cut?: boolean }) =>
 /** One expert's review of the materials it was given. `code`: the task asks for code, so the gravest findings get proofs. */
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
-  const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // cut: replies that ran into their limit, the sign that a limit is too low for this model
+  const counts: Counts = { own: 0, passes: 0, raised: 0, groups: 0, checked: 0, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // own: findings of the expert's own reading // cut: replies that ran into their limit, the sign that a limit is too low for this model
   const [price, reading] = [llm.priceOf(m.model), llm.priceOf(llm.modelOf('pass', m))]; // the passes may run on a cheaper model
   if (!price || !reading) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
   const chosen = await parts(expert, question, pages, hold);
@@ -133,6 +150,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const stop = (why: llm.Why): Review => ({ findings: [], leads: [], cost, counts, why });
 
   const worst =
+    llm.stepCeiling('read', m, '', question, pages, '', price) +
     chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
     BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
@@ -144,26 +162,31 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
    *  the review has run its time: the task has a deadline on chain, and a late answer is no answer. */
   const deadline = Date.now() + cfg.REVIEW_TIMEOUT_MS;
   const late = { text: '', cost: 0n, why: 'model_failed' as const };
-  const step = async (kind: llm.ReviewStep, knowledge: string, about: string): ReturnType<typeof llm.step> => {
+  const step = async (kind: llm.ReviewStep, knowledge: string, about: string, shown = pages): ReturnType<typeof llm.step> => {
     if (Date.now() > deadline) return late;
-    const first = await llm.step(kind, m, knowledge, question, pages, about, hold);
-    const r = first.why === 'model_failed' && Date.now() < deadline ? await llm.step(kind, m, knowledge, question, pages, about, hold) : first;
+    const first = await llm.step(kind, m, knowledge, question, shown, about, hold);
+    const r = first.why === 'model_failed' && Date.now() < deadline ? await llm.step(kind, m, knowledge, question, shown, about, hold) : first;
     cost += r.cost;
     if (r.cut) counts.cut++;
     return r;
   };
 
-  // Passes run a few at a time; each is told what those before it raised, a line a finding, the gravest first.
+  // The expert's own reading comes first, and the passes are told what it found.
   const known = new Map<string, Finding>();
+  const first = await step('read', '', '');
+  const own = findingsIn(first.text).slice(0, READ_FINDINGS);
+  for (const f of own) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
+  counts.own = own.length;
+  // Passes run a few at a time; each is told what was raised before it, a line a finding, the gravest first.
   const raisedSoFar = () => (known.size ? section('Already raised by earlier passes', bySeverity([...known.values()]).map((f) => `- ${lineOf(f)}`).join('\n'), KNOWN_IN) : '');
   const passes = await each(chosen.pieces, async (piece) => {
     const r = await step('pass', piece, raisedSoFar());
-    for (const f of findingsIn(r.text)) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
+    for (const f of findingsIn(r.text).slice(0, PASS_FINDINGS)) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
     return r;
   });
   const read = passes.filter((r) => !r.why);
-  if (!read.length) return stop(passes[0]?.why ?? 'empty'); // no part of the knowledge could be held against the materials
-  const raised = read.flatMap((r) => findingsIn(r.text));
+  if (!read.length && first.why) return stop(passes[0]?.why ?? first.why); // neither the reading nor any pass came back
+  const raised = [...own, ...read.flatMap((r) => findingsIn(r.text).slice(0, PASS_FINDINGS))];
   Object.assign(counts, { passes: read.length, raised: raised.length });
 
   // What the passes raised, in groups that say the same: by code's measure, then by the model's answer to the
@@ -182,7 +205,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.raised - a.raised);
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
-  const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN));
+  const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), filesOfFindings(group, pages));
   const confirmedBy = (r: Awaited<ReturnType<typeof step>>) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material)));
   const checks = await each(toCheck, (group) => checked(group.all));
   if (toCheck.length && checks.every((r) => r.why) && Date.now() < deadline) return stop(checks[0]!.why!); // the model is not there; out of time, what was raised is still given

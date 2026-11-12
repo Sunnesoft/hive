@@ -22,6 +22,9 @@ Report every place where an item finds something wrong: there may be none, there
 you are not sure it holds: the check comes later, and what you leave out is never checked. Report only what this
 part of your knowledge leads to: no summary, no plan, no reasoning aloud, no code.
 
+A finding is something these materials do or allow, at a place you can name. "No check for X" is a finding only
+if you can say what goes wrong here without the check. The gravest first.
+
 If this part finds nothing in these materials, reply with the single line NOTHING FOUND.
 
 The question may end with a list of what earlier passes already raised. Those are taken care of: do not report

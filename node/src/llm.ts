@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, READ_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -104,7 +104,7 @@ async function written(model: string, o: { instructions: string; prompt: string;
     clearTimeout(whole);
   }
 }
-type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'combine' | 'same' | 'proof' | 'summary'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'read' | 'pass' | 'check' | 'combine' | 'same' | 'proof' | 'summary'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -218,7 +218,7 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-const STEP_OUT = { pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
+const STEP_OUT = { read: READ_OUT, pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
 export type ReviewStep = keyof typeof STEP_OUT;
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
@@ -229,8 +229,8 @@ const stepPrompt = (question: string, pages: Page[], about: string) => (about ? 
 export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>
   microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: STEP_OUT[kind] }, price);
 
-/** One step of a review: a pass with one part of the agent's knowledge, the check of a group of findings, a look at
- *  the confirmed findings together, or the proof of one. `about` is the section the step is given after the question and the materials: the findings to
+/** One step of a review: the agent's own reading, a pass with one part of its knowledge, the check of a group of
+ *  findings, a look at the confirmed findings together, or the proof of one. `about` is the section the step is given after the question and the materials: the findings to
  *  check, the finding to prove. Sent only if its worst case fits `cap`; a step that fails costs the agent nothing
  *  and returns nothing. `cut`: the reply ran into the step's output limit. */
 export async function step(kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
@@ -270,16 +270,17 @@ export async function sameFindings(model: string, lines: string[], cap?: bigint)
 
 /** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
  *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
-export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
+export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint, room = MAX_OUT): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   const [system, prompt] = [instructions(m, found), asked(question, pages)];
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' }; // the model left the catalog: no work, no charge
-  if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
-  const call = () => written(m.model, { instructions: system, prompt, limit: MAX_OUT });
+  if (microUsd({ inputTokens: Buffer.byteLength(system + prompt), outputTokens: room }, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
+  // `room`: an expert's answer has MAX_OUT tokens. The evaluation asks a model alone with more, as a customer would: nothing cuts it short.
+  const call = () => written(m.model, { instructions: system, prompt, limit: room });
   try {
-    const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+    const r = await metered('agent', m.model, { agent: m.name, system, prompt }, room, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     const cost = microUsd(r.usage, price);
-    return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap, cut: r.finishReason === 'length' }; // cut: it ran into MAX_OUT before it was whole
+    return { text: r.text.slice(0, room === MAX_OUT ? 20_000 : 60_000), cost: cost < cap ? cost : cap, cut: r.finishReason === 'length' }; // cut: it ran into its limit before it was whole
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' }; // a failed call costs the agent nothing: what NEAR AI billed for it is ours
   }
