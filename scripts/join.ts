@@ -16,6 +16,7 @@ if (!dir || !runner || !sponsor) throw new Error('usage: SPONSOR=<account> join.
 const { card, materials } = readAgent(dir);
 
 if (!/^[a-z0-9-]{1,32}$/.test(card.name)) throw new Error(`agent.json name "${card.name}": 1-32 of a-z, 0-9 and -`);
+if (!card.skills || card.skills.length > 500) throw new Error(`agent.json skills: 1 to 500 characters, the contract takes no more (this one has ${card.skills?.length ?? 0})`);
 const id = `${sponsor}/${card.name}`;
 const info = await (await fetch(`${runner}/info`, { signal: AbortSignal.timeout(20_000) })).json();
 const sealed = seal(Buffer.from(JSON.stringify(materials)), Buffer.from(info.sealKey, 'hex'), id);
