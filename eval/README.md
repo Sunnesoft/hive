@@ -139,7 +139,7 @@ The results after these changes, facts found by pattern:
 
 | case | model alone | strongest model alone | swarm | what the swarm cost the customer |
 |---|---|---|---|---|
-| audit of a contract, one field | 4 of 8 | 5 of 8 | 6 of 8 with the one auditor the router took; with all three named 6 of 8, then 8 of 8 after three more changes | 1.68 USDC; 4.00 USDC |
+| audit of a contract, one field | 4 of 8 | 5 of 8 | 6 of 8 with the one auditor the router took; with all three named 6 of 8, then 8 of 8 after three more changes (7 and one merged into another, by a blind reading) | 1.68 USDC; 4.00 USDC |
 | a playground raffle, four fields | 1 of 12 | 0 of 12 | 10 of 12 | 3.05 USDC |
 | the contract, the law and the players | 2 of 9 | 5 of 9 | 9 of 9 | 2.95 USDC |
 
@@ -158,6 +158,19 @@ The results after these changes, facts found by pattern:
   8 in their own parts, so one of them would have done: taking one auditor still looks right, and three remain a
   second opinion. This is one run of one task with three changes together: it shows that the gap can be closed,
   not which change closed it. The other orders were not placed again after these changes.
+- **Did we fit that result? The count, no; the conditions, partly.** Under the patterns as first written both
+  orders score 8 of 8: the difference appears only after our corrections, which followed our own reading. So four
+  answers went, unnamed, to a reader that did not know which was which (another model session, with the
+  reference findings and strict rules). It found 4 findings stated by the strongest model alone, 6 by one
+  auditor, 6 by the three before and 7 by the three after, with an eighth (the forced ether) merged into another
+  item: the composer still merges after being told not to. On the two disputed findings it agreed with our
+  reading: absent before, stated after. So the gain is real and smaller than "6 to 8": one finding strictly,
+  two if the merged one counts, and between two identical orders one auditor's part already differed by one.
+  The conditions were not clean either: the auditors' methods were written after the contract's report had been
+  read (one line, on randomness, is in none of the source material), the three models were chosen after earlier
+  results on this same task, and the example in the look-up policy was written with this contract in mind. What
+  would settle it is another contract with a published report, its facts fixed first and nothing in the swarm
+  changed. That has not been run.
 - **Four fields: this is where a swarm earns its price.** No expert alone had more than 3 of the 12 facts. The
   experts asked apart had 9 in 26,085 characters; the swarm has 10 in 7,837, and one of them is a conclusion no
   expert could reach alone: sales of 75,600 EUR stay under the law's 90,000 EUR threshold, so a notification is
