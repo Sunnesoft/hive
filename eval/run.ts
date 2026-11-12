@@ -42,6 +42,7 @@ const POOLS: Record<Group, string[]> = {
   'one field, three schools': [], 'four fields': FIELDS, 'schools and fields': [],
 };
 const FIRST = 'first attempt: '; // what the second run got before the runner was fixed: kept for its cost, not scored
+const EARLIER = 'earlier: '; // an answer from before a change that eval/README.md tells of: shown beside the new one, never ordered again
 const folder = (name: string) => (existsSync(`eval/agents/${name}`) ? `eval/agents/${name}` : `agents/${name}`);
 const poolOf = (t: Task) => POOLS[t.group];
 const NAMED = 'swarm, experts named by the customer';
@@ -179,9 +180,11 @@ const stages: Record<string, () => Promise<void>> = {
       const lib = await index(docsOf(m));
       await Promise.all(todo.map(async (t) => {
         const at = Date.now();
-        const found = await search(lib, t.task);
-        const r = await llm.answer(m, found.chunks, t.task, await materialOf(t), usdc(card.max_cost));
-        keep(t.id, `solo ${name}`, { text: r.text, usd: Number(found.cost + r.cost) / 1e6, seconds: (Date.now() - at) / 1000 });
+        const pages = await materialOf(t);
+        const looked = pages.length ? await llm.lookups(m, t.task, pages, usdc(card.max_cost)) : { queries: [], cost: 0n };
+        const found = await search(lib, t.task, looked.queries);
+        const r = await llm.answer(m, found.chunks, t.task, pages, usdc(card.max_cost));
+        keep(t.id, `solo ${name}`, { text: r.text, usd: Number(looked.cost + found.cost + r.cost) / 1e6, seconds: (Date.now() - at) / 1000 });
       }));
     }
   },
@@ -317,6 +320,7 @@ function waysOf(t: Task): Record<string, Row | undefined> {
     'experts apart (each asked the whole task)': apart,
     'swarm': rowOf(t, a.swarm),
     [NAMED]: rowOf(t, a[NAMED]),
+    ...Object.fromEntries(Object.keys(a).filter((system) => system.startsWith(EARLIER)).map((system) => [system, rowOf(t, a[system])])),
     [`swarm, ${short(STRONG)} composes`]: rowOf(t, a[`swarm, ${short(STRONG)} composes`]),
   };
 }

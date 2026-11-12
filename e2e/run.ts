@@ -377,6 +377,7 @@ try {
   const named = ai.routed.findLast((r) => r.task.includes(agentId(codes)));
   check('intake: the expert named in the brief comes first, marked requested', named?.agents[0]?.requested === true && named.agents[0].skills === skills.get(codes), named?.agents);
   check('intake: the customer\'s text attachment reached the experts as material', ai.agentCalls.some((c) => c.includes('Customer context: the launch is internal only.')));
+  check('look-up: an expert given materials reads them and names what to look up in its knowledge; a question without materials needs no look-up', ai.lookups.length > 0 && ai.lookups.every((c) => c.includes('<material ')) && ai.lookups.length < ai.agentCalls.length, { lookups: ai.lookups.length, answers: ai.agentCalls.length });
   check('intake: the answer names the experts who contributed', market.delivered('a-named')[0]!.includes(agentId(codes)), market.delivered('a-named')[0]!.slice(-200));
   const namedCalls = ai.agentCalls.filter((c) => c.includes('Customer context'));
   check('materials: from a 190 KB manual each expert gets the parts closest to its question, the fact deep inside included', ai.agentCalls.some((c) => c.includes('Hall 7')) && ai.agentCalls.every((c) => c.length < 120_000), namedCalls.map((c) => c.length));

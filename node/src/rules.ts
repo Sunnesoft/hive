@@ -21,6 +21,8 @@ export const USDC = 1_000_000n; // base units in one USDC
 export const COST_STEP = 10_000n; // 0.01 USDC, as the contract requires
 export const MARKET_FEE_BPS = 500n; // Agent Market's platform fee
 export const MAX_OUT = 4_000; // output tokens of one agent answer
+export const LOOKUPS = 5; // things an agent may look up in its knowledge for one question with materials, besides the question
+export const LOOKUP_OUT = 300; // output tokens of that look-up
 
 /** "12.5" -> 12500000. Exact: no floating point. Extra decimals are cut. */
 export const usdc = (s: string) => {

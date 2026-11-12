@@ -10,7 +10,8 @@
 // Three of the audit's patterns were corrected after the answers were read by hand; the findings they stand for did
 // not change. "A winner that cannot receive" had matched any mention of onERC721Received, and "the cast truncates"
 // had matched "truncates" said of the overflow: both were tightened. "Ether forced in" had missed answers that
-// say the ether is "sent directly": it was widened.
+// say the ether is "sent directly": it was widened. The first of these then missed "a winner contract that
+// reverts on receive" in the next answer and was widened to that wording.
 
 export type Fact = { text: string; match: string };
 export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record' | 'one field, three schools' | 'four fields' | 'schools and fields';
@@ -128,7 +129,7 @@ export const TASKS: Task[] = [
     task: `Audit this Solidity contract before we deploy it: ${RAFFLE}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: ${REPO}.`,
     facts: [
       REENTRANCY, RANDOMNESS, OVERFLOW,
-      { text: 'H-4 and M-4: a winner that cannot or will not receive the prize (a contract without receive, or one that rejects the NFT) makes selectWinner revert, and the raffle cannot go on', match: near('winner', 'no (receive|fallback)|without a? ?(receive|fallback)|cannot receive|unable to receive|rejects? (the )?(prize|ether|ETH|NFT|payment|transfer)|refuses? (the|to)', 250) },
+      { text: 'H-4 and M-4: a winner that cannot or will not receive the prize (a contract without receive, or one that rejects the NFT) makes selectWinner revert, and the raffle cannot go on', match: near('winner', 'no (receive|fallback)|without a? ?(receive|fallback)|cannot receive|unable to receive|rejects? (the )?(prize|ether|ETH|NFT|payment|transfer)|refuses? (the|to)|reverts? (on|in) (its |the )?`?(receive|fallback)|(receive|fallback)`?[^.\\n]{0,40}reverts?|reverting winner', 250) },
       DOS,
       { text: 'M-2: withdrawFees requires the balance to equal totalFees exactly, so ether forced in by selfdestruct blocks withdrawals', match: near('withdrawFees|balance ==|balance\\)? ?== ?(uint256\\()?totalFees', 'self-?destruct|forc(e|ed|ibly)|direct(ly)?|ETH arrives|external ETH', 300) },
       { text: 'M-3: the fee is cast from uint256 to uint64 and silently truncated', match: 'unsafe (down-?)?cast|down-?cast|' + near('uint64\\(fee\\)|\\bcast\\b', 'truncat|silently|loses?|lost', 120) },

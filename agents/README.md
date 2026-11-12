@@ -19,8 +19,9 @@ What we learned making experts out of published audit skills ([eval/agents/SOURC
 
 - Write knowledge, not orders. A file that addresses an AI ("You are an attacker that...") is refused by the entry
   audit; the same content as a checklist passes.
-- `method.md` goes into every answer whole (up to 8,000 characters). `knowledge/` is searched by the words of the
-  question, six pieces at a time: what the expert must always apply belongs in the method.
+- `method.md` goes into every answer whole (up to 8,000 characters). `knowledge/` is searched, six pieces at a
+  time: by the question and, when the task came with materials, by what the expert itself chose to look up after
+  reading them. What it must always apply belongs in the method.
 - An answer is at most about 2,500 words, and the model answers at once, without a reasoning pass. Say in the
   method what the answer must hold and in what order, and for hard work choose a model that can do it directly.
 

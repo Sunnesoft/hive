@@ -1,5 +1,5 @@
 // An agent's knowledge, cut into chunks and indexed with a NEAR AI embedding model inside the TEE.
-// Each question gets only the chunks closest to it, never the whole knowledge.
+// Each question gets only the chunks closest to it and to what the expert chose to look up, never the whole knowledge.
 import { cfg } from './config.ts';
 import { embed, priceOf } from './llm.ts';
 import { microUsd } from './rules.ts';
@@ -30,14 +30,17 @@ export const unit = (v: number[]) => {
 };
 export const similarity = (a: Float32Array, b: Float32Array) => a.reduce((s, x, i) => s + x * b[i]!, 0);
 
-/** The `k` chunks closest to the query vector, closest first. */
-export function nearest(lib: Library, query: number[], k = NEAREST): string[] {
-  const q = unit(query);
-  return lib.vectors
-    .map((v, i) => ({ i, s: similarity(v, q) }))
-    .sort((a, b) => b.s - a.s)
-    .slice(0, k)
-    .map(({ i }) => lib.chunks[i]!);
+/** `k` chunks for several queries, taken in turn: the closest to the first query, the closest to the second, and
+ *  round again, so that every query gets its best chunk before any query gets its second. */
+export function nearest(lib: Library, queries: number[][], k = NEAREST): string[] {
+  const ranked = queries.map((query) => {
+    const q = unit(query);
+    return lib.vectors.map((v, i) => ({ i, s: similarity(v, q) })).sort((a, b) => b.s - a.s).map(({ i }) => i);
+  });
+  const picked = new Set<number>();
+  for (let rank = 0; rank < lib.chunks.length && picked.size < k; rank++)
+    for (const list of ranked) if (picked.size < k) picked.add(list[rank]!);
+  return [...picked].map((i) => lib.chunks[i]!);
 }
 
 /** Indexes chunks once, after the audit. The audit fee pays for it. */
@@ -46,10 +49,11 @@ export async function index(chunks: string[]): Promise<Library> {
   return { chunks, vectors: vectors.map(unit) };
 }
 
-/** The chunks for one question and what finding them cost: the agent pays it. */
-export async function search(lib: Library, query: string) {
+/** The chunks for one question, and for what the expert chose to look up besides it (`lookups`), and what finding
+ *  them cost: the agent pays it. */
+export async function search(lib: Library, query: string, lookups: string[] = []) {
   if (lib.chunks.length === 0) return { chunks: [], cost: 0n };
-  const { vectors, tokens } = await embed('search', [query]);
+  const { vectors, tokens } = await embed('search', [query, ...lookups]);
   const price = priceOf(cfg.EMBED_MODEL);
-  return { chunks: nearest(lib, vectors[0]!), cost: price ? microUsd({ inputTokens: tokens }, price) : 0n };
+  return { chunks: nearest(lib, vectors), cost: price ? microUsd({ inputTokens: tokens }, price) : 0n };
 }

@@ -129,8 +129,8 @@ reported:
   "empty".
 - **The model matters more than the knowledge when the task is hard.** On the protocol's 27B model, without a
   reasoning pass, an auditor missed the reentrancy in `refund`. With a reasoning pass the same model spent
-  10,000 tokens thinking and returned nothing. The auditors now run on the strongest allowed model, which gave a
-  complete report with tests in 2,700 tokens.
+  10,000 tokens thinking and returned nothing. The auditors were moved to the strongest allowed model, which gave
+  a complete report with tests in 2,700 tokens (and later to three different models, see below).
 - **The composer's answer broke on a quotation mark.** It was a string inside a JSON object, the model did not
   escape a quote, and the rest of its limit went into whitespace: four experts had delivered and the order was
   declined. The composer now writes plain Markdown.
@@ -139,14 +139,25 @@ The results after these changes, facts found by pattern:
 
 | case | model alone | strongest model alone | swarm | what the swarm cost the customer |
 |---|---|---|---|---|
-| audit of a contract, one field | 4 of 8 | 5 of 8 | 6 of 8 with the one auditor the router took; 6 of 8 with all three named | 1.68 USDC; 4.00 USDC |
+| audit of a contract, one field | 4 of 8 | 5 of 8 | 6 of 8 with the one auditor the router took; with all three named 6 of 8, then 8 of 8 after three more changes | 1.68 USDC; 4.00 USDC |
 | a playground raffle, four fields | 1 of 12 | 0 of 12 | 10 of 12 | 3.05 USDC |
 | the contract, the law and the players | 2 of 9 | 5 of 9 | 9 of 9 | 2.95 USDC |
 
-- **One field, three schools: the second and the third auditor added nothing the answer key asks for.** Their
-  parts held 7, 6 and 7 of the 8 findings, the same ones: no auditor had a finding the others lacked, and the
-  composed answer has 6, as with one auditor. The customer paid 4.00 USDC instead of 1.68. The router, left to
-  itself, took one auditor of the three: on this task it was right.
+- **One field, three schools on one model: three auditors gave no more than one.** Each part held 7 of the 8
+  findings, nearly the same ones, and the composed answer has 6, as with one auditor: the composer folded the
+  unsafe cast into the overflow of the same variable, and dropped a finding that one auditor had only touched
+  on. The customer paid 4.00 USDC instead of 1.68. The router, left to itself, took one auditor of the three.
+- **Then three changes at once, and 8 of 8.** The auditors were put on three different models, because in a trial
+  the weaker model had found what the strongest missed. An expert that gets materials now reads them first and
+  names what to look up in its own knowledge ([policies/lookup.md](../policies/lookup.md)). The pattern auditor
+  asked for "push payment denial of service winner.call revert" and "unbounded loop duplicate check gas griefing",
+  and got the pieces on a recipient that blocks a payout, on loops over growing arrays and on type casts, where
+  before it had flash loans and proxies; this time it reported the finding it had missed. And the composer is
+  told to keep every distinct point.
+  The same order again has 8 of 8, for less model cost ($0.041 against $0.064). Two of the three auditors had all
+  8 in their own parts, so one of them would have done: taking one auditor still looks right, and three remain a
+  second opinion. This is one run of one task with three changes together: it shows that the gap can be closed,
+  not which change closed it. The other orders were not placed again after these changes.
 - **Four fields: this is where a swarm earns its price.** No expert alone had more than 3 of the 12 facts. The
   experts asked apart had 9 in 26,085 characters; the swarm has 10 in 7,837, and one of them is a conclusion no
   expert could reach alone: sales of 75,600 EUR stay under the law's 90,000 EUR threshold, so a notification is
@@ -162,8 +173,8 @@ The results after these changes, facts found by pattern:
 - **The knowledge of an auditor was hardly used.** An expert's knowledge is searched by the words of its question.
   "Audit this contract" is close to nothing in particular, so the six pieces that reached the prompt were about
   flash loans and proxies, not about what this contract does. Searching by the contract's code was tried and
-  found token checklists instead. What an auditor always applies is its `method.md`, which goes into every prompt
-  whole.
+  found token checklists instead. What an auditor always applied was its `method.md`, which goes into every
+  prompt whole. The look-up step above came from this.
 - **Who was paid for what** is in [RESULTS.md](RESULTS.md), expert by expert. Each delivered expert got its rate
   whatever the others wrote: three auditors with the same findings were paid 1.00 USDC each.
 
@@ -189,4 +200,5 @@ The results after these changes, facts found by pattern:
   the patterns in both directions, and where we checked by hand it was the judge that was wrong (it marked
   "45%" missing in an answer that says "at least 45%"). The audit answers were read by hand instead; three
   patterns were corrected after that reading, as [tasks.ts](tasks.ts) says.
-- **Same-field experts shared one model.** Three auditors on three different models might overlap less.
+- **The 8 of 8 is one order.** The look-up step, the composer's rule and the three models were tried together,
+  once, on a task whose answers we had already read. Everything else in the tables is from before them.

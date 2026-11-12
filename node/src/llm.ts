@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, MAX_OUT, microUsd, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -78,7 +78,7 @@ const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a co
 // Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
-type Step = Exclude<keyof typeof policy, 'agent'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -157,12 +157,40 @@ export const instructions = (m: Materials, found: string[]) =>
     .replace('{{method}}', () => m.method)
     .replace('{{knowledge}}', () => found.join('\n---\n'));
 
+/** A question as an agent gets it: with the parts of the customer's materials that are its to read. */
+const asked = (question: string, pages: Page[]) => {
+  const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
+  return materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`;
+};
+
+const lookupInstructions = (m: Materials) => policy.lookup.replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method);
+/** The most the look-up step can cost an agent whose share of the public materials is `publicBytes`. */
+export const lookupCeiling = (m: Materials, publicBytes: number, price: Price) =>
+  microUsd({ inputTokens: Buffer.byteLength(lookupInstructions(m)) + publicBytes, outputTokens: LOOKUP_OUT }, price);
+
+const Lookups = z.object({ queries: z.array(z.string()) });
+/** Before it answers a question that came with materials, an expert reads them and names what to look up in its
+ *  own knowledge. The knowledge is searched by meaning, and "audit this contract" is close to nothing in it: what
+ *  to look for is in the contract. The queries only choose which of the expert's own chunks it gets; nobody sees
+ *  them. If the step fails or does not fit `cap`, the expert goes on with what its question alone finds. */
+export async function lookups(m: Materials, question: string, pages: Page[], cap: bigint): Promise<{ queries: string[]; cost: bigint }> {
+  const price = priceOf(m.model);
+  const [system, prompt] = [lookupInstructions(m), asked(question, pages)];
+  if (!price || microUsd({ inputTokens: Buffer.byteLength(system + prompt), outputTokens: LOOKUP_OUT }, price) > cap) return { queries: [], cost: 0n };
+  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, output: Output.object({ schema: Lookups }), temperature: 0, maxOutputTokens: LOOKUP_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  try {
+    const r = await metered('lookup', m.model, { agent: m.name, system, prompt }, LOOKUP_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    return { queries: r.output.queries.map((q) => q.trim().slice(0, 300)).filter(Boolean).slice(0, LOOKUPS), cost: microUsd(r.usage, price) };
+  } catch {
+    return { queries: [], cost: 0n };
+  }
+}
+
 /** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
  *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
 export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
-  const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
-  const [system, prompt] = [instructions(m, found), materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`];
+  const [system, prompt] = [instructions(m, found), asked(question, pages)];
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' }; // the model left the catalog: no work, no charge
   if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
   const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, maxOutputTokens: MAX_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });

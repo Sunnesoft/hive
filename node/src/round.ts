@@ -40,7 +40,7 @@ function candidates(agents: Agent[]): Member[] {
     const price = expert && llm.priceOf(expert.m.model);
     if (!expert || !price || seen.has(expert.digest)) return [];
     const worst = Buffer.byteLength(llm.instructions(expert.m, [])) + NEAREST * CHUNK + WORST_PUBLIC; // typical text: a byte a character
-    if (BigInt(agent.max_cost) < ceiling(worst, price)) return [];
+    if (BigInt(agent.max_cost) < ceiling(worst, price) + llm.lookupCeiling(expert.m, WORST_PUBLIC, price)) return [];
     seen.add(expert.digest);
     return [{ agent, expert }];
   });
@@ -91,11 +91,14 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
   return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search };
 }
 
-/** One agent's part: its knowledge searched for its question, one call, then a check of that answer alone. */
+/** One agent's part: its knowledge searched for its question and, when the question came with materials, for what
+ *  the agent chose to look up after reading them; then one answer, and a check of that answer alone. */
 async function contribute(task: string, t: Member & { question: string }, shelf: Shelf) {
   const hold = BigInt(t.agent.max_cost);
   const pages = await shelf.for(t.question); // the parts of the customer's materials closest to this question
-  const found = await search(t.expert.lib, t.question).catch(() => ({ chunks: [], cost: 0n }));
+  const looked = pages.length ? await llm.lookups(t.expert.m, t.question, pages, hold) : { queries: [], cost: 0n };
+  const sought = await search(t.expert.lib, t.question, looked.queries).catch(() => ({ chunks: [], cost: 0n }));
+  const found = { chunks: sought.chunks, cost: looked.cost + sought.cost };
   const left = hold > found.cost ? hold - found.cost : 0n;
   const r = await llm.answer(t.expert.m, found.chunks, t.question, pages, left);
   const failed = { delivered: false, violation: false, why: (r.why ?? (r.text.trim() ? 'not_checked' : 'empty')) as llm.Why };
@@ -103,7 +106,7 @@ async function contribute(task: string, t: Member & { question: string }, shelf:
   const outcome: Outcome = { cost: coarse(found.cost + r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
   // The checker calls an answer that stopped mid-way empty or off topic. Its owner is told what really happened.
   const why: llm.Why = r.cut && !check.delivered && !check.violation ? 'cut_off' : check.why;
-  log('contribution', { agent: t.agent.id, ...outcome, why, chunks: found.chunks.length, pages: pages.length }, { question: t.question, answer: r.text, check });
+  log('contribution', { agent: t.agent.id, ...outcome, why, chunks: found.chunks.length, pages: pages.length, lookups: looked.queries.length }, { question: t.question, lookups: looked.queries, answer: r.text, check });
   return { text: r.text, outcome, why };
 }
 

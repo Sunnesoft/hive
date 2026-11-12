@@ -12,5 +12,12 @@ test('chunks pack paragraphs, cut long ones, never exceed the size', () => {
 
 test('nearest returns the closest chunks first', () => {
   const lib = { chunks: ['x', 'y', 'z'], vectors: [[1, 0], [0, 1], [0.7, 0.7]].map((v) => Float32Array.from(v)) };
-  assert.deepEqual(nearest(lib, [0, 2], 2), ['y', 'z']);
+  assert.deepEqual(nearest(lib, [[0, 2]], 2), ['y', 'z']);
+});
+
+test('nearest with several queries gives each its best chunk before any gets its second', () => {
+  const lib = { chunks: ['x', 'y', 'z'], vectors: [[1, 0], [0, 1], [0.7, 0.7]].map((v) => Float32Array.from(v)) };
+  assert.deepEqual(nearest(lib, [[0, 1], [1, 0]], 2), ['y', 'x']); // not 'y' and its runner-up 'z'
+  assert.deepEqual(nearest(lib, [[0, 1], [0, 1]], 2), ['y', 'z']); // the same best for both: then the next
+  assert.deepEqual(nearest(lib, [[0, 1], [1, 0]], 5), ['y', 'x', 'z']); // never more than there are
 });

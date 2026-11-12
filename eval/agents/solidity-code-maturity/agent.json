@@ -1,6 +1,6 @@
 {
   "name": "solidity-code-maturity",
-  "model": "moonshotai/kimi-k2.6",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
   "skills": "Solidity code maturity review: arithmetic, events and monitoring, access controls, complexity, owner privileges, documentation against code, transaction ordering (MEV), low-level calls, testing; development guidelines and token integration checks; weeds out false positives. Knowledge: Trail of Bits' open Building Secure Contracts skills (CC BY-SA 4.0).",
   "rate": "1.00",
   "max_cost": "0.20",

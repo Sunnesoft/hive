@@ -428,12 +428,14 @@ function renderNew() {
   drop.querySelector('label').onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), picker.click());
 
   const fee = (mb) => BigInt(info.fees.audit_base) + BigInt(info.fees.audit_per_mb) * BigInt(mb);
-  /** The worst one call can cost with this model and prompt, as the runner checks before it picks the expert. */
+  /** The worst one task can cost with this model and prompt, as the runner checks before it picks the expert:
+   *  the answer, and before it the look-up of the expert's knowledge when the task came with materials. */
   const worst = () => {
     const p = info.models.find((m) => m.id === model.value);
     if (!p?.in) return null;
-    const bytes = info.limits.template_bytes + new Blob([skills.value, prompt.value]).size + info.limits.knowledge_bytes + info.limits.public_bytes;
-    return (BigInt(Math.ceil(bytes * p.in + info.limits.max_out * p.out)) + 9_999n) / 10_000n * 10_000n;
+    const own = new Blob([skills.value, prompt.value]).size;
+    const bytes = info.limits.template_bytes + own + info.limits.knowledge_bytes + info.limits.public_bytes + info.limits.lookup_bytes + own + info.limits.public_bytes;
+    return (BigInt(Math.ceil(bytes * p.in + (info.limits.max_out + info.limits.lookup_out) * p.out)) + 9_999n) / 10_000n * 10_000n;
   };
   const amount = (input, fallback) => { try { return BigInt(units(input.value || fallback)); } catch { return null; } };
   const auto = { spend: !old, deposit: true };
