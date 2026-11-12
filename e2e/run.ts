@@ -471,7 +471,8 @@ try {
   for (const [who, [name, maxCost, knowledge, more = []]] of checklists) {
     names.set(who, name);
     const files = [knowledge, ...more].map((text, i) => ({ name: `checklist-${i + 1}.md`, text }));
-    const bytes = seal(Buffer.from(JSON.stringify({ name, model: models[0], expertise: 'Reviews ledgers.', work: 'review', knowledge: files })), Buffer.from(info.sealKey, 'hex'), agentId(who));
+    const reads = who === first ? { pass_model: models[1] } : {}; // the first reviewer reads with a second, cheaper model
+    const bytes = seal(Buffer.from(JSON.stringify({ name, model: models[0], ...reads, expertise: 'Reviews ledgers.', work: 'review', knowledge: files })), Buffer.from(info.sealKey, 'hex'), agentId(who));
     reviewers.set(who, bytes);
     await pay(who, 5n * U, { Register: { name, skills: 'ledger: reviews a ledger by its own checklist', rate: `${U}`, max_cost: `${maxCost}`, materials_hash: createHash('sha256').update(bytes).digest('hex'), size_mb: 1 } });
   }
@@ -493,6 +494,8 @@ try {
   check('review: a finding whose evidence is not a line of the file is not confirmed, whatever the model said', ai.review.checks.some((c) => c.includes('misquoted')) && !confirmed.includes('misquoted') && did(first).leads === 1, did(first));
   check('review: what a check did not confirm is not thrown away: if it would matter, it is listed apart as unverified; a Low one is left out', /1 more point was raised[^\n]*\n\n- \*\*Medium\*\*, owner: misquoted Project Alpha owner check$/m.test(unconfirmed) && !unconfirmed.includes('phantom') && !unconfirmed.includes('Evidence'), unconfirmed);
   check('review: what two experts found is one finding, and the answer says how many found it', listed.split('Project Alpha ledger lets anyone withdraw').length === 2 && /### 1\. High: Project Alpha ledger lets anyone withdraw\n\n\*Where:\* withdraw\. \*Found by 2 of 2 experts\.\*/.test(report) && /Medium: Project Alpha fee rounds to zero\n\n\*Where:\* fee\. \*Found by 1 of 2 experts\.\*/.test(report) && /Low: Project Alpha owner is anyone/.test(report), report);
+  const sentTo = (step: string) => [...new Set(ai.review.models.filter(([s]) => s === step).map(([, model]) => model))].sort();
+  check('review: an expert may read with a cheaper model and judge with its own: the passes go to one, the checks to the other', JSON.stringify(sentTo('pass')) === JSON.stringify([models[0], models[1]].sort()) && JSON.stringify(sentTo('check')) === JSON.stringify([models[0]]) && (await cabinet(first)).body.agents[0]?.audit?.pass_model === models[1], { pass: sentTo('pass'), check: sentTo('check') });
   const toldOf = ai.review.passes.filter((c) => c.includes('# Already raised by earlier passes'));
   check('review: a later pass is told what earlier passes raised and does not raise it again', toldOf.length === 1 && toldOf[0]!.includes('- High | withdraw | Project Alpha ledger lets anyone withdraw') && did(second).raised === 5, { told: toldOf.length, second: did(second) }); // three files raise it, the fourth is told and adds nothing
   check('review: the same finding in other words is one: the model only says which are the same, code joins them and the other wording stays under it', did(second).raised === 5 && did(second).checked === 3 && did(second).held === 2 && ai.review.sorts.every((s) => !s.includes('function withdraw()') && !/-ONLY/.test(s)) && /\*The same was raised as:\* Project Alpha payouts are open \(twin\)/.test(confirmed) && !/### \d+\. High: Project Alpha payouts/.test(report), { second: did(second), confirmed });

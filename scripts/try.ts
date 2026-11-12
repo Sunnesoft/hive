@@ -32,7 +32,7 @@ if (!parsed.success) throw new Error(`the runner would refuse these materials:\n
 const m = parsed.data;
 await llm.refreshPrices();
 const docs = docsOf(m);
-console.log(`${m.name}: ${m.model}, ${m.knowledge.length} files, ${docs.length} chunks of knowledge`);
+console.log(`${m.name}: ${m.model}${m.pass_model ? ` (passes of a review on ${m.pass_model})` : ''}, ${m.knowledge.length} files, ${docs.length} chunks of knowledge`);
 
 if (question === '--audit') {
   const v = await audit(m, card.skills, docs);

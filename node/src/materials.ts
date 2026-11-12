@@ -12,6 +12,10 @@ const Text = (max: number) => z.string().max(max).transform(clean);
 export const Materials = z.strictObject({
   name: Text(60).pipe(z.string().min(1)),
   model: z.string().refine((m) => allowedModels.includes(m), 'model not allowed'),
+  // A second, cheaper model for the passes of a review: reading the materials with every part of the knowledge is
+  // most of a review's input, and raising candidates asks less of a model than judging them. The checks, the
+  // proofs and every answer stay with `model`.
+  pass_model: z.string().refine((m) => allowedModels.includes(m), 'model not allowed').optional(),
   expertise: Text(2_000).pipe(z.string().min(1)), // who the expert is and what they know
   method: Text(8_000).default(''), // how they work: a checklist, an approach
   // 'review': given materials, the agent goes through them with every part of its knowledge and checks each finding

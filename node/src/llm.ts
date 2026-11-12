@@ -194,6 +194,8 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
 const STEP_OUT = { pass: PASS_OUT, check: CHECK_OUT, proof: PROOF_OUT };
 export type ReviewStep = keyof typeof STEP_OUT;
+/** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
+export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
   policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge);
 const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
@@ -206,13 +208,14 @@ export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, q
  *  check, the finding to prove. Sent only if its worst case fits `cap`; a step that fails costs the agent nothing
  *  and returns nothing. `cut`: the reply ran into the step's output limit. */
 export async function step(kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
-  const price = priceOf(m.model);
+  const model = modelOf(kind, m);
+  const price = priceOf(model);
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
   if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
-  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const call = () => generateText({ model: nearai(model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
   try {
-    const r = await metered(kind, m.model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+    const r = await metered(kind, model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' };

@@ -82,7 +82,7 @@
 `share` — доля утверждений итогового ответа с её пометкой, в процентах с шагом 10 (нет, если в ответе нет пометок),
 `parts` — из скольких принятых частей собран ответ, и
 `reworked: true`, если заказчик вернул этот ответ на доработку.
-`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model, work}` для текущей регистрации.
+`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model, pass_model?, work}` для текущей регистрации.
 Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
 `legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.
 Категории аудита: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
@@ -90,7 +90,7 @@
 
 Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
 соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = id эксперта `<аккаунт>/<имя>`.
-Внутри — JSON: `{name, model, expertise, method, work, examples, topics, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт, `work` — `answer` (по умолчанию) или `review`: проверять файлы заказчика всеми знаниями.
+Внутри — JSON: `{name, model, pass_model?, expertise, method, work, examples, topics, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт, `work` — `answer` (по умолчанию) или `review`: проверять файлы заказчика всеми знаниями; `pass_model` — необязательная вторая модель из того же списка, на которой идут только проходы проверки.
 
 ## Переменные раннера
 

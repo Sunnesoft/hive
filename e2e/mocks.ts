@@ -39,7 +39,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
-  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[] }; // what each step of a review saw
+  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -117,6 +117,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     const lineWith = (text: string, word: string) => text.split('\n').find((l) => l.includes(word) && !l.startsWith('#') && !l.startsWith('<'))?.trim() ?? '';
     if (is("You are an expert going through a customer's materials")) {
       review.passes.push(`${system}\n${user}`);
+      review.models.push(['pass', body.model]);
       const part = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
       if (general) { // the lines of this part closest to the materials, each a finding at the line of the materials it shares most words with
         const lines = user.split('\n').filter((l) => l.trim().length > 12 && !l.startsWith('#') && !l.startsWith('<'));
@@ -130,6 +131,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     }
     if (is('You are an expert checking findings')) {
       review.checks.push(`${system}\n${user}`);
+      review.models.push(['check', body.model]);
       const [materials = '', group = ''] = user.split('# Findings to check');
       // A claim holds unless it says "phantom"; it quotes the line that names its place, unless it says "misquoted".
       const [held] = [...group.matchAll(HEAD)].filter(([, , , claim]) => !claim!.includes('phantom'));

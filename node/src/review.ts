@@ -117,14 +117,14 @@ const codeOf = (r: { text: string; cut?: boolean }) =>
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
   const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // cut: replies that ran into their limit, the sign that a limit is too low for this model
-  const price = llm.priceOf(m.model);
-  if (!price) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
+  const [price, reading] = [llm.priceOf(m.model), llm.priceOf(llm.modelOf('pass', m))]; // the passes may run on a cheaper model
+  if (!price || !reading) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
   const chosen = await parts(expert, question, pages, hold);
   let cost = chosen.cost;
   const stop = (why: llm.Why): Review => ({ findings: [], leads: [], cost, counts, why });
 
   const worst =
-    chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), price), 0n) +
+    chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
     BigInt(MAX_CHECKS) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.sameCeiling(2 * SAME_IN, price) + // the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);

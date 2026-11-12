@@ -284,7 +284,7 @@ function renderAgent(name) {
           h('dl', { class: 'kv tight' },
             h('dt', {}, 'Rate'), h('dd', { class: 'mono' }, `${usd(a.rate)} USDC`),
             h('dt', {}, 'Max spend'), h('dd', { class: 'mono' }, `${usd(a.max_cost)} USDC`),
-            h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ?? 'sealed'),
+            h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ? `${a.audit.model}${a.audit.pass_model ? `; passes of a review on ${a.audit.pass_model}` : ''}` : 'sealed'),
             h('dt', {}, 'Works by'), h('dd', {}, a.audit?.work === 'review' ? 'reviewing the customer\'s files' : a.audit?.work === 'answer' ? 'answering questions' : 'sealed'),
             h('dt', {}, 'Sealed'), h('dd', {}, `prompt and files, ${a.size_mb} MB · registration #${a.registration}`),
             h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.sponsor) : a.sponsor)),
@@ -394,6 +394,9 @@ function renderNew() {
     h('option', { value: 'answer' }, 'Answers questions from the closest pieces of its files'),
     h('option', { value: 'review' }, 'Reviews the customer\'s files with all of its files, as checklists'));
   work.value = old?.audit?.work ?? 'answer';
+  // Optional: a cheaper model that only reads (the passes of a review); the checks and proofs stay with the model above.
+  const passModel = h('select', { id: 'passModel' }, h('option', { value: '' }, 'The same model'), info.models.map((m) => h('option', { value: m.id }, m.id)));
+  passModel.value = old?.audit?.pass_model ?? '';
   const deposit = h('input', { id: 'deposit', inputmode: 'decimal' });
   const fileList = h('ul', { class: 'files' });
   const picker = h('input', { id: 'files', type: 'file', multiple: true, accept: '.md,.txt,.csv,.json,text/plain,text/markdown', class: 'sr' });
@@ -449,7 +452,8 @@ function renderNew() {
     if (!size) return 0n; // nothing to review with: it answers
     const around = own + info.limits.public_bytes;
     const passes = Math.min(v.passes, files.reduce((n, f) => n + Math.ceil(f.size / (0.8 * v.pass_knowledge)), 0)); // a file is a part, a long file several; parts are rarely full
-    return cents(passes * ((v.pass_bytes + v.pass_knowledge + v.pass_known + around) * p.in + v.pass_out * p.out)
+    const reads = info.models.find((m) => m.id === passModel.value && m.in) ?? p; // the passes may run on a cheaper model
+    return cents(passes * ((v.pass_bytes + v.pass_knowledge + v.pass_known + around) * reads.in + v.pass_out * reads.out)
       + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
       + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out)
       + (v.same_bytes + v.same_in) * p.in + v.same_out * p.out);
@@ -514,6 +518,7 @@ function renderNew() {
   for (const el of [name, skills, prompt, rate, spend, model, deposit, ...examples]) el.addEventListener('input', check);
   model.addEventListener('change', check);
   work.addEventListener('change', check);
+  passModel.addEventListener('change', check);
 
   let at = 0; // the step in progress
   const step = (i, state = 'now') => {
@@ -528,7 +533,8 @@ function renderNew() {
       step(0);
       const knowledge = await Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() })));
       // The builder's prompt is the expert's method; what it knows is its expertise. Both are guidance inside our template.
-      const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, work: work.value, examples: asks(), topics: chosenTopics(), knowledge };
+      const reads = work.value === 'review' && passModel.value && passModel.value !== model.value ? { pass_model: passModel.value } : {};
+      const materials = { name: name.value, model: model.value, ...reads, expertise: skills.value.trim(), method: prompt.value, work: work.value, examples: asks(), topics: chosenTopics(), knowledge };
       const bytes = await seal(new TextEncoder().encode(JSON.stringify(materials)), info.sealKey, id); // bound to this expert
       const mb = Math.max(1, Math.ceil(bytes.length / MB));
       if (mb > 10) throw new Error('sealed, the files are over 10 MB');
@@ -581,6 +587,7 @@ function renderNew() {
         h('details', { class: 'more' }, h('summary', {}, 'Model and deposit', h('span', { class: 'faint' }, 'set for you')),
           h('div', { class: 'pair' },
             field('model', 'Model', model, 'Prices come live from NEAR AI.'),
+            field('passModel', 'Model for the passes of a review', passModel, 'Optional. A review reads the customer\'s files once with each of your files: a cheaper model can do that reading and raise candidates, while the model above judges each of them and writes the proofs.'),
             field('deposit', 'Deposit now, USDC', h('div', { class: 'with-unit' }, deposit), 'The audit fee, the minimum and room for five tasks at once. Withdraw what you do not need any time.')))),
       h('aside', { class: 'side' },
         h('section', { class: 'card raised', 'aria-labelledby': 'payTitle' },

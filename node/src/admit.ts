@@ -13,7 +13,7 @@ import * as store from './store.ts';
 /** An admitted agent as the runner holds it, in memory only: its materials, their index and the links in them. */
 export type Expert = { m: Materials; lib: Library; digest: string; links: Set<string> };
 /** What the sponsor's cabinet shows about one registration, its name and model included (the sponsor's own data). */
-export type AuditRecord = { registration: number; allow: boolean; category: string; reason: string; flags: Flag[]; name?: string; model?: string; work?: Materials['work']; examples?: string[]; topics?: string[] };
+export type AuditRecord = { registration: number; allow: boolean; category: string; reason: string; flags: Flag[]; name?: string; model?: string; pass_model?: string; work?: Materials['work']; examples?: string[]; topics?: string[] };
 
 const MB = 1024 * 1024;
 const TRIES = 3; // audits that fail on our side before the agent is denied, so that it cannot cost us forever
@@ -52,7 +52,7 @@ export async function admit(a: Agent) {
       if (!opened) return null;
       const v = await audit(opened.m, a.skills, opened.docs);
       if (v.allow) experts.set(card, await expert(opened));
-      return { registration: a.registration, allow: v.allow, category: v.category, reason: v.reason, flags: v.flags, name: opened.m.name, model: opened.m.model, work: opened.m.work, examples: opened.m.examples, topics: opened.m.topics };
+      return { registration: a.registration, allow: v.allow, category: v.category, reason: v.reason, flags: v.flags, name: opened.m.name, model: opened.m.model, ...(opened.m.pass_model ? { pass_model: opened.m.pass_model } : {}), work: opened.m.work, examples: opened.m.examples, topics: opened.m.topics };
     })().catch((e) => {
       if (e instanceof Refused) return { registration: a.registration, allow: false, category: 'refused', reason: e.message, flags: [] };
       const n = (failures.get(card) ?? 0) + 1;
