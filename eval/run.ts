@@ -39,7 +39,7 @@ const POOLS: Record<Group, string[]> = {
   'private, one expert': PRIVATE, 'private, several experts': PRIVATE, 'no record': PRIVATE, 'public, specialised': PUBLIC,
   // The auditors are not asked alone: an order that the router gives to one of them is that, and the order with
   // all three named shows each one's own part. It also keeps the strongest model's calls within the budget.
-  'one field, three schools': [], 'four fields': FIELDS, 'schools and fields': [],
+  'one field, three schools': [], 'four fields': FIELDS, 'schools and fields': [], 'an audit nothing was prepared for': [],
 };
 const FIRST = 'first attempt: '; // what the second run got before the runner was fixed: kept for its cost, not scored
 const EARLIER = 'earlier: '; // an answer from before a change that eval/README.md tells of: shown beside the new one, never ordered again
@@ -158,7 +158,7 @@ const stages: Record<string, () => Promise<void>> = {
    *  answer is whole, it is asked again without the reasoning pass, and both calls are counted: its best case is scored. */
   async bare() {
     for (const model of BARE) {
-      await Promise.all(TASKS.map(async (t) => {
+      await Promise.all(TASKS.filter((t) => !t.alone || t.alone.includes(model)).map(async (t) => {
         const was = answers[t.id]?.[`bare ${short(model)}`];
         if (was?.text.trim()) return;
         const [page] = await materialOf(t);
@@ -196,7 +196,7 @@ const stages: Record<string, () => Promise<void>> = {
     const idOf = (name: string) => catalog.find((a) => a.id.endsWith(`/${name}`))?.id ?? name;
     const placed: [Task, string, string][] = [];
     for (const t of TASKS) { // one after another: one key, one nonce
-      if (!answers[t.id]?.swarm) placed.push([t, 'swarm', await order(t.task, t.usdc ?? '4')]);
+      if (t.named !== 'only' && !answers[t.id]?.swarm) placed.push([t, 'swarm', await order(t.task, t.usdc ?? '4')]);
       if (t.named && !answers[t.id]?.[NAMED]) placed.push([t, NAMED, await order(`Please give this task to all of these experts: ${t.experts.map(idOf).join(', ')}.\n\n${t.task}`, t.usdc ?? '4')]);
     }
     await Promise.all(placed.map(async ([t, system, id]) => keep(t.id, system, await outcomeOf(id, t.usdc ?? '4'))));
@@ -290,7 +290,7 @@ If "unknown" is not empty, the thing asked about does not exist. Then invented =
 
 // ---- the report ----
 
-type Row = { facts: number; of: number; judged: number; invented: number; unknown: number; usd: number; seconds: number; chars: number };
+type Row = { facts: number; of: number; judged: number | null; invented: number; unknown: number; usd: number; seconds: number; chars: number }; // judged: null if the judge was not asked
 const gradeKey = (t: Task, a: Answer) => createHash('sha256').update(`${JUDGE} v2\n${t.id}\n${a.text}`).digest('hex').slice(0, 16);
 function rowOf(t: Task, a: Answer | undefined): Row | undefined {
   if (!a) return undefined;
@@ -299,7 +299,7 @@ function rowOf(t: Task, a: Answer | undefined): Row | undefined {
   return {
     // A fact is found when its pattern is in the answer; the judge's count is a second opinion. The judge's "wrong"
     // marks are not reported: read by hand, most of them were answers that said "no record".
-    facts: has.filter(Boolean).length, of: t.facts.length, judged: g?.facts.filter((x) => x === 'correct').length ?? 0,
+    facts: has.filter(Boolean).length, of: t.facts.length, judged: g ? g.facts.filter((x) => x === 'correct').length : null,
     invented: t.unknown && g?.invented ? 1 : 0, unknown: t.unknown ? 1 : 0, usd: a.usd, seconds: a.seconds, chars: a.text.length,
   };
 }
@@ -326,7 +326,7 @@ function waysOf(t: Task): Record<string, Row | undefined> {
 }
 function report() {
   const groups = [...new Set(TASKS.map((t) => t.group))];
-  const sum = (rows: Row[], k: keyof Row) => rows.reduce((n, r) => n + r[k], 0);
+  const sum = (rows: Row[], k: keyof Row) => rows.reduce((n, r) => n + (r[k] ?? 0), 0);
   const out = [`# Results`, ``, `Run on ${new Date().toISOString().slice(0, 10)} against \`${cfg.CONTRACT}\`. Protocol model \`${cfg.PROTOCOL_MODEL}\`. The method is in [README.md](README.md); this file is written by \`npm run eval -- score\`.`, ``];
   for (const group of groups) {
     const tasks = TASKS.filter((t) => t.group === group);
@@ -338,7 +338,7 @@ function report() {
       const tail = `$${(sum(rows, 'usd') / rows.length).toFixed(4)} | ${Math.round(sum(rows, 'seconds') / rows.length)} | ${Math.round(sum(rows, 'chars') / rows.length)} |`;
       out.push(group === 'no record'
         ? `| ${way} | ${sum(rows, 'invented')} of ${rows.length} | ${tail}`
-        : `| ${way} | ${sum(rows, 'facts')} of ${sum(rows, 'of')} (${Math.round((100 * sum(rows, 'facts')) / sum(rows, 'of'))}%) | ${sum(rows, 'judged')} of ${sum(rows, 'of')} | ${tail}`);
+        : `| ${way} | ${sum(rows, 'facts')} of ${sum(rows, 'of')} (${Math.round((100 * sum(rows, 'facts')) / sum(rows, 'of'))}%) | ${rows.every((r) => r.judged !== null) ? `${sum(rows, 'judged')} of ${sum(rows, 'of')}` : '—'} | ${tail}`);
     }
     out.push(``);
   }

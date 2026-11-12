@@ -12,9 +12,16 @@
 // had matched "truncates" said of the overflow: both were tightened. "Ether forced in" had missed answers that
 // say the ether is "sent directly": it was widened. The first of these then missed "a winner contract that
 // reverts on receive" in the next answer and was widened to that wording.
+//
+// The last task is the check on all of that: a second contract, with its own published report, that no expert,
+// policy or pattern here was written against. Its facts are the report's High, Medium and Low findings in the
+// audited file, written down and committed before the swarm saw the contract. Because patterns for findings
+// proved unreliable, its score is the reading of a reader that does not know which answer is whose, by the same
+// strict rule as before (a finding counts when it is stated as an item of its own); the patterns are kept for
+// comparison only, as first written.
 
 export type Fact = { text: string; match: string };
-export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record' | 'one field, three schools' | 'four fields' | 'schools and fields';
+export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record' | 'one field, three schools' | 'four fields' | 'schools and fields' | 'an audit nothing was prepared for';
 export type Task = {
   id: string;
   group: Group;
@@ -24,7 +31,8 @@ export type Task = {
   unknown?: string; // for 'no record': why there is nothing to find. The right answer says so and names no value.
   usdc?: string; // the order's budget, 4 if not given
   material?: string; // a page the task links to: a model or an expert asked outside the swarm gets its text with the task
-  named?: boolean; // also ordered with every expert named by the customer, so that all of them work whatever the router thinks
+  named?: boolean | 'only'; // also ordered with every expert named by the customer, so that all of them work whatever the router thinks; 'only': not ordered any other way
+  alone?: string[]; // the models asked alone, if not all of them: what the budget of the run allowed
 };
 
 const near = (a: string, b: string, gap = 400) => `(${a})[\\s\\S]{0,${gap}}(${b})|(${b})[\\s\\S]{0,${gap}}(${a})`;
@@ -34,6 +42,8 @@ const REENTRANCY = { text: 'H-1: refund sends the ether before it clears the pla
 const RANDOMNESS = { text: 'H-2: selectWinner draws from msg.sender, block.timestamp and block.difficulty, which the caller or the block producer can choose or predict', match: near('random', 'predict|manipulat|weak|insecure|influence|miner|validator|block\\.(timestamp|difficulty)', 300) };
 const OVERFLOW = { text: 'H-3: totalFees is a uint64 and overflows (Solidity 0.7 does not check), so fees are lost', match: near('overflow', 'totalFees|uint64', 300) };
 const DOS = { text: 'M-1: enterRaffle checks duplicates with a nested loop over all players, so each entry costs more gas until nobody can enter', match: near('denial[- ]of[- ]service|\\bDoS\\b|gas', 'duplicate|nested loop|quadratic|O\\(n') };
+
+const TSWAP = 'https://raw.githubusercontent.com/Cyfrin/5-t-swap-audit/7bd52c6a75f1115b23e0cff0fa16f7c522703fcd/src/TSwapPool.sol';
 
 const GAS = { text: "The settlement callback must get 22 Tgas", match: '22\\s*T\\s?gas' };
 
@@ -164,6 +174,19 @@ export const TASKS: Task[] = [
       { text: 'Law on the contract: anyone can enter, so nothing keeps minors out as Art. 10 requires', match: 'Art(icle|\\.)?\\s?10\\b|under 18|minors?\\b' },
       { text: 'Psychology on the contract: nothing limits entries per household; a cap of 4 per draw cut at-risk households from 6.1% to 2.4%', match: '2[.,]4\\s?%|cap of 4|4 tickets|four tickets' },
       { text: 'Psychology on the contract: one winner takes the whole prize; winner-takes-all draws had 40% more chasing than draws with several prizes', match: '40\\s?%' },
+    ],
+  },
+  {
+    id: 'second audit', group: 'an audit nothing was prepared for', experts: ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'], usdc: '6', material: TSWAP, named: 'only', alone: ['Qwen/Qwen3.8-27B'],
+    task: `Audit this Solidity contract before we deploy it: ${TSWAP}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: our repository has the contract at src/TSwapPool.sol, compiles with Solidity 0.8.20 and has forge-std in lib/forge-std.`,
+    facts: [
+      { text: 'H-1: deposit takes a deadline and never checks it, so a deposit can go through after the deadline has passed', match: near('deadline', 'unused|never (used|checked)|not (used|checked|enforced|validated)|missing|ignor', 200) },
+      { text: 'H-2: getInputAmountBasedOnOutput multiplies by 10,000 where the fee arithmetic needs 1,000, so the pool takes far too many tokens from the user', match: near('getInputAmountBasedOnOutput', '10[_,]?000', 600) },
+      { text: 'H-3: swapExactOutput has no slippage protection: there is no maximum the caller agrees to pay in', match: near('swapExactOutput', 'slippage|max(imum)? ?input|maxInput', 500) },
+      { text: 'H-4: sellPoolTokens calls swapExactOutput where it should call swapExactInput, so the amount sold is treated as the amount to receive', match: near('sellPoolTokens', 'swapExactInput|mismatch|wrong|incorrect|should (call|use)', 400) },
+      { text: 'H-5: _swap sends the swapper an extra token after every 10 swaps, which breaks the invariant x * y = k and lets the pool be drained', match: near('swap_count|SWAP_COUNT_MAX|every (10|ten)(th)? swaps?|(10|ten) swaps', 'invariant|x ?\\* ?y|drain|extra|bonus|free|incentive', 400) },
+      { text: 'L-1: the LiquidityAdded event is emitted with its parameters in the wrong order', match: near('LiquidityAdded', 'order|swapped|wrong|reversed|mismatch|incorrect', 300) },
+      { text: 'L-2: swapExactInput declares a return value that is never assigned, so it always returns 0', match: near('swapExactInput', 'returns? (0|zero)|never (assigned|set)|unassigned|not assigned|always (0|zero)|default value|uninitiali[sz]ed', 400) },
     ],
   },
 ];

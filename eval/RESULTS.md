@@ -73,6 +73,11 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 | model alone: kimi-k2.6 | 5 of 9 (56%) | 4 of 9 | $0.0316 | 158 | 13171 |
 | swarm | 9 of 9 (100%) | 8 of 9 | $0.0306 | 180 | 13561 |
 
+## An audit nothing was prepared for (1 tasks)
+
+| | facts found | by the judge | model cost per task | seconds | characters |
+|---|---|---|---|---|---|
+
 ## The swarm, task by task
 
 | task | experts it needs | experts the router took | outcome | charged, USDC | returned, USDC |
