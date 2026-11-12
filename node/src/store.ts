@@ -15,6 +15,9 @@ export const commit = (draft: string, hash: string) => rename(draft, join(dir('u
 export const discard = (draft: string) => rm(draft, { force: true });
 export const upload = (hash: string) => readFile(join(dir('uploads'), hash)).catch(() => null);
 export const has = (hash: string) => access(join(dir('uploads'), hash)).then(() => true, () => false);
+/** The index of an upload's knowledge, sealed to the runner like the upload: vectors say much about the text they came from. */
+export const keepIndex = (hash: string, sealed: Uint8Array) => writeFile(join(dir('uploads'), `${hash}.index`), sealed);
+export const indexOf = (hash: string) => readFile(join(dir('uploads'), `${hash}.index`)).catch(() => null);
 
 /** What the sponsor's cabinet shows: the audit of each registration, and a line for each round the agent was considered for. */
 const agentFile = (agent: string, kind: string) => join(dir('agents'), `${encodeURIComponent(agent)}.${kind}`);

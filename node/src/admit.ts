@@ -5,8 +5,10 @@ import { createHash } from 'node:crypto';
 import { docsOf, linksOf, audit, type Flag } from './audit.ts';
 import * as chain from './chain.ts';
 import { log } from './log.ts';
-import { index, type Library } from './library.ts';
+import { cfg } from './config.ts';
+import { index, pack, unpack, type Library } from './library.ts';
 import { Refused, unseal, type Materials } from './materials.ts';
+import { open as unsealed, publicKeyOf, seal } from './seal.ts';
 import type { Agent } from './rules.ts';
 import * as store from './store.ts';
 
@@ -36,8 +38,25 @@ async function open(a: Agent) {
   return { m, docs: docsOf(m), digest };
 }
 
-const expert = async (o: NonNullable<Awaited<ReturnType<typeof open>>>): Promise<Expert> =>
-  ({ m: o.m, digest: o.digest, links: linksOf(o.m), lib: await index(o.docs) });
+/** The index of an agent's knowledge. Built once with the embedding model and kept on the runner's disk, sealed
+ *  to the runner and bound to this agent and that model; read back from there afterwards. A restart then needs no
+ *  embedding model: the day NEAR AI's was down, a restarted runner would have come up with no experts at all. */
+async function indexed(a: Agent, docs: string[]): Promise<Library> {
+  const bound = `index|${a.id}|${cfg.EMBED_MODEL}`;
+  const kept = await store.indexOf(a.materials_hash);
+  if (kept) {
+    try {
+      const vectors = unpack(unsealed(kept, secret, bound));
+      if (vectors.length === docs.length) return { chunks: docs, vectors };
+    } catch {} // not ours, or of other materials: built anew
+  }
+  const lib = await index(docs);
+  await store.keepIndex(a.materials_hash, seal(pack(lib.vectors), publicKeyOf(secret), bound)).catch((e) => log('index_not_kept', { agent: a.id, error: String(e) }));
+  return lib;
+}
+
+const expert = async (a: Agent, o: NonNullable<Awaited<ReturnType<typeof open>>>): Promise<Expert> =>
+  ({ m: o.m, digest: o.digest, links: linksOf(o.m), lib: await indexed(a, o.docs) });
 
 const failures = new Map<string, number>();
 const decided = new Map<string, AuditRecord>(); // decided, maybe not yet on chain
@@ -51,7 +70,7 @@ export async function admit(a: Agent) {
       const opened = await open(a);
       if (!opened) return null;
       const v = await audit(opened.m, a.skills, opened.docs);
-      if (v.allow) experts.set(card, await expert(opened));
+      if (v.allow) experts.set(card, await expert(a, opened));
       return { registration: a.registration, allow: v.allow, category: v.category, reason: v.reason, flags: v.flags, name: opened.m.name, model: opened.m.model, ...(opened.m.pass_model ? { pass_model: opened.m.pass_model } : {}), work: opened.m.work, examples: opened.m.examples, topics: opened.m.topics };
     })().catch((e) => {
       if (e instanceof Refused) return { registration: a.registration, allow: false, category: 'refused', reason: e.message, flags: [] };
@@ -79,7 +98,7 @@ export function warm(a: Agent) {
     .then(async () => {
       const opened = await open(a);
       if (!opened) return log('upload_missing', { agent: a.id });
-      experts.set(key, await expert(opened));
+      experts.set(key, await expert(a, opened));
     })
     .catch((e) => log('load_failed', { agent: a.id, error: String(e) }))
     .finally(() => loading.delete(key));

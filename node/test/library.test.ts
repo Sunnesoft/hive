@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chunk, nearest } from '../src/library.ts';
+import { chunk, nearest, pack, unpack } from '../src/library.ts';
 
 test('chunks pack paragraphs, cut long ones, never exceed the size', () => {
   const text = ['a'.repeat(30), 'b'.repeat(30), 'c'.repeat(95), 'd'.repeat(10)].join('\n\n');
@@ -20,4 +20,12 @@ test('nearest with several queries gives each its best chunk before any gets its
   assert.deepEqual(nearest(lib, [[0, 1], [1, 0]], 2), ['y', 'x']); // not 'y' and its runner-up 'z'
   assert.deepEqual(nearest(lib, [[0, 1], [0, 1]], 2), ['y', 'z']); // the same best for both: then the next
   assert.deepEqual(nearest(lib, [[0, 1], [1, 0]], 5), ['y', 'x', 'z']); // never more than there are
+});
+
+test('an index packed for the disk comes back as it was, and bytes that are not an index are refused', () => {
+  const vectors = [Float32Array.from([0.5, -0.25, 0.125]), Float32Array.from([1, 0, -1])];
+  const back = unpack(pack(vectors));
+  assert.deepEqual(back.map((v) => [...v]), vectors.map((v) => [...v]));
+  assert.deepEqual(unpack(pack([])), []);
+  assert.throws(() => unpack(pack(vectors).subarray(0, 12)), /not a packed index/);
 });

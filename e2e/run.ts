@@ -525,12 +525,14 @@ try {
   proc!.kill();
   await new Promise((ok) => proc.once('exit', ok));
   events.length = 0;
+  const embeddedBefore = ai.embedded.length;
   start();
   market.hire({ id: 'a-again', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
   await until('an answer after the restart', () => market.delivered('a-again').length === 1);
   const after = market.delivered('a-again')[0]!;
   check('restart: agents reloaded from the sealed store, the answer has both facts', after.includes(SECRET.date) && after.includes(SECRET.code), after);
   check('restart: earlier assignments were not served twice', market.delivered('a-good').length === 5);
+  check('restart: no knowledge is indexed again: each index was kept sealed on the runner\'s disk, so a restart needs no embedding model for it', ai.embedded.slice(embeddedBefore).every((texts) => texts < 20) && ai.embedded.slice(0, embeddedBefore).some((texts) => texts > 20), { after: ai.embedded.slice(embeddedBefore), largestBefore: Math.max(...ai.embedded.slice(0, embeddedBefore)) });
   await books();
 
   // --- the operator's own money: past the daily limit at NEAR AI the runner starts nothing new ---

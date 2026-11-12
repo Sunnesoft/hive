@@ -50,6 +50,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
+  const embedded: number[] = []; // how many texts each embeddings call carried: indexing a library is a large one
   const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
@@ -63,6 +64,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       return [200, { models: models.map((modelId) => ({ modelId, inputCostPerToken: cost, outputCostPerToken: cost })) }];
     if (method === 'POST' && path === '/v1/embeddings') {
       const input: string[] = Array.isArray(body.input) ? body.input : [body.input];
+      embedded.push(input.length);
       const data = input.map((t, index) => ({ object: 'embedding', index, embedding: bag(t) }));
       return [200, { object: 'list', data, model: body.model, usage: { prompt_tokens: 10 * input.length, total_tokens: 10 * input.length } }];
     }
@@ -198,7 +200,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     }
     return reply(knowledge.split(/\n+/).filter((l) => l.includes('Project Alpha')).join(' '));
   }, port);
-  return { ...server, agentCalls, composed, routed, lookups, review };
+  return { ...server, agentCalls, composed, routed, lookups, review, embedded };
 }
 
 type Row = {

@@ -43,6 +43,23 @@ export function nearest(lib: Library, queries: number[][], k = NEAREST): string[
   return [...picked].map((i) => lib.chunks[i]!);
 }
 
+/** An index as bytes, to be kept sealed on the runner's disk: how many vectors, how long each, then the numbers. */
+export function pack(vectors: Float32Array[]): Buffer {
+  const dim = vectors[0]?.length ?? 0;
+  const out = Buffer.alloc(8 + vectors.length * dim * 4);
+  out.writeUInt32LE(vectors.length, 0);
+  out.writeUInt32LE(dim, 4);
+  vectors.forEach((v, i) => Buffer.from(v.buffer, v.byteOffset, dim * 4).copy(out, 8 + i * dim * 4));
+  return out;
+}
+/** The vectors of a packed index; throws if the bytes are not one. */
+export function unpack(bytes: Uint8Array): Float32Array[] {
+  const b = Buffer.from(bytes);
+  const [count, dim] = [b.readUInt32LE(0), b.readUInt32LE(4)];
+  if (b.length !== 8 + count * dim * 4) throw new Error('not a packed index');
+  return Array.from({ length: count }, (_, i) => new Float32Array(b.buffer.slice(b.byteOffset + 8 + i * dim * 4, b.byteOffset + 8 + (i + 1) * dim * 4)));
+}
+
 /** Indexes chunks once, after the audit. The audit fee pays for it. */
 export async function index(chunks: string[]): Promise<Library> {
   const { vectors } = await embed('index', chunks, 600_000);
