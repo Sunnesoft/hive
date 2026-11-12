@@ -11,10 +11,12 @@
 //            a model that merges a long list drops its rare items, and the rare ones are the point
 //   groups   records that say the same thing, by how close their embeddings are, and then by the model's answer
 //            to one narrow question (see `same` below): one flaw in ten wordings is checked once
-//   checks   one call per group: does it hold in the materials? A finding that holds must quote the lines it
-//            rests on, and code looks those lines up in the materials: no such line, not confirmed
+//   checks   one call per group: do the materials do what it says? The verdict is a form, not prose. A finding
+//            that holds must quote the lines it rests on, and code looks those lines up in the materials: no
+//            such line, not confirmed. What is true holds whatever it costs; the cost is its severity
 //   leads    what a check did not confirm is not thrown away either: a model's "no" is a judgement like any
-//            other. If it would be grave, it is listed apart, as unconfirmed
+//            other, and the best model we tried refused a finding it had just made itself. A grave one is
+//            given whole, with what the check said; a Medium one in a line
 //   together the confirmed findings are looked at together: what do two of them allow that neither says alone?
 //            (One gives a permission, another lets anyone use it.) What that raises is checked like any finding
 //   same     the expert's model is asked one narrow question: which of these say the same thing in other words?
@@ -33,7 +35,7 @@ import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
-export type Raised = Finding & { also?: string[] };
+export type Raised = Finding & { also?: string[]; checkSaid?: string }; // checkSaid: what its check answered, if it did not confirm it
 /** `second`: what the controller said of it, if it did not simply agree; `doubted`: it said the materials stop it. */
 export type Checked = Raised & { proof?: string; second?: string; doubted?: boolean };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
@@ -154,7 +156,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
     BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
-    2n * llm.sameCeiling(2 * SAME_IN, price) + // asked twice, before the checks and after; the lines, and as much again for the JSON around them
+    3n * llm.sameCeiling(2 * SAME_IN, price) + // asked before the checks, and after them of the confirmed and of the rest; the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
   if (cost + worst > hold) return stop('too_expensive');
 
@@ -205,32 +207,48 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.raised - a.raised);
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
-  const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), filesOfFindings(group, pages));
-  const confirmedBy = (r: Awaited<ReturnType<typeof step>>) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material)));
-  const checks = await each(toCheck, (group) => checked(group.all));
-  if (toCheck.length && checks.every((r) => r.why) && Date.now() < deadline) return stop(checks[0]!.why!); // the model is not there; out of time, what was raised is still given
+  /** The check of one group: what of it holds and quotes a line that is in the materials, and, if nothing does,
+   *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
+  const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; said?: string; failed?: llm.Why }> => {
+    if (Date.now() > deadline) return { confirmed: [], failed: 'model_failed' };
+    const [about, shown] = [section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), filesOfFindings(group, pages)];
+    const once = await llm.check(m, question, shown, about, hold);
+    const r = once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, shown, about, hold) : once;
+    cost += r.cost;
+    if (r.cut) counts.cut++;
+    const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
+    const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n').slice(0, 500);
+    const confirmed = r.verdicts.filter((v) => v.holds && grounded(v.quote, material))
+      .map((v): Checked => ({ severity: severityOf(v.severity), where: v.where.trim().slice(0, 120), title: v.title.trim().slice(0, 240), how: v.how.trim().slice(0, 900), evidence: lines(v.quote), fix: (v.fix ?? '').trim().slice(0, 500) }));
+    const said = confirmed.length ? undefined : (r.verdicts.find((v) => !v.holds)?.how.trim().slice(0, 400) ?? (r.verdicts.length ? 'It held the finding true and quoted no line that stands in the materials.' : undefined));
+    return { confirmed, ...(said ? { said } : {}), ...(r.why ? { failed: r.why } : {}) };
+  };
+  const checks = await each(toCheck, (group) => judged(group.all));
+  if (toCheck.length && checks.every((r) => r.failed) && Date.now() < deadline) return stop(checks[0]!.failed!); // the model is not there; out of time, what was raised is still given
   // The wordings a group was joined from stay with what its check confirmed: under the first finding, none that is a finding itself.
-  const held = checks.map(confirmedBy).map((found, i): Checked[] => {
-    const own = new Set(found.map((f) => f.title.toLowerCase()));
-    return found.map((f, n) => (n ? f : withAlso(f, toCheck[i]!.wordings.filter((t) => !own.has(t.toLowerCase())))));
+  const held = checks.map((r, i): Checked[] => {
+    const own = new Set(r.confirmed.map((f) => f.title.toLowerCase()));
+    return r.confirmed.map((f, n) => (n ? f : withAlso(f, toCheck[i]!.wordings.filter((t) => !own.has(t.toLowerCase())))));
   });
 
   // What the confirmed findings allow together: raised by one call that sees them all, a line each, then checked
   // one by one like any finding. It can only add: what it raises and its check does not confirm is left out.
   const soFar = bySeverity(held.flat());
   const together = soFar.length > 1 ? await step('combine', '', section('Confirmed findings', soFar.map((f, i) => `${i + 1}. ${lineOf(f)}\n   ${f.how.slice(0, 200)}`).join('\n'), COMBINE_IN)) : { text: '' };
-  const combined: Checked[] = (await each(findingsIn(together.text).slice(0, MAX_COMBINED), (f) => checked([f]))).flatMap(confirmedBy);
+  const combined: Checked[] = (await each(findingsIn(together.text).slice(0, MAX_COMBINED), (f) => judged([f]))).flatMap((r) => r.confirmed);
   counts.combined = combined.length;
-  // A group of which nothing held, or that was never checked, stays as the pass raised it: not confirmed.
-  const open = groups.filter((_, i) => !held[i]?.length).map((g): Raised => withAlso(gravest(g.all), g.wordings));
-  // Two groups may have held the same thing, and a lead may say what a finding says: of those that say the same,
-  // by code's measure or by the model's answer, the confirmed one stays, in its gravest wording.
+  // A group of which nothing held, or that was never checked, stays as it was raised, with what its check said.
+  const open = groups.flatMap((g, i): Raised[] => (held[i]?.length ? [] : [{ ...withAlso(gravest(g.all), g.wordings), ...(checks[i]?.said ? { checkSaid: checks[i]!.said } : {}) }]));
+  // Two groups may have held the same thing, and a lead may say what a finding says. By code's measure such a lead
+  // is the finding. The model's answer joins findings with findings and leads with leads, never a lead into a
+  // finding: joined there once, a finding the check had wrongly refused became "another wording" of a different one.
   const items: Item[] = [...[...held.flat(), ...combined].map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
-  const sorted = await sortedBy(m.model, await same(items, (x) => x.f), hold);
-  cost += sorted.cost;
-  const findings: Checked[] = bySeverity(sorted.groups.filter(confirmedIn).map(oneOf));
-  const leads = bySeverity(sorted.groups.filter((j) => !confirmedIn(j)).map(oneOf)).filter(worthALook).slice(0, MAX_LEADS);
-  Object.assign(counts, { groups: groups.length, checked: checks.filter((r) => !r.why).length, held: findings.length, leads: leads.length });
+  const byCode = await same(items, (x) => x.f);
+  const [sure, unsure] = [await sortedBy(m.model, byCode.filter((g) => g.some((x) => x.held)), hold), await sortedBy(m.model, byCode.filter((g) => !g.some((x) => x.held)), hold)];
+  cost += sure.cost + unsure.cost;
+  const findings: Checked[] = bySeverity(sure.groups.map(oneOf));
+  const leads = bySeverity(unsure.groups.map(oneOf)).filter(worthALook).slice(0, MAX_LEADS);
+  Object.assign(counts, { groups: groups.length, checked: checks.filter((r) => !r.failed).length, held: findings.length, leads: leads.length });
 
   const toProve = code ? findings.filter(grave).slice(0, MAX_PROOFS) : [];
   const proofs = await each(toProve, (f) => step('proof', '', section('Finding to prove', showFinding(f), PROOF_IN)).then(codeOf));
@@ -256,6 +274,20 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
     f.fix && `**Fix:** ${f.fix}`,
     f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
+/** A grave finding that was not confirmed, whole: what was raised, in its own words, and what its check said. */
+const unconfirmed = (f: Raised, n: number, note = '') =>
+  [
+    `### ${n}. ${f.severity}, not confirmed: ${f.title}`,
+    [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
+    f.how,
+    f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
+    f.checkSaid && `*Its check said:* ${f.checkSaid}`,
+  ].filter(Boolean).join('\n\n');
+/** The findings that were not confirmed: the grave ones whole, numbered on from `from`, then the others a line each. */
+const notConfirmed = (leads: Raised[], from: number, noteOf: (f: Raised, whole: boolean) => string) => {
+  const [whole, brief] = [leads.filter(grave), leads.filter((f) => !grave(f))];
+  return [...whole.map((f, i) => unconfirmed(f, from + i + 1, noteOf(f, true))), ...(brief.length ? [brief.map((f) => line(f, noteOf(f, false))).join('\n')] : [])];
+};
 /** One lead, in a line: what it would be and where, as the pass worded it, and the other wordings joined to it. */
 const line = (f: Raised, note = '') =>
   `- **${f.severity}**${f.where ? `, ${f.where}` : ''}: ${f.title}${note}${f.also?.length ? ` *(also raised as: ${f.also.slice(0, 2).join('; ')}${f.also.length > 2 ? `; and ${f.also.length - 2} more` : ''})*` : ''}`;
@@ -267,7 +299,7 @@ export const reportOf = (r: Pick<Review, 'findings' | 'leads' | 'counts'>) =>
       ? `Checked findings: ${r.findings.length} (${tally(r.findings)}).`
       : `Checked findings: none. The review read the materials with ${some(r.counts.passes, 'part')} of its checklist and raised ${some(r.counts.raised, 'candidate')}; none was confirmed against the materials.`,
     ...r.findings.map((f, i) => entry(f, i + 1)),
-    ...(r.leads.length ? [`Not confirmed: ${r.leads.length}. A pass of the checklist raised them and their check did not confirm them.`, r.leads.map((f) => line(f)).join('\n')] : []),
+    ...(r.leads.length ? [`Not confirmed: ${r.leads.length}. A reading or a pass of the checklist raised them and their check did not confirm them.`, ...notConfirmed(r.leads, r.findings.length, () => '')] : []),
   ].join('\n\n');
 
 /** The same contribution as the composer gets it: the titles only. The findings reach the customer as code joined
@@ -287,7 +319,11 @@ export type Lead = Raised & { seen: number[] };
 export async function join(reviews: { id: number; findings: Checked[]; leads: Raised[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
   // Between experts the protocol's model answers which findings are the same; it sees a line of each, and code joins.
-  const sorted = reviews.length > 1 ? (await sortedBy(cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL, await same(all, (x) => x.f))).groups : all.map((x) => [[x]]);
+  // It joins findings with findings and leads with leads; a lead becomes part of a finding only by code's measure.
+  const byCode = await same(all, (x) => x.f);
+  const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
+  const sorted = reviews.length < 2 ? byCode.map((g) => [g])
+    : [...(await sortedBy(model, byCode.filter((g) => g.some((x) => x.held)))).groups, ...(await sortedBy(model, byCode.filter((g) => !g.some((x) => x.held)))).groups];
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
   const findings = sorted.filter(confirmedIn).map((joined): Joined => {
     const [held, first] = [joined.flat().filter((x) => x.held), oneOf(joined)];
@@ -330,8 +366,8 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
     ...clear.map((f, i) => shown(f, i + 1)),
     ...(doubted.length ? [`## Findings the controller doubts\n\nAn expert confirmed each of these and the controller named a line of your materials that, in its reading, stops it. Both are models: read the finding and the doubt.`, ...doubted.map((f, i) => shown(f, clear.length + i + 1))] : []),
     ...(r.leads.length
-      ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.`,
-        r.leads.map((f) => line(f, experts > 1 && f.seen.length > 1 ? ` *(raised by ${f.seen.length} of ${experts} experts)*` : '')).join('\n')]
+      ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.${r.leads.some(grave) ? ' The grave ones are given whole, with what their check said: a check is a model too, and can be wrong.' : ''}`,
+        ...notConfirmed(r.leads, r.findings.length, (f, whole) => { const seen = (f as Lead).seen.length; return experts > 1 && (whole || seen > 1) ? (whole ? `*Raised by ${seen} of ${experts} experts.*` : ` *(raised by ${seen} of ${experts} experts)*`) : ''; })]
       : []),
   ].join('\n\n');
 };

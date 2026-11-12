@@ -151,12 +151,12 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       review.checks.push(`${system}\n${user}`);
       review.models.push(['check', body.model]);
       const [materials = '', group = ''] = user.split('# Findings to check');
-      // A claim holds unless it says "phantom"; it quotes the line that names its place, unless it says "misquoted".
-      const [held] = [...group.matchAll(HEAD)].filter(([, , , claim]) => !claim!.includes('phantom'));
-      if (!held) return reply('NOT CONFIRMED: the materials do not allow it.');
-      const [, severity, place, claim] = held as unknown as [string, string, string, string];
-      const quote = claim.includes('misquoted') ? 'a line the file does not have' : general ? place.trim() : lineWith(materials, `${place}(`);
-      return reply(`### ${severity} | ${place} | ${claim}\nThe materials allow it.\nEvidence: \`${quote}\`\nFix: guard ${general ? 'this line' : place}.`);
+      // The verdict is a form. A claim holds unless it says "phantom"; it quotes the line that names its place, unless it says "misquoted".
+      const claims = [...group.matchAll(HEAD)].map(([, severity, place, claim]) => ({ severity: severity!, where: place!.trim(), title: claim! }));
+      const held = claims.find((c) => !c.title.includes('phantom'));
+      if (!held) return reply({ verdicts: claims.slice(0, 1).map((c) => ({ ...c, holds: false, how: 'The materials do not allow it.', quote: '', fix: '' })) });
+      const quote = held.title.includes('misquoted') ? 'a line the file does not have' : general ? held.where : lineWith(materials, `${held.where}(`);
+      return reply({ verdicts: [{ ...held, holds: true, how: 'The materials allow it.', quote, fix: `guard ${general ? 'this line' : held.where}.` }] });
     }
     if (is('You are an expert looking at the confirmed findings')) {
       // Fixed rule: an open withdraw and a fee that rounds to zero empty the ledger together. Stand-ins: nothing follows.

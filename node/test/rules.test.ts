@@ -108,6 +108,10 @@ test('grounded: evidence counts when a stretch of it stands in the material word
   assert.equal(grounded('payable(msg.sender).sendValue(entranceFee);   players[playerIndex] = address(0);', material), true); // spaces and line breaks aside
   assert.equal(grounded('`withdrawAll(address to)` has no guard', material), false); // not in the material
   assert.equal(grounded('line 12', material), false); // too short to point at anything
+  assert.equal(grounded('`function refund(uint256 playerIndex) public { ... players[playerIndex] = address(0);`', material), true); // a quote with "..." counts by its pieces
+  assert.equal(grounded('`payable( msg.sender ).sendValue( entranceFee );`', material), true); // laid out with other spaces: the same line
+  assert.equal(grounded('`function refund(uint256 playerIndex) public { ... selfdestruct(owner);`', material), true); // one true piece is enough to point at the place
+  assert.equal(grounded('`selfdestruct(owner); ... delegatecall(target);`', material), false);
 });
 
 test('piecesOf packs chunks of knowledge into the parts a review reads, in order, none over its size', () => {

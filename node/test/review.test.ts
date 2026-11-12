@@ -5,6 +5,7 @@ import { provenance, sharesOf, type Finding } from '../src/rules.ts';
 
 const drain: Finding = { severity: 'High', where: 'withdraw()', title: 'Anyone can withdraw the pool', how: 'withdraw() sends the whole balance to msg.sender.', evidence: '`payable(msg.sender).transfer(address(this).balance);`', fix: 'Add onlyOwner.' };
 const mint: Finding = { severity: 'High', where: 'deposit()', title: 'Shares are minted for nothing', how: 'deposit() credits shares before the transfer.', evidence: '', fix: '' };
+const loose: Finding = { severity: 'Medium', where: 'fee()', title: 'The fee can be set to anything', how: 'setFee has no bound.', evidence: '', fix: '' };
 const dust: Finding = { severity: 'Low', where: 'fee()', title: 'The fee rounds to zero', how: 'amount * 3 / 1000 is 0 below 334.', evidence: '`return amount * 3 / 1000;`', fix: 'Round up.' };
 
 test('a review as one contribution: the count by severity, then every finding with its evidence, fix and proof', () => {
@@ -26,9 +27,9 @@ test('a review that found nothing says what it did, not nothing', () => {
   assert.match(text, /^Checked findings: none\. .*4 parts of its checklist and raised 1 candidate; none was confirmed/);
 });
 
-test('what the check did not confirm is listed after the findings, in a line each, as not confirmed', () => {
-  const text = reportOf({ findings: [drain], leads: [mint], counts: { own: 0, passes: 4, raised: 3, groups: 2, checked: 2, combined: 0, held: 1, leads: 1, proofs: 0, cut: 0 } });
-  assert.match(text, /Not confirmed: 1\. [^\n]*\n\n- \*\*High\*\*, deposit\(\): Shares are minted for nothing$/);
+test('what the check did not confirm is listed after the findings: a grave one whole, with what its check said, a Medium one in a line', () => {
+  const text = reportOf({ findings: [drain], leads: [{ ...mint, checkSaid: 'The transfer comes first.' }, loose], counts: { own: 0, passes: 4, raised: 3, groups: 2, checked: 2, combined: 0, held: 1, leads: 1, proofs: 0, cut: 0 } });
+  assert.match(text, /Not confirmed: 2\. [^\n]*\n\n### 2\. High, not confirmed: Shares are minted for nothing\n\n\*Where:\* deposit\(\)\.\n\ndeposit\(\) credits shares before the transfer\.\n\n\*Its check said:\* The transfer comes first\.\n\n- \*\*Medium\*\*, fee\(\): The fee can be set to anything$/);
   assert.ok(text.indexOf('Not confirmed') > text.indexOf('**Fix:** Add onlyOwner.'));
 });
 
@@ -48,7 +49,8 @@ test('the list the customer gets: who found each finding, as marks for the recor
   assert.match(list, /### 2\. Low: The fee rounds to zero \[\[2\]\]\n\n\*Where:\* fee\(\)\. \*Found by 1 of 2 experts\.\*/);
   assert.deepEqual([...sharesOf(list)], [[0, 30], [2, 70]]); // one mark of three, two of three
   assert.ok(!provenance(list).text.includes('[[')); // the customer's copy carries no marks
-  assert.match(list, /## Not confirmed\n\n1 more point was raised[^\n]*\n\n- \*\*High\*\*, deposit\(\): Shares are minted for nothing \*\(raised by 2 of 2 experts\)\*$/);
+  assert.match(list, /## Not confirmed\n\n1 more point was raised[^\n]*The grave ones are given whole[^\n]*\n\n### 3\. High, not confirmed: Shares are minted for nothing\n\n\*Where:\* deposit\(\)\. \*Raised by 2 of 2 experts\.\*\n\ndeposit\(\) credits shares before the transfer\.$/);
+  assert.match(listOf({ findings: [], leads: [{ ...loose, seen: [0, 1] }, { ...loose, title: 'Another', seen: [1] }] }, 2), /- \*\*Medium\*\*, fee\(\): The fee can be set to anything \*\(raised by 2 of 2 experts\)\*\n- \*\*Medium\*\*, fee\(\): Another$/);
   assert.ok(!listOf({ findings: [{ ...drain, by: [0], seen: [0] }], leads: [] }, 1).includes('Found by')); // one expert: nothing to compare
   assert.match(listOf({ findings: [], leads: [{ ...mint, seen: [1] }] }, 2), /^## Findings\n\nNo finding was confirmed/);
 });

@@ -247,13 +247,15 @@ export function partition(count: number, groups: number[][]): number[][] {
   return out;
 }
 
-/** Does the evidence of a finding point at the material? True if a stretch of it stands in the material word for
- *  word: what a model quotes from memory instead of from the page does not. */
+/** Does the evidence of a finding point at the material? True if a stretch of it stands in the material: twelve
+ *  characters and more, compared without spaces and line breaks (a model lays a signature out in one line that the
+ *  file has in four), and a quote with "..." in it counts by its pieces. What a model quotes from memory instead of
+ *  from the page does not stand there. */
 export function grounded(evidence: string, material: string) {
-  const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
-  const page = flat(material);
+  const bare = (s: string) => s.replace(/\s+/g, '');
+  const page = bare(material);
   const quoted = [...evidence.matchAll(/`([^`]{8,})`/g)].map((m) => m[1]!);
-  return [...quoted, ...evidence.split('\n')].map(flat).some((q) => q.length >= 12 && page.includes(q));
+  return [...quoted, ...evidence.split('\n')].flatMap((q) => q.split(/\.{3,}|…/)).map(bare).some((q) => q.length >= 12 && page.includes(q));
 }
 
 /** An answer with [[n]] source marks -> the text without them, and which contributions it used. */
