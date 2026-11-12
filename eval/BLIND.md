@@ -186,3 +186,21 @@ joined reviews with the controller's word under each finding (`P` also for a fin
 Both readers gave the model alone 2 and the joined reviews 3 and 1. This reader counts more of the joined
 findings wrong, 10 of 18 against 6 of 15. Of the controller's 14 doubts, 9 are on those 10; one is on a finding
 that is right (finding 3, whose mechanism the doubt itself describes); two wrong findings carry no doubt.
+
+## A second NEAR contract (`vesting audit`, 11 findings of BlockSec's report)
+
+One reader, four answers under random names, the night of 2026-11-12. The reviewers' answer is the list of
+findings of order-38, an audit ordered through the contract on testnet from the three NEAR reviewers on
+Qwen3.6-35B-A3B, with the controller on kimi-k2.6 (`D`: a reference finding stated under "Findings the
+controller doubts"); what the composer's model wrote before that list was left out. The models alone had 4,000
+tokens to answer with.
+
+| answer | verdicts, finding by finding | stated | items | distinct | wrong | not confirmed | tests | cut off |
+|---|---|---|---|---|---|---|---|---|
+| order-38: the three reviews joined, with the controller | `AASPSAAAAAA` | 2 | 14 | 11 | 7 | 5 | 2 | no |
+| alone, at once: Qwen3.6-35B-A3B | `AAPASSAASAA` | 3 | 5 | 5 | 1 | | 2 | no |
+| alone, at once: kimi-k2.6 | `AASPSSAPSAA` | 4 | 9 | 9 | 3 | | 3 | yes |
+| alone, at once: DeepSeek-V4.1-Flash-1017 | `SPSSSSASSAA` | 7 | 10 | 10 | 0 | | 2 | yes |
+
+The three models together state findings 1, 3, 4, 5, 6, 8 and 9: seven. Of the controller's six doubts five are
+on findings the reader calls wrong and one on a finding that is right but rated too high.

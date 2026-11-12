@@ -528,6 +528,39 @@ contracts: 3 against 2 is inside that noise. A sign, measured twice by readers w
 swarm gives that no joining of public models can is measured elsewhere in this file: knowledge the models do not
 have (22 of 22 facts against 0 or 1).
 
+## The second NEAR contract: the reviews lose, and why
+
+A vesting contract of the same project, audited by BlockSec the same year, reviewed this time as a customer would
+have it: an order placed in the contract on testnet (order-38), three NEAR reviewers named, the controller on. It
+went through in five minutes: 4.00 of 5.00 USDC charged, 1.00 to each expert, 1.00 back to the customer, 0.39 USD
+of models. Read blind against the report's 11 findings ([BLIND.md](BLIND.md)):
+
+| answer | findings of the report stated, of 11 | wrong, of distinct items |
+|---|---|---|
+| DeepSeek alone, one call | 7 | 0 of 10 |
+| kimi-k2.6 alone, one call | 4 | 3 of 9 |
+| Qwen3.6-35B alone, one call | 3 | 1 of 5 |
+| the three models' answers together | 7 | |
+| three NEAR reviewers on Qwen3.6-35B, joined, with the controller | 2 | 7 of 11 |
+
+**Over the two NEAR contracts, 22 findings: the reviews 5, the model they ran on 5, kimi 6, DeepSeek 8, the three
+models together 10.** The first contract's "3 against 2" was noise. A review on a cheap model is level with that
+model alone and at half of what three models find between them.
+
+The journal of the order says where the findings went. None of the 27 passes raised the report's two High
+findings (a claim records one amount and transfers another; a vesting is removed with tokens unclaimed), nor its
+recommendations (the owner's powers, ownership handed over in one step, times that are not checked). A pass was
+told to report "only what this part of your knowledge leads to", the checklists are about NEAR's mechanics and
+not about a vesting schedule, and so what the model would have noticed by itself never reached a check: **the
+review narrowed the model to its checklist.** And all three reviewers ran on one model, the weakest of the three
+that were asked alone.
+
+Changed after this, on what the two contracts showed (they are the development set from here on, and are no
+longer evidence for anything): an expert first reads the files with no checklist and the passes are told what it
+found; the three reviewers judge with three different models; a check is shown the files its findings name.
+The composer, which on this order had written a list and four tests of its own from the titles, now writes one
+paragraph.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
