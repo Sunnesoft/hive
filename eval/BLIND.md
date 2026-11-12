@@ -101,3 +101,21 @@ the earlier ones did: five of the six repeated counts are the same, one differs 
 | expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 (read before: 3) | `SASSSAAAA` | 4 | 1 | yes | 10 | 3 |
 | swarm, experts named by the customer (read before: 4, three times) | `SAASSAAAS` | 4 | 3 | no | 16 | 6 |
 | the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017 | `SPPPPSAAA` | 2 | 1 | yes | 17 | 4 |
+
+## The third round: the same twelve passes, merged by the composer, and joined by code
+
+One reader per contract and version, each batch with answers read before (their counts came out the same, but
+for one that differs by one). For the list joined by code the reader checked every fifth item against the code.
+
+| answer | Boss Bridge: verdicts | stated | Thunder Loan: verdicts | stated |
+|---|---|---|---|---|
+| alone, at once: DeepSeek-V4.1-Flash-1017 | `SASSPSASA` | 5 | `SAASSAAAS` | 4 |
+| swarm, experts named by the customer | `SASSSAASA` | 5 | `SAASSAAAS` | 4 |
+| the passes, then one verdict call | `SASSPSAAA` | 4 | `SPPPPSAAA` | 2 |
+| the passes, merged by the composer | `SASSAAASA` | 4 | `SPAASSAAA` | 3 |
+| the passes, joined by code | `SSSSSSASA` | 7 | `SSSSSSPSA` | 7 |
+
+The list joined by code: 113 items on the bridge, about 34 of them distinct; 111 on the loan, about 35 distinct. Of
+the sampled items outside the reference set, 3 of 14 are wrong on the bridge (7 hold, 4 cannot be told from the
+code shown) and 6 of 17 on the loan (9 hold, 2 cannot be told).
+

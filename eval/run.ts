@@ -373,9 +373,12 @@ const stages: Record<string, () => Promise<void>> = {
       for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (similarity(v[i]!, v[j]!) >= SAME) of[root(j)] = root(i);
       const groups = new Map<number, typeof items>();
       items.forEach((x, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), x]));
-      const found = [...groups.values()].map((g) => ({ shown: [...g].sort((a, b) => a.rank - b.rank || b.body.length - a.body.length)[0]!, passes: new Set(g.map((x) => x.pass)).size }))
+      // Joined findings are close, not the same: two bugs in one function fall together. So the fullest one is given
+      // whole and every other one keeps its own first line: what one pass alone said stays on the page.
+      const bare = (s: string) => s.replace(/^\*+|\*+$/g, '').replace(/^\d+\.\s+/, '');
+      const found = [...groups.values()].map((g) => { const [shown, ...rest] = [...g].sort((a, b) => a.rank - b.rank || b.body.length - a.body.length); return { shown: shown!, rest, passes: new Set(g.map((x) => x.pass)).size }; })
         .sort((a, b) => a.shown.rank - b.shown.rank || b.passes - a.passes);
-      const text = `# Findings\n\n${found.length} findings from twelve passes over the contract, each as the pass that found it wrote it; findings that say the same thing are listed once. None of them has been checked against the code.\n\n${found.map((f, k) => `## ${k + 1}. ${f.shown.head.replace(/^\*+|\*+$/g, '')}\n\n${f.shown.body.trim().slice(0, 900)}\n\n*Found by ${f.passes} of 12 passes.*`).join('\n\n')}\n`;
+      const text = `# Findings\n\n${items.length} findings written by twelve passes over the contract, in ${found.length} groups of findings that are close to each other. In each group the fullest one is given as its pass wrote it, and the others by their first lines. None of them has been checked against the code.\n\n${found.map((f, k) => `## ${k + 1}. ${bare(f.shown.head)}\n\n${f.shown.body.trim().slice(0, 700)}${f.rest.length ? `\n\nClose to it, from other passes:\n${f.rest.map((x) => `- ${bare(x.head).slice(0, 400)}`).join('\n')}` : ''}`).join('\n\n')}\n`;
       keep(t.id, UNION, { text, usd: 0, seconds: 0 });
       console.error(`${t.id}: ${items.length} findings written by the passes, ${found.length} after joining at ${SAME}; in one pass only: ${found.filter((f) => f.passes === 1).length}`);
     }

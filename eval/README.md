@@ -404,6 +404,29 @@ each finding. The mark is the same: 7 of 9 on the bridge, 6 of 9 on the loan, an
 above stated. The list will be long and none of it checked: how many findings it lists and how many of them the
 code refutes is part of the result.
 
+## The passes, merged and joined: the result (2026-11-12)
+
+Findings stated as an item of their own, read blind ([BLIND.md](BLIND.md)); the same twelve passes each time:
+
+| | Boss Bridge, of 9 | Thunder Loan, of 9 |
+|---|---|---|
+| DeepSeek alone | 5 | 4 |
+| the swarm, three auditors named | 5 | 4 |
+| the passes, then one call for the verdict | 4 | 2 |
+| the passes, merged by the composer | 4 | 3 |
+| the passes, joined by code | 7 | 7 |
+| what counts as working | 7 | 6 |
+
+- **Joined by code, the passes carry what a single call misses**, on both contracts and with both of the two
+  findings named in advance: the unbacked mint on the bridge, the deposit in place of a repayment on the loan.
+- **A model that merges loses them**, whichever model and whichever rule: the verdict call and the composer both
+  end below the model alone.
+- **It is a list, not a report.** 113 and 111 items, about a third of them distinct. Of the items outside the
+  reference set that the reader checked against the code, 3 of 14 and 6 of 17 are wrong. Nothing in this version
+  checks a finding; that step is what turns the list into an answer, and it is built next, in the runner.
+- Joined more loosely, the list lost the bridge's unbacked mint inside the finding next to it. The join is kept
+  conservative, and a group shows the first line of every finding in it.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
