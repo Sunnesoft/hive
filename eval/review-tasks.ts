@@ -3,8 +3,8 @@
 //
 // A review is how an expert with "work": "review" goes through a customer's files (node/src/review.ts). It is
 // measured on contracts with an audit that somebody else published: the three Solidity contracts of tasks.ts that
-// nothing here was prepared for, with the same findings as there, and NEAR contracts in Rust audited by BlockSec
-// and by Halborn (eval/agents/SOURCES.md). The score is the count of reference findings a reader finds stated as
+// nothing here was prepared for, with the same findings as there, and NEAR contracts in Rust audited by BlockSec,
+// Halborn, Guvenkaya, OtterSec and Trail of Bits (eval/agents/SOURCES.md). The score is the count of reference findings a reader finds stated as
 // items of their own, reading without knowing whose answer it is; there are no patterns here, because for
 // findings they proved unreliable.
 //
@@ -15,8 +15,11 @@
 // what the report says, in our words; the severities are the reports'.
 //
 // Two sets. The reviews were changed on what the first three NEAR contracts showed (`set: 'development'`): their
-// numbers say how the changes went, and prove nothing. The other four (`set: 'held out'`) were written down here
-// before the reviews were frozen and are run once, on the frozen code: theirs is the result.
+// numbers say how the changes went, and prove nothing. The others (`set: 'held out'`) were written down here
+// before the reviews were frozen and are run once, on the frozen code: theirs is the result. Four of them came
+// from a second search, through every firm with public NEAR reports and through the audits that projects keep in
+// their own repositories; two of those reports (the SWEAT token's and cNEAR's) are from 2026, later than anything
+// the models could have been trained on.
 //
 // A contract larger than an expert is given (48,000 characters, ten files) is represented by whole files of it
 // that fit, chosen as those the report's findings are in; findings in files left out are not in the list. Every
@@ -61,6 +64,15 @@ const REGISTRY = at('https://raw.githubusercontent.com/octopus-network/octopus-a
     'appchain-registry/src/sudo_actions.rs', 'appchain-registry/src/storage_key.rs', 'appchain-registry/src/appchain_owner_actions.rs', 'appchain-registry/Cargo.toml', 'Cargo.toml']);
 const REFVE = at('https://raw.githubusercontent.com/ref-finance/ref-ve/1fd6dfe2160590bab0f8e9ccf17c4dcce2c42f33/contracts/ref-ve/src',
   ['lib.rs', 'management.rs', 'actions_of_reward.rs', 'token_receiver.rs', 'actions_of_proposal.rs', 'proposals_action.rs', 'proposals.rs', 'owner.rs', 'storage_impl.rs']);
+
+const SWEAT = at('https://raw.githubusercontent.com/Sweat-Foundation/sweat-token/9b84e71ae05d7faf46826a82fbaf453794f0ef14',
+  ['contract/Cargo.toml', 'contract/src/lib.rs', 'contract/src/api.rs', 'contract/src/core.rs', 'contract/src/defer.rs', 'contract/src/storage.rs', 'contract/src/migration.rs', 'contract/src/meta.rs',
+    'vendors/near-contract-standards/src/fungible_token/core_impl.rs', 'vendors/near-contract-standards/src/fungible_token/storage_impl.rs']);
+const MBSTORE = at('https://raw.githubusercontent.com/Mintbase/mb-contracts/aedb2c4271864f126d1190711a0c9eb4d7a842b3/mb-store',
+  ['Cargo.toml', 'src/lib.rs', 'src/core.rs', 'src/approvals.rs', 'src/minting.rs', 'src/enumeration.rs']);
+const CNEAR = at('https://raw.githubusercontent.com/sig-net/cNEAR/c1944263327d8b4cb0b640824b33f37f78d7108d', ['Cargo.toml', 'src/lib.rs']);
+const POT = at('https://raw.githubusercontent.com/PotLock/core/71f35051f81c333c85fafc42d073173191ad14ca/contracts/pot',
+  ['Cargo.toml', 'src/payouts.rs', 'src/donations.rs', 'src/admin.rs', 'src/constants.rs', 'src/events.rs']);
 
 export const REVIEWS: ReviewTask[] = [
   fromTasks('bridge audit'),
@@ -182,6 +194,72 @@ export const REVIEWS: ReviewTask[] = [
       'Recommendation (2.3.5): upgrade does not check that the gas attached is enough for migrate',
       'Recommendation (2.3.6): centralization: the owner\'s key should be a multisig or a DAO',
       'Recommendation (2.3.7): a whitelisted token with elastic supply (deflationary) makes the amount transferred and the amount received differ',
+    ],
+  },
+  {
+    // Guvenkaya, "SWEAT NEP-141 Token Smart Contract Security Review", final 5 June 2026, on commit 9b84e71. Ten of
+    // the files in its scope. Left out: GUV-7, whose flaw is in a dependency (near-plugins), and GUV-10 (events).
+    id: 'sweat token audit', platform: 'NEAR', set: 'held out', experts: NEAR, files: SWEAT,
+    task: audit('a NEP-141 token whose oracles mint it in batches for the steps users walked, part of it deferred to a holding contract, with a denylist, roles and a pause', SWEAT),
+    findings: [
+      'High (GUV-1): LookupMapAdapter keeps a balance under the hash of the account id or, for accounts with a configured postfix, under the plain account id, while the storage an account pays for (account_storage_usage) was measured on one 64-byte probe account: accounts kept under the plain id use other storage than they are charged for and can be undercharged',
+      'Medium (GUV-2): new makes the contract\'s own account the super-admin of the access control, so governance at run time hangs on whoever can make the contract call itself or upgrade it',
+      'Low (GUV-3): defer_batch credits every (account, steps) entry with no check of the denylist: a denylisted account still receives deferred mints',
+      'Low (GUV-4): the oracle fee is computed as (value * 5).div_ceil(100): the multiplication can overflow before the division for a very large value',
+      'Low (GUV-5): burn destroys tokens and does not require one yoctoNEAR',
+      'Low (GUV-6): storage_unregister with force burns the caller\'s balance and is not covered by the pause of the token',
+      'Low (GUV-8): defer_batch accepts an empty batch and entries with zero steps instead of rejecting a malformed batch',
+      'Low (GUV-9): defer_batch sets no maximum size of a batch: an oversized one can use so much gas that the callback does not run, so the tokens are not deposited to the holding contract, the fee is not minted and what was accounted before the callback stays inconsistent',
+      'Informational (GUV-11): defer_batch moves steps_since_tge forward before the holding contract\'s promise resolves and the callback of a failed batch moves it back: a failed earlier batch can roll the counter back behind a later successful one, so a range of steps is used twice',
+    ],
+  },
+  {
+    // OtterSec, "Mintbase" audit, 20 - 29 March 2023, on commit aedb2c4. The store contract only: six of its files.
+    // The report's findings in the two market contracts are not in the list.
+    id: 'mintbase store audit', platform: 'NEAR', set: 'held out', experts: NEAR, files: MBSTORE,
+    task: audit('an NFT contract (NEP-171, NEP-178) where the owner names minters and tokens carry royalties and splits between owners', MBSTORE),
+    findings: [
+      'Critical (OS-MTB-ADV-00): nft_transfer_call does not give the token to the receiver before it calls nft_on_transfer: the transfer waits for nft_resolve_transfer, against NEP-171, so a receiver that acts on the token in its callback does not own it yet and can lose it',
+      'Critical (OS-MTB-ADV-01): when a transfer has to be undone, nft_resolve_transfer calls the internal transfer with the receiver where the previous owner belongs, so the token is not returned to its owner',
+      'Critical (OS-MTB-ADV-02): nft_revoke refunds the storage cost of an approval to the caller even when no approval was revoked: called again and again it drains the store\'s balance',
+      'Medium (OS-MTB-ADV-06): the number of approvals of a token is not limited: with many of them the functions that go through the approvals use too much gas and cannot be called',
+      'Medium (OS-MTB-ADV-07): withdraw_minter asserts one yoctoNEAR and is not payable, so it can never succeed: a minter cannot give its right up',
+      'Medium (OS-MTB-ADV-08): nft_transfer_call clears the approvals and the split owners of a token whatever comes of the transfer, and nft_resolve_transfer does not restore them when the transfer fails',
+      'Medium (OS-MTB-ADV-10): a transfer to an account that owns no token yet adds an entry to tokens_per_owner whose storage nobody is charged for: by transfers to new accounts the store\'s funds get locked in storage',
+    ],
+  },
+  {
+    // Trail of Bits, "cNEAR Security Assessment", 14 August 2026, on commit c194426. The contract is one file; the
+    // findings in the deployment script, the justfile and the lock file are not in the list. TOB-CNEAR-7 and -13
+    // rest partly on code outside the file (the Aurora controller, near-plugins 0.5.1).
+    id: 'cnear audit', platform: 'NEAR', set: 'held out', experts: NEAR, files: CNEAR,
+    task: audit('a NEP-141 token with an owner, roles, a pause, a freeze list, forced transfers and a price the owner publishes, upgraded through a controller contract', CNEAR),
+    findings: [
+      'High (TOB-CNEAR-7): upgrade deploys the whole of its input as the new Wasm, while the controller that calls it sends the Wasm Borsh-serialized together with an optional gas value: an upgrade through the controller deploys the envelope and leaves the contract inoperable',
+      'High (TOB-CNEAR-13): owner_set takes only the Owner role from the previous owner and leaves it the super-admin and the right to grant the Owner role: a former owner can make itself owner again or strip the new one',
+      'Medium (TOB-CNEAR-14): the pause and the freeze are enforced only in ft_transfer and ft_transfer_call: a frozen or paused holder can call storage_unregister with force and burn its balance, out of reach of force_ft_transfer',
+      'Low (TOB-CNEAR-11): pausing, unpausing, freezing and unfreezing an account and changing the price emit no events of their own',
+      'Informational (TOB-CNEAR-9): owner_get reports one owner_id, while every account that holds the Owner role is authorized as owner',
+      'Informational (TOB-CNEAR-10): the storage of the growing freeze list is paid by the contract, against what the file\'s own documentation says',
+      'Informational (TOB-CNEAR-12): force_ft_transfer bypasses the pause and the freeze, which is nowhere documented',
+    ],
+  },
+  {
+    // Guvenkaya, "Potlock NEAR Rust Smart Contract Security Assessment", final 30 January 2024, on commit 71f3505.
+    // The pot contract only: six of its files. Left out: the findings in its other files and in the other
+    // contracts, and GUV-5 (overflow checks of the workspace build), which these files cannot show.
+    id: 'pot audit', platform: 'NEAR', set: 'held out', experts: NEAR, files: POT,
+    task: audit('a funding round ("pot"): projects apply, donors give NEAR that is matched from a pool, a "chef" sets the payouts and admins pay them out; donors may have to pass a sybil check by another contract', POT),
+    findings: [
+      'Critical (GUV-1): admin_process_payouts goes through all applications and, if one of them is not approved, pays nothing at all: anyone can add an application before the payout and block it',
+      'Critical (GUV-2): chef_set_payouts does not clear the nested collection payout_ids_by_project_id (only the entry at its root is removed), so setting the payouts a second time leaves the collection inconsistent',
+      'High (GUV-3): sybil_callback takes the donor as env::predecessor_account_id(), which in a callback is the contract itself: when the sybil check fails, the donation is refunded to the contract and not to the user',
+      'High (GUV-4): calculate_fee divides before it multiplies, so the fee is 0 for an amount below the total basis points (the fee is bypassed), and it rounds in the wrong direction',
+      'Low (GUV-6): a payout is marked paid (paid_at) only in the callback of its transfer, so payouts could be run again before the callbacks land; only the flag all_paid_out set after the loop prevents it now',
+      'Low (GUV-10): owner_set_admins removes the admins it is given, as owner_remove_admins does, instead of setting them',
+      'Low (GUV-11): admin_dangerously_set_pot_config sets the whole configuration at once: it is error-prone and should not exist beside the separate setters',
+      'Low (GUV-13): no privileged function requires an attached deposit, so a function-call access key of an owner or admin account can call them',
+      'Low (GUV-14): nothing keeps the owner, an admin or the chef from also being a project that applies to the pot',
     ],
   },
 ];
