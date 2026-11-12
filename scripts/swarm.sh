@@ -14,7 +14,9 @@
 #   deploy                         build the contract; create swarm/runner/operator.ROOT; deploy and init
 #   set <field> <value>            change one config field (fee_bps, audit_base, min_deposit, ...)
 #   image <repo>                   build and push the runner image, pin its digest in docker-compose.yml
-#   tee-deploy                     deploy docker-compose.yml to Phala Cloud with the secrets of .env.tee
+#   tee-deploy                     deploy docker-compose.yml to Phala Cloud with the secrets of .env.tee, on the
+#                                  smallest machine (TEE_SIZE names another). Phala bills it for every hour it runs
+#   tee-stop | tee-delete          stop the machine: only its disk is billed / delete it: nothing is billed
 #   runner-key <url> <compose>     check the runner, then let its signing key call the runner's methods
 #   dev-key                        a runner key without a TEE (local chain, testnet): prints DEV_KEY
 #   pause | resume                 no key can act as the runner / the runner works again
@@ -116,7 +118,10 @@ image) # the TEE runs exactly this digest; the compose hash in the quote covers 
   echo "docker-compose.yml now runs $digest" ;;
 tee-deploy) # .env.tee: NEARAI_API_KEY, MARKET_TOKEN, optional BRAVE_API_KEY. Encrypted to the TEE by the CLI.
   [[ -f .env.tee ]] || { echo "need .env.tee with the secrets" >&2; exit 1; }
-  phala deploy -c docker-compose.yml -n swarm-runner -e .env.tee --wait ;;
+  # The size is named here, not left for Phala to choose: it is what the machine costs per hour.
+  phala deploy -c docker-compose.yml -n swarm-runner -e .env.tee -t "${TEE_SIZE:-tdx.small}" --wait ;;
+tee-stop) phala cvms stop swarm-runner ;;     # the disk stays, with the sealed uploads on it
+tee-delete) phala cvms delete swarm-runner ;; # asks first: the disk and the sealed uploads go with it
 runner-key)
   verify "$2" "${3:?app-compose.json of the deployed app}" || { echo "the runner did not pass the checks" >&2; exit 1; }
   pk=$(curl -fsS "${2%/}/attestation" | jq -r .publicKey)
