@@ -6,7 +6,8 @@
 //            pass spends its reply on the flaws anyone sees first and never gets to what its own part is for
 //   records  code reads the findings out of the replies. From here on no model rewrites the list as a whole:
 //            a model that merges a long list drops its rare items, and the rare ones are the point
-//   groups   records that say the same thing, by how close their embeddings are
+//   groups   records that say the same thing, by how close their embeddings are, and then by the model's answer
+//            to one narrow question (see `same` below): one flaw in ten wordings is checked once
 //   checks   one call per group: does it hold in the materials? A finding that holds must quote the lines it
 //            rests on, and code looks those lines up in the materials: no such line, not confirmed
 //   leads    what a check did not confirm is not thrown away either: a model's "no" is a judgement like any
@@ -27,12 +28,14 @@ import { log } from './log.ts';
 import { alike, bySeverity, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
-/** `also`: other wordings of the same finding, which the model named the same and code joined to this one. */
-export type Checked = Finding & { proof?: string; also?: string[] };
+/** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
+ *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
+export type Raised = Finding & { also?: string[] };
+export type Checked = Raised & { proof?: string };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
 export type Counts = { passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
-export type Review = { findings: Checked[]; leads: Finding[]; cost: bigint; counts: Counts; why?: llm.Why };
+export type Review = { findings: Checked[]; leads: Raised[]; cost: bigint; counts: Counts; why?: llm.Why };
 
 const AT_ONCE = 3; // calls of one review in flight at once: more, and a model's queue answers with timeouts
 const EMBED_WAIT = 30_000; // ms a review waits for the embeddings of its findings before it compares them by words
@@ -97,13 +100,16 @@ async function sortedBy(model: string, groups: Item[][], cap?: bigint): Promise<
   const said = await llm.sameFindings(model, lines.slice(0, asked), cap);
   return { groups: [...partition(asked, said.groups).map((ids) => ids.map((i) => byRank[i]!)), ...byRank.slice(asked).map((g) => [g])], cost: said.cost };
 }
-/** The finding of a joined group: its gravest confirmed wording, with the other wordings it was joined from. */
-const oneOf = (joined: Item[][]): Checked => {
-  const first = gravest(joined.flat().filter((x) => x.held).map((x) => x.f));
-  const worded = [...joined.map((g) => headOf(g).title), ...joined.flat().flatMap((x) => x.f.also ?? [])]; // every group's wording, and what each member was already joined from
-  const others = [...new Set(worded)].filter((t) => t.toLowerCase() !== first.title.toLowerCase());
-  return { ...first, ...(others.length ? { also: others } : {}) };
+/** A finding with the other wordings it was joined from, none of them twice and none its own. */
+const withAlso = <T extends Raised>(f: T, wordings: string[]): T => {
+  const seen = new Set([f.title.toLowerCase()]);
+  const others = wordings.filter((t) => !seen.has(t.toLowerCase()) && !!seen.add(t.toLowerCase()));
+  return { ...f, ...(others.length ? { also: others } : {}) };
 };
+/** Every wording in a joined group: each group's own, and what each member was already joined from. */
+const wordingsOf = (joined: Item[][]) => [...joined.map((g) => headOf(g).title), ...joined.flat().flatMap((x) => x.f.also ?? [])];
+/** The finding of a joined group: its gravest confirmed wording, or its gravest, with the others under it. */
+const oneOf = (joined: Item[][]): Checked => withAlso(headOf(joined.flat()), wordingsOf(joined));
 const confirmedIn = (joined: Item[][]) => joined.some((g) => g.some((x) => x.held));
 const rank = (f: Finding) => SEVERITIES.indexOf(f.severity);
 const grave = (f: Finding) => f.severity === 'Critical' || f.severity === 'High';
@@ -129,7 +135,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
     BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
-    llm.sameCeiling(2 * SAME_IN, price) + // the lines, and as much again for the JSON around them
+    2n * llm.sameCeiling(2 * SAME_IN, price) + // asked twice, before the checks and after; the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
   if (cost + worst > hold) return stop('too_expensive');
 
@@ -159,31 +165,42 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const raised = read.flatMap((r) => findingsIn(r.text));
   Object.assign(counts, { passes: read.length, raised: raised.length });
 
-  // The gravest groups are checked first, and of equally grave ones those more passes arrived at.
-  const groups = (await same(raised, (f) => f)).sort((a, b) => rank(gravest(a)) - rank(gravest(b)) || b.length - a.length);
+  // What the passes raised, in groups that say the same: by code's measure, then by the model's answer to the
+  // narrow question, so that one flaw raised in ten wordings is checked once, not ten times. In a group the
+  // different wordings come first: a check is shown as many of them as fit. The gravest groups are checked first,
+  // and of equally grave ones those more passes arrived at.
+  const alikeRaised = await sortedBy(m.model, await same(raised.map((f): Item => ({ f, held: false })), (x) => x.f), hold);
+  cost += alikeRaised.cost;
+  const groups = alikeRaised.groups
+    .map((joined) => ({ wordings: wordingsOf(joined), all: [...new Set([...joined.map(headOf), ...joined.flat().map((x) => x.f)])] as Finding[] }))
+    .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.all.length - a.all.length);
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
   const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN));
   const confirmedBy = (r: Awaited<ReturnType<typeof step>>) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material)));
-  const checks = await each(toCheck, checked);
+  const checks = await each(toCheck, (group) => checked(group.all));
   if (toCheck.length && checks.every((r) => r.why) && Date.now() < deadline) return stop(checks[0]!.why!); // the model is not there; out of time, what was raised is still given
-  const held = checks.map(confirmedBy);
+  // The wordings a group was joined from stay with what its check confirmed: under the first finding, none that is a finding itself.
+  const held = checks.map(confirmedBy).map((found, i): Checked[] => {
+    const own = new Set(found.map((f) => f.title.toLowerCase()));
+    return found.map((f, n) => (n ? f : withAlso(f, toCheck[i]!.wordings.filter((t) => !own.has(t.toLowerCase())))));
+  });
 
   // What the confirmed findings allow together: raised by one call that sees them all, a line each, then checked
   // one by one like any finding. It can only add: what it raises and its check does not confirm is left out.
   const soFar = bySeverity(held.flat());
   const together = soFar.length > 1 ? await step('combine', '', section('Confirmed findings', soFar.map((f, i) => `${i + 1}. ${lineOf(f)}\n   ${f.how.slice(0, 200)}`).join('\n'), COMBINE_IN)) : { text: '' };
-  const combined = (await each(findingsIn(together.text).slice(0, MAX_COMBINED), (f) => checked([f]))).flatMap(confirmedBy);
+  const combined: Checked[] = (await each(findingsIn(together.text).slice(0, MAX_COMBINED), (f) => checked([f]))).flatMap(confirmedBy);
   counts.combined = combined.length;
   // A group of which nothing held, or that was never checked, stays as the pass raised it: not confirmed.
-  const open = groups.filter((_, i) => !held[i]?.length).map(gravest);
+  const open = groups.filter((_, i) => !held[i]?.length).map((g): Raised => withAlso(gravest(g.all), g.wordings));
   // Two groups may have held the same thing, and a lead may say what a finding says: of those that say the same,
   // by code's measure or by the model's answer, the confirmed one stays, in its gravest wording.
   const items: Item[] = [...[...held.flat(), ...combined].map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
   const sorted = await sortedBy(m.model, await same(items, (x) => x.f), hold);
   cost += sorted.cost;
   const findings: Checked[] = bySeverity(sorted.groups.filter(confirmedIn).map(oneOf));
-  const leads = bySeverity(sorted.groups.filter((j) => !confirmedIn(j)).map((j) => headOf(j.flat()))).filter(worthALook).slice(0, MAX_LEADS);
+  const leads = bySeverity(sorted.groups.filter((j) => !confirmedIn(j)).map(oneOf)).filter(worthALook).slice(0, MAX_LEADS);
   Object.assign(counts, { groups: groups.length, checked: checks.filter((r) => !r.why).length, held: findings.length, leads: leads.length });
 
   const toProve = code ? findings.filter(grave).slice(0, MAX_PROOFS) : [];
@@ -209,8 +226,9 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
     f.fix && `**Fix:** ${f.fix}`,
     f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
-/** One lead, in a line: what it would be and where, as the pass worded it. */
-const line = (f: Finding, note = '') => `- **${f.severity}**${f.where ? `, ${f.where}` : ''}: ${f.title}${note}`;
+/** One lead, in a line: what it would be and where, as the pass worded it, and the other wordings joined to it. */
+const line = (f: Raised, note = '') =>
+  `- **${f.severity}**${f.where ? `, ${f.where}` : ''}: ${f.title}${note}${f.also?.length ? ` *(also raised as: ${f.also.slice(0, 2).join('; ')}${f.also.length > 2 ? `; and ${f.also.length - 2} more` : ''})*` : ''}`;
 
 /** A review as one expert's contribution: what the checker of contributions reads and an owner's trial run shows. */
 export const reportOf = (r: Pick<Review, 'findings' | 'leads' | 'counts'>) =>
@@ -232,11 +250,11 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
 
 /** `by`: the experts that confirmed it, and whose it is; `seen`: every expert that raised it, confirmed or not. */
 export type Joined = Checked & { by: number[]; seen: number[] };
-export type Lead = Finding & { seen: number[] };
+export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one: findings that say the same thing become one, in its gravest confirmed
  *  wording, with everyone who found it; what no expert confirmed stays a lead. The experts never saw each other's
  *  findings. The gravest first; of leads, then those more experts raised. */
-export async function join(reviews: { id: number; findings: Checked[]; leads: Finding[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
+export async function join(reviews: { id: number; findings: Checked[]; leads: Raised[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
   // Between experts the protocol's model answers which findings are the same; it sees a line of each, and code joins.
   const sorted = reviews.length > 1 ? (await sortedBy(cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL, await same(all, (x) => x.f))).groups : all.map((x) => [[x]]);
@@ -246,7 +264,7 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Fi
     const proof = first.proof ?? held.find((x) => x.f.proof)?.f.proof;
     return { ...first, ...(proof ? { proof } : {}), by: ids(held), seen: ids(joined.flat()) };
   });
-  const leads = sorted.filter((j) => !confirmedIn(j)).map((j): Lead => ({ ...headOf(j.flat()), seen: ids(j.flat()) }));
+  const leads = sorted.filter((j) => !confirmedIn(j)).map((j): Lead => ({ ...oneOf(j), seen: ids(j.flat()) }));
   return { findings: bySeverity(findings), leads: bySeverity(leads.sort((a, b) => b.seen.length - a.seen.length)).slice(0, MAX_LEADS) };
 }
 

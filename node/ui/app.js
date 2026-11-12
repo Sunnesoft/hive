@@ -457,7 +457,7 @@ function renderNew() {
       + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
       + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out)
       + (v.combine_bytes + v.combine_in + around) * p.in + v.combine_out * p.out
-      + (v.same_bytes + v.same_in) * p.in + v.same_out * p.out);
+      + 2 * ((v.same_bytes + v.same_in) * p.in + v.same_out * p.out));
   };
   const worst = () => {
     const p = info.models.find((m) => m.id === model.value);
