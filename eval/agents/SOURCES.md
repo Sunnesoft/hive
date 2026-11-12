@@ -48,9 +48,14 @@ A third reviewer of NEAR contracts, `near-contract-review` in [../../agents](../
 ourselves. BlockSec's `rustle` has a good catalogue of detectors, but it is under AGPL-3.0: nothing here is taken from it.
 
 The NEAR reviews are scored against audits other people published: BlockSec's reports in
-[blocksecteam/audit-reports](https://github.com/blocksecteam/audit-reports) (`rust/`), each tied to a commit of the
-contract it audited. The contracts and the reports carry no licence, so they are only linked from the tasks, never
-copied here.
+[blocksecteam/audit-reports](https://github.com/blocksecteam/audit-reports) (`rust/`) and Halborn's in
+[HalbornSecurity/PublicReports](https://github.com/HalbornSecurity/PublicReports) ("NEAR Smart Contract Audits"),
+each tied to a commit of the contract it audited; for one contract also the project's own report of an exploit.
+Most of the contracts and the reports carry no licence, so they are only linked from the tasks
+([../review-tasks.ts](../review-tasks.ts) names every commit and report), never copied here. We looked for
+contracts audited by several firms or in an open contest, to have fuller lists: no contest on a NEAR contract has
+a public list of findings, and of the three contracts with reports of several firms only one (Stader's NearX) has
+them on nearly the same code.
 
 ## The contract under audit
 
