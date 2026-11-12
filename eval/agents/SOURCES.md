@@ -42,7 +42,11 @@ audit finds is the course's own report, `audit-data/2023-09-01-puppy-raffle.md` 
 
 The second audit, the one nothing here was prepared for, points to `src/TSwapPool.sol` of
 [Cyfrin/5-t-swap-audit](https://github.com/Cyfrin/5-t-swap-audit) at `7bd52c6`; its answer key is
-`audit-data/2023-09-01-tswap-audit.md` on that repository's `audit-data` branch (`0290e26`).
+`audit-data/2023-09-01-tswap-audit.md` on that repository's `audit-data` branch (`0290e26`). Two more of the same
+kind: `src/L1BossBridge.sol` of [Cyfrin/7-boss-bridge-audit](https://github.com/Cyfrin/7-boss-bridge-audit) at
+`d59479c` (report `audit-data/2023-09-01-boss-bridge-audit.md`, `7ec1e86`) and `src/protocol/ThunderLoan.sol` of
+[Cyfrin/6-thunder-loan-audit](https://github.com/Cyfrin/6-thunder-loan-audit) at `2250d81` (report
+`audit-data/2023-09-01-thunder-loan.md`, `20f617f`).
 
 ## Invented
 

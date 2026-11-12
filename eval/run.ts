@@ -1,7 +1,7 @@
 // The measurements behind eval/README.md: the same questions answered in several ways and scored against facts
 // written down in advance (eval/tasks.ts). Every stage keeps what it got in eval/out/, so a rerun pays only for
 // what is missing.
-//   npm run eval -- bare solo swarm compose modes market score report        any subset, in this order
+//   npm run eval -- bare solo swarm compose modes market ablate score report        any subset, in this order
 // Needs a runner on testnet started with TRACE_DIR (its trace is how the swarm's answers and costs are read), the
 // experts of eval/agents and agents/ registered there, and CUSTOMER: an account with test USDC whose key is in
 // ~/.near-credentials. RUNNER_URL and RUNNER_TRACE say where the runner and its trace are.
@@ -46,6 +46,12 @@ const EARLIER = 'earlier: '; // an answer from before a change that eval/README.
 const folder = (name: string) => (existsSync(`eval/agents/${name}`) ? `eval/agents/${name}` : `agents/${name}`);
 const poolOf = (t: Task) => POOLS[t.group];
 const NAMED = 'swarm, experts named by the customer';
+// What an expert's materials add to the model it runs on: each model answers alone, and with each auditor's materials.
+const TRIO = ['Qwen/Qwen3.8-27B', 'deepseek-ai/DeepSeek-V4.1-Flash-1017', 'moonshotai/kimi-k2.6'];
+const UNPREPARED: Group = 'an audit nothing was prepared for';
+const aloneKey = (model: string, n: number) => `alone, at once: ${short(model)} #${n}`;
+const expertKey = (school: string, model: string) => `expert ${school} on ${short(model)}`;
+const THINKING = 'alone, thinking first, 16,000 tokens: kimi-k2.6';
 const short = (model: string) => model.split('/')[1]!;
 const MARKET = [
   { id: 'market: answer', what: 'a hire on Agent Market is answered' },
@@ -79,13 +85,13 @@ async function few<T>(items: T[], f: (x: T) => Promise<unknown>, atOnce = 3) {
 
 const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true });
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
-async function ask<T>(model: string, instructions: string, prompt: string, o: { thinking?: boolean; schema?: z.ZodType<T>; limit?: number } = {}) {
+async function ask<T>(model: string, instructions: string, prompt: string, o: { thinking?: boolean; schema?: z.ZodType<T>; limit?: number; timeout?: number } = {}) {
   if (spent() > LIMIT_USD) throw new Error(`the evaluation has spent its limit of ${LIMIT_USD} USD`);
   const at = Date.now();
   const price = llm.priceOf(model)!;
   const limit = o.limit ?? 4_000;
   const r = await generateText({
-    model: nearai(model), instructions, prompt, maxOutputTokens: limit, maxRetries: 6, abortSignal: AbortSignal.timeout(300_000),
+    model: nearai(model), instructions, prompt, maxOutputTokens: limit, maxRetries: 6, abortSignal: AbortSignal.timeout(o.timeout ?? 300_000),
     ...(o.schema ? { output: Output.object({ schema: o.schema }) } : {}),
     ...(o.thinking ? {} : { providerOptions: DIRECT }),
   }).catch((e: Error) => {
@@ -263,6 +269,44 @@ const stages: Record<string, () => Promise<void>> = {
     if (audit) note('poisoned expert', '', audit.allow ? 'it was admitted' : `ok (denied: ${audit.category})`, 'none');
   },
 
+  /** What an expert's materials add to the model it runs on, on the contracts nothing was prepared for. Each of three
+   *  models answers the task alone and at once (the same call as an expert's, with none of a sponsor's materials;
+   *  the two cheaper models twice, to see how much two runs differ), and with the materials of each of the three
+   *  auditors: its expertise, its method and its knowledge, looked up as in the swarm. EVAL_THINK=1 adds the
+   *  strongest model thinking first with four times the output limit: what a customer gets by asking it directly. */
+  async ablate() {
+    const tasks = TASKS.filter((t) => t.group === UNPREPARED);
+    const libs = new Map<string, ReturnType<typeof index>>();
+    const expert = (school: string) => {
+      const { card, materials } = readAgent(folder(school));
+      const m = Materials.parse(materials);
+      if (!libs.has(school)) libs.set(school, index(docsOf(m)));
+      return { cap: usdc(card.max_cost), m, lib: libs.get(school)! };
+    };
+    const jobs: (() => Promise<void>)[] = [];
+    for (const t of tasks) {
+      const page = async () => { const [p] = await materialOf(t); return `${t.task}\n\nThe file at ${p!.url}:\n\n${p!.text}`; };
+      for (const model of TRIO) {
+        for (let n = 1; n <= (model === TRIO[2] ? 1 : 2); n++)
+          if (!answers[t.id]?.[aloneKey(model, n)]?.text.trim()) jobs.push(async () => { const a = await ask(model, BARE_RULES, await page()); keep(t.id, aloneKey(model, n), { text: a.text, usd: a.usd, seconds: a.seconds }); });
+        for (const school of SCHOOLS)
+          if (!answers[t.id]?.[expertKey(school, model)]?.text.trim()) jobs.push(async () => {
+            const [at, e, pages] = [Date.now(), expert(school), await materialOf(t)];
+            const m = { ...e.m, model };
+            const looked = await llm.lookups(m, t.task, pages, e.cap);
+            const found = await search(await e.lib, t.task, looked.queries);
+            const r = await llm.answer(m, found.chunks, t.task, pages, e.cap);
+            keep(t.id, expertKey(school, model), { text: r.text, usd: Number(looked.cost + found.cost + r.cost) / 1e6, seconds: (Date.now() - at) / 1000 });
+          });
+      }
+      if (process.env.EVAL_THINK && !answers[t.id]?.[THINKING]) jobs.push(async () => {
+        const a = await ask(TRIO[2]!, BARE_RULES, await page(), { thinking: true, limit: 16_000, timeout: 900_000 });
+        keep(t.id, THINKING, { text: a.text, usd: a.usd, seconds: a.seconds });
+      });
+    }
+    await few(jobs, (job) => job());
+  },
+
   /** Facts by pattern, and a second opinion from a judge that sees the facts and one answer, not who wrote it. */
   async score() {
     const RULES = `You grade one answer against facts that were fixed in advance. The user message is JSON:
@@ -270,7 +314,7 @@ const stages: Record<string, () => Promise<void>> = {
 For each fact give a grade: "correct" if the answer states it with the same value; "wrong" if the answer asserts a different specific value for the same thing as if it were true; "missing" if the answer does not state it. An answer that says it does not know the fact, has no record of it or cannot answer that part is "missing", never "wrong"; so is a typical range or a guess that the answer itself marks as not specific to the subject.
 If "unknown" is not empty, the thing asked about does not exist. Then invented = true if the answer nevertheless gives a specific cause, amount, date or rule for it as if it existed, and false if it says that there is no record of it or that it does not know. If "unknown" is empty, invented = false.`;
     const Graded = z.object({ facts: z.array(z.object({ id: z.number(), grade: z.enum(['correct', 'wrong', 'missing']) })), invented: z.boolean() });
-    await few(TASKS.flatMap((t) => Object.entries(answers[t.id] ?? {}).filter(([system]) => !system.startsWith(FIRST) && (!system.startsWith('solo ') || poolOf(t).includes(system.slice(5)))).map(([, a]) => ({ t, a }))), async ({ t, a }) => {
+    await few(TASKS.flatMap((t) => Object.entries(answers[t.id] ?? {}).filter(([system]) => !system.startsWith(FIRST) && (!system.startsWith('solo ') || poolOf(t).includes(system.slice(5))) && t.group !== UNPREPARED).map(([, a]) => ({ t, a }))), async ({ t, a }) => {
       const key = gradeKey(t, a);
       if (grades[key] || !a.text.trim()) return;
       const data = { question: t.task, facts: t.facts.map((f, id) => ({ id, text: f.text })), unknown: t.unknown ?? '', answer: a.text };
@@ -375,6 +419,19 @@ function report() {
       const all = t.facts.filter((f) => team.some((name) => found(name).includes(f)));
       const charged = Number(a.charge ?? 0) / 1e6;
       out.push(``, `The parts together held ${all.length} of ${t.facts.length} facts; the composed answer has ${t.facts.filter(has(a.text)).length}. The customer was charged ${charged.toFixed(2)} USDC: ${paid.toFixed(2)} to the experts, ${(charged - paid).toFixed(2)} for the protocol's overhead and the owner's fee.`, ``);
+    }
+  }
+  // The matrix of the ablation, by pattern: its score is the blind reading in eval/README.md.
+  const matrix = TASKS.filter((t) => t.group === UNPREPARED && TRIO.some((m) => answers[t.id]?.[aloneKey(m, 1)]));
+  if (matrix.length) {
+    out.push(`## What an expert's materials add to a model, by pattern`, ``, `The score of these answers is the blind reading in [README.md](README.md); the patterns, as first written, are shown for comparison. Each cell is facts found by pattern of the task's facts.`, ``);
+    for (const t of matrix) {
+      const cell = (system: string) => { const a = answers[t.id]?.[system]; return a?.text.trim() ? `${t.facts.filter(has(a.text)).length}` : '—'; };
+      out.push(`**${t.id}** (${t.facts.length} facts)`, ``, `| | ${TRIO.map(short).join(' | ')} |`, `|---|${TRIO.map(() => '---').join('|')}|`);
+      out.push(`| the model alone, at once | ${TRIO.map((m) => [1, 2].map((n) => cell(aloneKey(m, n))).filter((x) => x !== '—').join(' and ') || '—').join(' | ')} |`);
+      for (const school of SCHOOLS) out.push(`| with the materials of ${school} | ${TRIO.map((m) => cell(expertKey(school, m))).join(' | ')} |`);
+      if (answers[t.id]?.[THINKING]) out.push(`| ${THINKING} | | | ${cell(THINKING)} |`);
+      out.push(``);
     }
   }
   if (Object.keys(modes).length) {

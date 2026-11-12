@@ -18,7 +18,8 @@
 // audited file, written down and committed before the swarm saw the contract. Because patterns for findings
 // proved unreliable, its score is the reading of a reader that does not know which answer is whose, by the same
 // strict rule as before (a finding counts when it is stated as an item of its own); the patterns are kept for
-// comparison only, as first written.
+// comparison only, as first written. Two more contracts of that kind follow it, for the question the second one
+// left open: what an expert's materials add to the model it runs on (eval/README.md, "What the materials add").
 
 export type Fact = { text: string; match: string };
 export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record' | 'one field, three schools' | 'four fields' | 'schools and fields' | 'an audit nothing was prepared for';
@@ -44,6 +45,11 @@ const OVERFLOW = { text: 'H-3: totalFees is a uint64 and overflows (Solidity 0.7
 const DOS = { text: 'M-1: enterRaffle checks duplicates with a nested loop over all players, so each entry costs more gas until nobody can enter', match: near('denial[- ]of[- ]service|\\bDoS\\b|gas', 'duplicate|nested loop|quadratic|O\\(n') };
 
 const TSWAP = 'https://raw.githubusercontent.com/Cyfrin/5-t-swap-audit/7bd52c6a75f1115b23e0cff0fa16f7c522703fcd/src/TSwapPool.sol';
+
+const BRIDGE = 'https://raw.githubusercontent.com/Cyfrin/7-boss-bridge-audit/d59479cbf925f281ef79ccb35351c4ddb002c3ef/src/L1BossBridge.sol';
+const THUNDER = 'https://raw.githubusercontent.com/Cyfrin/6-thunder-loan-audit/2250d81b89aebdd9cb135382e068af8c269e3a4b/src/protocol/ThunderLoan.sol';
+const audit = (link: string, path: string) => `Audit this Solidity contract before we deploy it: ${link}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: our repository has the contract at ${path}, compiles with Solidity 0.8.20 and has forge-std in lib/forge-std.`;
+const AUDITORS = ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'];
 
 const GAS = { text: "The settlement callback must get 22 Tgas", match: '22\\s*T\\s?gas' };
 
@@ -177,8 +183,8 @@ export const TASKS: Task[] = [
     ],
   },
   {
-    id: 'second audit', group: 'an audit nothing was prepared for', experts: ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'], usdc: '6', material: TSWAP, named: 'only', alone: ['Qwen/Qwen3.8-27B'],
-    task: `Audit this Solidity contract before we deploy it: ${TSWAP}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: our repository has the contract at src/TSwapPool.sol, compiles with Solidity 0.8.20 and has forge-std in lib/forge-std.`,
+    id: 'second audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: TSWAP, named: 'only', alone: ['Qwen/Qwen3.8-27B'],
+    task: audit(TSWAP, 'src/TSwapPool.sol'),
     facts: [
       { text: 'H-1: deposit takes a deadline and never checks it, so a deposit can go through after the deadline has passed', match: near('deadline', 'unused|never (used|checked)|not (used|checked|enforced|validated)|missing|ignor', 200) },
       { text: 'H-2: getInputAmountBasedOnOutput multiplies by 10,000 where the fee arithmetic needs 1,000, so the pool takes far too many tokens from the user', match: near('getInputAmountBasedOnOutput', '10[_,]?000', 600) },
@@ -187,6 +193,36 @@ export const TASKS: Task[] = [
       { text: 'H-5: _swap sends the swapper an extra token after every 10 swaps, which breaks the invariant x * y = k and lets the pool be drained', match: near('swap_count|SWAP_COUNT_MAX|every (10|ten)(th)? swaps?|(10|ten) swaps', 'invariant|x ?\\* ?y|drain|extra|bonus|free|incentive', 400) },
       { text: 'L-1: the LiquidityAdded event is emitted with its parameters in the wrong order', match: near('LiquidityAdded', 'order|swapped|wrong|reversed|mismatch|incorrect', 300) },
       { text: 'L-2: swapExactInput declares a return value that is never assigned, so it always returns 0', match: near('swapExactInput', 'returns? (0|zero)|never (assigned|set)|unassigned|not assigned|always (0|zero)|default value|uninitiali[sz]ed', 400) },
+    ],
+  },
+  {
+    id: 'bridge audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: BRIDGE, named: 'only', alone: [],
+    task: audit(BRIDGE, 'src/L1BossBridge.sol'),
+    facts: [
+      { text: 'H-1: depositTokensToL2 takes `from` from the caller, so anyone can move the tokens of a user who has approved the bridge and credit them to an L2 address of their own', match: near('depositTokensToL2', 'arbitrary .?from|any(one)? .{0,40}from|approv(al|ed)[\\s\\S]{0,120}(steal|drain|take|victim)', 500) },
+      { text: 'H-2: the vault has approved the bridge without limit, so anyone can call depositTokensToL2 with the vault as `from` (vault to vault), again and again, and mint unbacked tokens on L2', match: near('vault', 'unbacked|infinite(ly)? mint|mint[\\s\\S]{0,60}(unlimited|infinite|arbitrar)|vault to (the )?vault|from ?(=|is|as) ?(the )?vault', 400) },
+      { text: 'H-3: a signed withdrawal carries no nonce or other replay protection, so one signature can be used again and again', match: 'replay|no nonce|without a nonce|nonce' },
+      { text: 'H-4: sendToL1 makes any call the signed message names, so it can call L1Vault.approveTo and give the attacker an allowance over the funds of the vault', match: near('sendToL1|arbitrary (call|target|message)', 'approveTo|allowance|approve', 500) },
+      { text: "H-6: the DEPOSIT_LIMIT check is made on the vault's balance, so anyone can block all deposits by sending tokens to the vault until the limit is reached", match: near('DEPOSIT_LIMIT', 'DoS|denial|block|grief|brick|donat|send(ing)? tokens? (directly )?to the vault', 400) },
+      { text: 'H-7: withdrawTokensToL1 does not check the amount against what was deposited, so more can be withdrawn than was deposited', match: near('withdraw', 'more than .{0,40}deposit|no (check|validation|accounting)[\\s\\S]{0,120}(amount|deposit)|not (checked|validated|tracked)[\\s\\S]{0,120}deposit', 400) },
+      { text: 'M-1: the low-level call in sendToL1 copies whatever the target returns, so a target can return a huge amount of data and make the withdrawal burn unbounded gas (a return bomb)', match: 'return ?bomb|return ?data[\\s\\S]{0,160}(gas|memory|copy|copied)|(gas|memory)[\\s\\S]{0,160}return ?data' },
+      { text: 'L-1: sendToL1 and withdrawTokensToL1 emit no event when a withdrawal is carried out', match: near('event', 'withdraw|sendToL1', 300) },
+      { text: 'L-3: the contract is compiled with Solidity 0.8.20, whose PUSH0 opcode is not supported on every chain it may be deployed to', match: 'PUSH0' },
+    ],
+  },
+  {
+    id: 'loan audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: THUNDER, named: 'only', alone: [],
+    task: audit(THUNDER, 'src/protocol/ThunderLoan.sol'),
+    facts: [
+      { text: 'H-2: deposit calls updateExchangeRate as if a fee had been earned, which raises the exchange rate without real fees: redeem can then fail and rewards are shared out unfairly', match: near('deposit', 'updateExchangeRate|exchange rate', 400) },
+      { text: 'H-3: during a flash loan the borrower can call deposit instead of repay: the balance check at the end passes, and the borrower holds asset tokens that redeem the borrowed funds', match: near('deposit', 'instead of (calling )?.?repay|flash ?loan[\\s\\S]{0,200}(steal|drain|redeem)', 400) },
+      { text: 'H-4: the fee is computed from the TSwap price without regard to token decimals (the fee precision assumes 18), so it is wrong for tokens with other decimals', match: near('decimals', 'fee|getCalculatedFee|price', 300) },
+      { text: 'M-1: centralization: the owner can upgrade the contract, choose the allowed tokens and change the fee at will', match: 'centrali[sz]|trusted owner|owner (can|may)[\\s\\S]{0,120}(upgrade|rug|drain|arbitrar)' },
+      { text: "M-2: the fee is priced from the TSwap pool's spot price, which can be manipulated (with a flash loan, for one) to pay less in fees", match: near('oracle|TSwap|spot price', 'manipulat', 300) },
+      { text: 'M-4: fee-on-transfer and rebasing tokens break the accounting', match: 'fee[- ]on[- ]transfer|rebas' },
+      { text: 'L-1: _authorizeUpgrade has an empty body, with no comment on why', match: near('_authorizeUpgrade', 'empty', 200) },
+      { text: 'L-2: initialize can be front-run when deployment and initialization are not one transaction', match: near('initiali[sz]', 'front-?run', 300) },
+      { text: 'L-3: updateFlashLoanFee changes the fee without emitting an event', match: near('updateFlashLoanFee|flash ?loan fee', 'event', 300) },
     ],
   },
 ];

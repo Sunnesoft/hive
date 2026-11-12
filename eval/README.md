@@ -239,6 +239,25 @@ findings of its published report in the audited file; they were committed (`78eb
 - **Patterns for findings are not a measure.** Written beforehand, they agreed with the blind reading for the
   swarm (6) and gave the model alone 4 where the reader found 1.
 
+## What the materials add: the design, fixed before the runs
+
+The check above left one question open: the auditors that found more ran on stronger models, so is it the
+expert's materials or the model? This is the test, written down before any of it was run.
+
+- **Contracts.** Three that nothing here was prepared for: the T-Swap pool again, and two more of the same course,
+  `L1BossBridge.sol` and `ThunderLoan.sol`. For each, the facts are the High, Medium and Low findings of its
+  published report whose code is in the audited file ([tasks.ts](tasks.ts), [agents/SOURCES.md](agents/SOURCES.md)).
+- **Models.** The three the auditors run on: Qwen3.8-27B, DeepSeek-V4.1-Flash, kimi-k2.6.
+- **Ways.** Each model answers the task alone and at once: the same call as an expert's, the same output limit,
+  none of a sponsor's materials. And each model answers with the materials of each of the three auditors, as the
+  swarm would run it. The two cheaper models answer alone twice, to see how much two runs of the same thing
+  differ. On one contract the strongest model also thinks first, with four times the output limit: what a
+  customer gets by asking it directly; if that returns an answer, the other two contracts get it too. The two new
+  contracts are also ordered from the swarm with the three auditors named.
+- **Score.** A reader that does not know which answer is whose, by the rule used above: a finding counts when it
+  is stated as an item of its own. The reader also counts what an answer claims that the code refutes.
+- **Nothing changes meanwhile**: not the runner, not the policies, not the experts.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
