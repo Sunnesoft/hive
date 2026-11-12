@@ -158,19 +158,8 @@ The results after these changes, facts found by pattern:
   8 in their own parts, so one of them would have done: taking one auditor still looks right, and three remain a
   second opinion. This is one run of one task with three changes together: it shows that the gap can be closed,
   not which change closed it. The other orders were not placed again after these changes.
-- **Did we fit that result? The count, no; the conditions, partly.** Under the patterns as first written both
-  orders score 8 of 8: the difference appears only after our corrections, which followed our own reading. So four
-  answers went, unnamed, to a reader that did not know which was which (another model session, with the
-  reference findings and strict rules). It found 4 findings stated by the strongest model alone, 6 by one
-  auditor, 6 by the three before and 7 by the three after, with an eighth (the forced ether) merged into another
-  item: the composer still merges after being told not to. On the two disputed findings it agreed with our
-  reading: absent before, stated after. So the gain is real and smaller than "6 to 8": one finding strictly,
-  two if the merged one counts, and between two identical orders one auditor's part already differed by one.
-  The conditions were not clean either: the auditors' methods were written after the contract's report had been
-  read (one line, on randomness, is in none of the source material), the three models were chosen after earlier
-  results on this same task, and the example in the look-up policy was written with this contract in mind. What
-  would settle it is another contract with a published report, its facts fixed first and nothing in the swarm
-  changed. That has not been run.
+- **Whether that result was fitted** is the subject of the check below. In short: the gain is one finding, not
+  two, and it came from the composer's rule alone.
 - **Four fields: this is where a swarm earns its price.** No expert alone had more than 3 of the 12 facts. The
   experts asked apart had 9 in 26,085 characters; the swarm has 10 in 7,837, and one of them is a conclusion no
   expert could reach alone: sales of 75,600 EUR stay under the law's 90,000 EUR threshold, so a notification is
@@ -190,6 +179,65 @@ The results after these changes, facts found by pattern:
   prompt whole. The look-up step above came from this.
 - **Who was paid for what** is in [RESULTS.md](RESULTS.md), expert by expert. Each delivered expert got its rate
   whatever the others wrote: three auditors with the same findings were paid 1.00 USDC each.
+
+## The check on that result (2026-11-12)
+
+The last audit result, 8 of 8 by pattern, was put to three tests. In all of them the reading is done by a reader
+that does not know which answer is whose: a separate model session, given the reference findings and one strict
+rule, that a finding counts when the answer states it as an item of its own.
+
+**1. Read blind.** Under the patterns as first written, the three-auditor orders before and after the changes
+both score 8 of 8: the gain appears only after our own corrections of the patterns. Read blind:
+
+| answer | findings stated, of 8 | with those only mentioned in passing |
+|---|---|---|
+| strongest model alone | 4 | 4 |
+| one auditor | 6 | 6 |
+| three auditors, before the changes | 6 | 6 |
+| three auditors, after | 7 | 8 |
+
+The gain is real, and it is one finding. The eighth is folded into another item.
+
+**2. Which change did it.** The trace holds what the composer was given, so the same contributions were composed
+again with the composer's new rule and without it, and read blind:
+
+| contributions | composed without the rule | with the rule |
+|---|---|---|
+| before: one model, no look-up | 6 | 7 |
+| after: three models, look-up | 6 | 7 |
+
+The rule to keep every distinct point added the finding, with either set of contributions. Without it the composer
+dropped a finding that an auditor had stated as a High of its own. Three models and the look-up step did not
+change the count of the composed answer on this task. (The first cell is the original answer, from when the
+composer still replied through JSON; the other three were made alike.)
+
+**3. A contract nothing was prepared for.** The conditions of the first audit were not clean: the auditors'
+methods were written after its report had been read (one line, on randomness, is in none of the source material),
+the models were chosen after earlier results on it, the example in the look-up policy was written with it in
+mind, and its patterns were corrected four times. So the same swarm, untouched, was given a second contract, the
+T-Swap pool of the same course ([agents/SOURCES.md](agents/SOURCES.md)). Its seven facts are the High and Low
+findings of its published report in the audited file; they were committed (`78ebaa1`) before the order.
+
+| answer | findings stated, of 7 |
+|---|---|
+| the protocol's model alone | 1, and one more that it raised and took back |
+| the swarm, three auditors named | 6 |
+| its parts: the auditor on DeepSeek | 6 |
+| the auditor on kimi | 4 |
+| the auditor on the protocol's model | 1 |
+
+- **The result carries over**: 6 of 7 on a contract the swarm was not tuned on.
+- **It does not show that the knowledge did it.** The auditor on the same model as the baseline found what the
+  baseline found: one finding. The two that found more run on stronger models, and those models were not asked
+  alone on this contract: the money for the run was spent.
+- **A swarm of one field is as good as its best member.** The composed answer has exactly the best auditor's six.
+  Asked for one auditor, the router had twice taken the one that found one of seven here. Three auditors are
+  insurance against that choice, at 4.00 USDC instead of 1.68.
+- **The answers also assert things that are false.** The reader checked claims against the code and found at
+  least three wrong findings in the swarm's answer, and as many in each of the others. The rule that keeps every
+  point keeps the wrong ones too. Nothing else in this evaluation measures that.
+- **Patterns for findings are not a measure.** Written beforehand, they agreed with the blind reading for the
+  swarm (6) and gave the model alone 4 where the reader found 1.
 
 ## What this does not show
 
@@ -213,5 +261,7 @@ The results after these changes, facts found by pattern:
   the patterns in both directions, and where we checked by hand it was the judge that was wrong (it marked
   "45%" missing in an answer that says "at least 45%"). The audit answers were read by hand instead; three
   patterns were corrected after that reading, as [tasks.ts](tasks.ts) says.
-- **The 8 of 8 is one order.** The look-up step, the composer's rule and the three models were tried together,
-  once, on a task whose answers we had already read. Everything else in the tables is from before them.
+- **The audits are two tasks, one order each.** The other tables are from before the look-up step and the
+  composer's rule. The look-up step has not been shown to help: it brings pieces of knowledge that fit the
+  contract, and on the one task where it could be separated the composed answer did not change.
+- **No proof of concept was run.** Every audit answer carries Foundry tests; none was executed.

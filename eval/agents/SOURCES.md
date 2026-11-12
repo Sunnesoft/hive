@@ -40,6 +40,10 @@ with known vulnerabilities for a security course. It is only linked, not copied 
 audit finds is the course's own report, `audit-data/2023-09-01-puppy-raffle.md` on the `audit-data` branch
 (`3a71d27`): we did not write the answer key.
 
+The second audit, the one nothing here was prepared for, points to `src/TSwapPool.sol` of
+[Cyfrin/5-t-swap-audit](https://github.com/Cyfrin/5-t-swap-audit) at `7bd52c6`; its answer key is
+`audit-data/2023-09-01-tswap-audit.md` on that repository's `audit-data` branch (`0290e26`).
+
 ## Invented
 
 Nothing in these is real: the organisations, the law, the studies and every figure were made up, so that no model

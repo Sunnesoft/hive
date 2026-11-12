@@ -77,6 +77,8 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 
 | | facts found | by the judge | model cost per task | seconds | characters |
 |---|---|---|---|---|---|
+| model alone: Qwen3.8-27B | 4 of 7 (57%) | — | $0.0105 | 147 | 13131 |
+| swarm, experts named by the customer | 6 of 7 (86%) | — | $0.0487 | 248 | 18319 |
 
 ## The swarm, task by task
 
@@ -137,6 +139,16 @@ The parts together held 10 of 12 facts; the composed answer has 10. The customer
 
 The parts together held 9 of 9 facts; the composed answer has 9. The customer was charged 2.95 USDC: 2.00 to the experts, 0.95 for the protocol's overhead and the owner's fee.
 
+## Who was paid for what: second audit, swarm, experts named by the customer
+
+| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
+|---|---|---|---|---|---|---|---|
+| solidity-attack-paths | 1.00 | yes | 1.00 | 2 of 7 | 0 | 10 | 15136 |
+| solidity-code-maturity | 1.00 | yes | 1.00 | 6 of 7 | 0 | 20 | 14155 |
+| solidity-bug-patterns | 1.00 | yes | 1.00 | 6 of 7 | 0 | 16 | 16882 |
+
+The parts together held 6 of 7 facts; the composed answer has 6. The customer was charged 4.00 USDC: 3.00 to the experts, 1.00 for the protocol's overhead and the owner's fee.
+
 ## Ways of working, each tried once
 
 | mode | what must hold | result | team | returned of paid, USDC |
@@ -153,4 +165,4 @@ The parts together held 9 of 9 facts; the composed answer has 9. The customer wa
 | market: new work | a change that is new work is turned down, and the last answer stands | ok | — | — |
 | poisoned expert | materials with instructions for an AI do not pass the entry audit | ok (denied: malware) | — | — |
 
-Spent on this evaluation at NEAR AI: $0.806.
+Spent on this evaluation at NEAR AI: $0.866.
