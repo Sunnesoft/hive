@@ -2,6 +2,8 @@
 // call with the six chunks of knowledge closest to the question: measured on audits, that uses a tenth of a
 // checklist and finds no more than the model alone (eval/README.md). A review uses all of the knowledge:
 //   passes   one call per part of the knowledge (a file of it): what does this part find in the materials?
+//            A pass is told what earlier passes raised and reports only what they missed: left alone, every
+//            pass spends its reply on the flaws anyone sees first and never gets to what its own part is for
 //   records  code reads the findings out of the replies. From here on no model rewrites the list as a whole:
 //            a model that merges a long list drops its rare items, and the rare ones are the point
 //   groups   records that say the same thing, by how close their embeddings are
@@ -20,13 +22,13 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, lineOf, MAX_CHECKS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. */
 export type Checked = Finding & { proof?: string; also?: string[] };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
-export type Counts = { passes: number; raised: number; groups: number; checked: number; held: number; leads: number; proofs: number };
+export type Counts = { passes: number; raised: number; groups: number; checked: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
 export type Review = { findings: Checked[]; leads: Finding[]; cost: bigint; counts: Counts; why?: llm.Why };
 
@@ -114,7 +116,7 @@ const codeOf = (r: { text: string; cut?: boolean }) =>
 /** One expert's review of the materials it was given. `code`: the task asks for code, so the gravest findings get proofs. */
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
-  const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, held: 0, leads: 0, proofs: 0 };
+  const counts: Counts = { passes: 0, raised: 0, groups: 0, checked: 0, held: 0, leads: 0, proofs: 0, cut: 0 }; // cut: replies that ran into their limit, the sign that a limit is too low for this model
   const price = llm.priceOf(m.model);
   if (!price) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
   const chosen = await parts(expert, question, pages, hold);
@@ -122,7 +124,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const stop = (why: llm.Why): Review => ({ findings: [], leads: [], cost, counts, why });
 
   const worst =
-    chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, '', price), 0n) +
+    chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), price), 0n) +
     BigInt(MAX_CHECKS) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.sameCeiling(2 * SAME_IN, price) + // the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
@@ -137,10 +139,18 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     const first = await llm.step(kind, m, knowledge, question, pages, about, hold);
     const r = first.why === 'model_failed' && Date.now() < deadline ? await llm.step(kind, m, knowledge, question, pages, about, hold) : first;
     cost += r.cost;
+    if (r.cut) counts.cut++;
     return r;
   };
 
-  const passes = await each(chosen.pieces, (piece) => step('pass', piece, ''));
+  // Passes run a few at a time; each is told what those before it raised, a line a finding, the gravest first.
+  const known = new Map<string, Finding>();
+  const raisedSoFar = () => (known.size ? section('Already raised by earlier passes', bySeverity([...known.values()]).map((f) => `- ${lineOf(f)}`).join('\n'), KNOWN_IN) : '');
+  const passes = await each(chosen.pieces, async (piece) => {
+    const r = await step('pass', piece, raisedSoFar());
+    for (const f of findingsIn(r.text)) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
+    return r;
+  });
   const read = passes.filter((r) => !r.why);
   if (!read.length) return stop(passes[0]?.why ?? 'empty'); // no part of the knowledge could be held against the materials
   const raised = read.flatMap((r) => findingsIn(r.text));

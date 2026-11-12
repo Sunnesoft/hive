@@ -28,6 +28,7 @@ export const LOOKUP_OUT = 300; // output tokens of that look-up
 // then each finding is checked against the materials on its own. These bound what one review can cost.
 export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole: a file of it, or a part of a longer file
 export const MAX_PASSES = 16; // parts read in one review: up to 144,000 characters of knowledge
+export const KNOWN_IN = 3_000; // bytes of what earlier passes raised, a line each, that a later pass is told not to repeat
 export const PASS_OUT = 2_400; // output tokens of one pass: a strong model raises a dozen findings in one, and the last ones are the rare ones
 export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first
 export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed

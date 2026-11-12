@@ -123,8 +123,9 @@ export async function nearai(models: string[], port = 0, { general = false } = {
         const near = part.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 30).map((l) => ({ l, at: lines.map((x) => ({ x, n: shared(stems(l), stems(x)) })).sort((a, b) => b.n - a.n)[0] })).filter((c) => (c.at?.n ?? 0) >= 2);
         return reply(near.slice(0, 3).map((c) => `### Medium | ${c.at!.x.trim().slice(0, 60)} | ${c.l.slice(0, 160)}\nThe checklist item applies to this line of the materials.`).join('\n\n') || 'NOTHING FOUND');
       }
-      // "RULE <place>: <severity>: <claim>" finds something if the materials name the place.
-      const found = [...part.matchAll(/^RULE (\w+): (\w+): (.+)$/gm)].filter(([, place]) => user.includes(`${place}(`));
+      // "RULE <place>: <severity>: <claim>" finds something if the materials name the place and no earlier pass raised that claim.
+      const [, raised = ''] = user.split('# Already raised by earlier passes');
+      const found = [...part.matchAll(/^RULE (\w+): (\w+): (.+)$/gm)].filter(([, place, , claim]) => user.includes(`${place}(`) && !raised.includes(claim!));
       return reply(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
     }
     if (is('You are an expert checking findings')) {

@@ -461,15 +461,17 @@ try {
   }
   const DRAIN = 'RULE withdraw: High: Project Alpha ledger lets anyone withdraw';
   const filler = Array.from({ length: 160 }, (_, i) => `Remark ${i}: ledgers are reconciled at the close of every day.`).join('\n\n');
-  const checklists = new Map<Account, [name: string, maxCost: bigint, knowledge: string]>([
+  const checklists = new Map<Account, [name: string, maxCost: bigint, knowledge: string, more?: string[]]>([
     [first, ['ledger-one', U, `Marker FIRST-ONLY.\n\n${DRAIN}\n\nRULE fee: Low: phantom Project Alpha fee overflow\n\nRULE owner: Low: phantom Project Alpha owner drift\n\nRULE withdraw: Low: phantom Project Alpha payout delay\n\nRULE mint: High: Project Alpha ledger mints from nothing\n\n${filler}\n\nRULE fee: Medium: Project Alpha fee rounds to zero\n\nRULE owner: Medium: misquoted Project Alpha owner check`]],
-    [second, ['ledger-two', U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone\n\nRULE withdraw: High: Project Alpha payouts are open (twin)`]],
+    // Four files: three passes start at once, the fourth after one of them has ended, so it is told what that one raised.
+    [second, ['ledger-two', U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone\n\nRULE withdraw: High: Project Alpha payouts are open (twin)`, [DRAIN, DRAIN, DRAIN]]],
     [tight, ['ledger-three', U / 5n, `Marker THIRD-ONLY.\n\n${DRAIN}`]],
   ]);
   const reviewers = new Map<Account, Buffer>();
-  for (const [who, [name, maxCost, knowledge]] of checklists) {
+  for (const [who, [name, maxCost, knowledge, more = []]] of checklists) {
     names.set(who, name);
-    const bytes = seal(Buffer.from(JSON.stringify({ name, model: models[0], expertise: 'Reviews ledgers.', work: 'review', knowledge: [{ name: 'checklist.md', text: knowledge }] })), Buffer.from(info.sealKey, 'hex'), agentId(who));
+    const files = [knowledge, ...more].map((text, i) => ({ name: `checklist-${i + 1}.md`, text }));
+    const bytes = seal(Buffer.from(JSON.stringify({ name, model: models[0], expertise: 'Reviews ledgers.', work: 'review', knowledge: files })), Buffer.from(info.sealKey, 'hex'), agentId(who));
     reviewers.set(who, bytes);
     await pay(who, 5n * U, { Register: { name, skills: 'ledger: reviews a ledger by its own checklist', rate: `${U}`, max_cost: `${maxCost}`, materials_hash: createHash('sha256').update(bytes).digest('hex'), size_mb: 1 } });
   }
@@ -484,20 +486,22 @@ try {
   const roundOf = async (who: Account) => (await cabinet(who)).body.agents[0]?.rounds?.find((r: { job: string }) => r.job === 'a-review#1');
   const did = (who: Account) => events.findLast((e) => e.event === 'contribution' && e.agent === agentId(who))!;
   const sawOnly = (own: string, calls: string[]) => calls.filter((c) => c.includes(own)).every((c) => ['FIRST-ONLY', 'SECOND-ONLY', 'THIRD-ONLY'].filter((m) => c.includes(m)).length === 1);
-  check('review: an expert that reviews reads the file with every part of its checklist, one part a pass', did(first).work === 'review' && did(first).passes === 2 && did(second).passes === 1 && ai.review.passes.every((c) => c.includes('<material url="attachment: ledger.md">')) && ai.agentCalls.length === answersBefore, { first: did(first), second: did(second) });
+  check('review: an expert that reviews reads the file with every part of its checklist, one part a pass', did(first).work === 'review' && did(first).passes === 2 && did(second).passes === 4 && ai.review.passes.every((c) => c.includes('<material url="attachment: ledger.md">')) && ai.agentCalls.length === answersBefore, { first: did(first), second: did(second) });
   check('review: each pass has one expert\'s knowledge; a check and a proof have the findings and the file, never the knowledge', sawOnly('FIRST-ONLY', ai.review.passes) && sawOnly('SECOND-ONLY', ai.review.passes) && [...ai.review.checks, ...ai.review.proofs].every((c) => !/-ONLY/.test(c) && c.includes('function withdraw()')));
   check('review: every finding is checked on its own; what does not hold in the file is dropped', did(first).raised === 6 && did(first).checked === 6 && did(first).held === 2 && !report.includes('phantom') && !report.includes('mints from nothing'), did(first));
   const [confirmed = '', unconfirmed = ''] = listed.split('## Not confirmed');
   check('review: a finding whose evidence is not a line of the file is not confirmed, whatever the model said', ai.review.checks.some((c) => c.includes('misquoted')) && !confirmed.includes('misquoted') && did(first).leads === 1, did(first));
   check('review: what a check did not confirm is not thrown away: if it would matter, it is listed apart as unverified; a Low one is left out', /1 more point was raised[^\n]*\n\n- \*\*Medium\*\*, owner: misquoted Project Alpha owner check$/m.test(unconfirmed) && !unconfirmed.includes('phantom') && !unconfirmed.includes('Evidence'), unconfirmed);
   check('review: what two experts found is one finding, and the answer says how many found it', listed.split('Project Alpha ledger lets anyone withdraw').length === 2 && /### 1\. High: Project Alpha ledger lets anyone withdraw\n\n\*Where:\* withdraw\. \*Found by 2 of 2 experts\.\*/.test(report) && /Medium: Project Alpha fee rounds to zero\n\n\*Where:\* fee\. \*Found by 1 of 2 experts\.\*/.test(report) && /Low: Project Alpha owner is anyone/.test(report), report);
-  check('review: the same finding in other words is one: the model only says which are the same, code joins them and the other wording stays under it', did(second).raised === 3 && did(second).checked === 3 && did(second).held === 2 && ai.review.sorts.every((s) => !s.includes('function withdraw()') && !/-ONLY/.test(s)) && /\*The same was raised as:\* Project Alpha payouts are open \(twin\)/.test(confirmed) && !/### \d+\. High: Project Alpha payouts/.test(report), { second: did(second), confirmed });
+  const toldOf = ai.review.passes.filter((c) => c.includes('# Already raised by earlier passes'));
+  check('review: a later pass is told what earlier passes raised and does not raise it again', toldOf.length === 1 && toldOf[0]!.includes('- High | withdraw | Project Alpha ledger lets anyone withdraw') && did(second).raised === 5, { told: toldOf.length, second: did(second) }); // three files raise it, the fourth is told and adds nothing
+  check('review: the same finding in other words is one: the model only says which are the same, code joins them and the other wording stays under it', did(second).raised === 5 && did(second).checked === 3 && did(second).held === 2 && ai.review.sorts.every((s) => !s.includes('function withdraw()') && !/-ONLY/.test(s)) && /\*The same was raised as:\* Project Alpha payouts are open \(twin\)/.test(confirmed) && !/### \d+\. High: Project Alpha payouts/.test(report), { second: did(second), confirmed });
   check('review: the findings reach the customer as the experts wrote them, with the line of the file each rests on', report.includes('**Evidence:** `function withdraw() { send(everything, caller); }`') && report.includes('**Fix:** guard withdraw.') && !report.includes('[['), report);
   check('review: the composer saw the titles only and wrote around the list', ai.composed.at(-1)!.contributions.every((c) => c.text.startsWith('Checked findings') && !c.text.includes('Evidence')) && report.indexOf('## Findings') > report.indexOf('Checked findings'), ai.composed.at(-1));
   check('review: the task asked for code, so the grave finding has a proof, marked as not run', did(first).proofs === 1 && report.includes('// proof: withdraw is open') && !report.includes('// proof: fee') && report.includes('**Proof** (written, not run):') && report.includes('The code in this answer was not run'), report);
   const rv = await job('a-review#1');
   const slot = (who: Account) => rv!.slots.find((x) => x.agent === agentId(who))!;
-  check('review: the experts that delivered are paid their rates; a review costs its expert more than one call', slot(first).pay === `${U}` && slot(second).pay === `${U}` && did(first).cost === `${2n * CENT}` && did(second).cost === `${CENT}`, { rv, first: did(first), second: did(second) }); // nine calls and four, 0.0012 each
+  check('review: the experts that delivered are paid their rates; a review costs its expert more than one call', slot(first).pay === `${U}` && slot(second).pay === `${U}` && did(first).cost === `${2n * CENT}` && did(second).cost === `${2n * CENT}`, { rv, first: did(first), second: did(second) }); // ten calls and nine, 0.0012 each
   check('review: a hold that cannot cover the worst case of a review starts none: nothing spent, the owner is told why', did(tight).why === 'too_expensive' && did(tight).cost === '0' && slot(tight).pay === '0' && (await roundOf(tight))?.why === 'too_expensive', { did: did(tight), cabinet: await roundOf(tight) });
   check('review: the owners see how much of the answer came from their experts', (await roundOf(first))?.share === 50 && (await roundOf(second))?.share === 50, [await roundOf(first), await roundOf(second)]);
   market.hire({ id: 'a-asked', title: 'Ledger', description: 'ledger: how should a ledger be closed at the end of a day?', escrow: '10.0' });
