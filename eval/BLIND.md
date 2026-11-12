@@ -170,3 +170,19 @@ Qwen3.6-35B-A3B: that evening it was the one model at NEAR AI that answered in t
 The reader's notes: the model alone states both rate flaws in one item (a strict "item of its own" makes one of
 them `P`). Findings 1 to 3 are the report's two High findings and its Medium; 4 to 8 its Low ones; 9 to 11
 recommendations.
+
+A second reader read the model alone and the joined reviews again, with two stronger models asked alone and the
+joined reviews with the controller's word under each finding (`P` also for a finding that stands only in a
+"Second opinion" line). DeepSeek's answer is the one that came back once replies were read as a stream.
+
+| answer | verdicts, finding by finding | stated | as "not confirmed" | items | distinct | wrong | tests | cut off |
+|---|---|---|---|---|---|---|---|---|
+| alone, at once: DeepSeek-V4.1-Flash-1017 | `SAPAAAAPAAA` | 1 | | 7 | 7 | 4 | 1 | yes |
+| alone, at once: kimi-k2.6 | `SAPAAAASAAP` | 2 | | 13 | 12 | 6 | 2 | no |
+| alone, at once: Qwen3.6-35B-A3B | `SSAAAAAAAAA` | 2 | | 7 | 7 | 3 | 1 | yes |
+| the three reviews joined | `SSSAAAALPAP` | 3 | 1 | 20 | 18 | 10 | 5 | no |
+| the three reviews joined, with the controller (kimi-k2.6) | `SSSAAAPLPAP` | 3 | 1 | 20 | 18 | 10 | 5 | no |
+
+Both readers gave the model alone 2 and the joined reviews 3 and 1. This reader counts more of the joined
+findings wrong, 10 of 18 against 6 of 15. Of the controller's 14 doubts, 9 are on those 10; one is on a finding
+that is right (finding 3, whose mechanism the doubt itself describes); two wrong findings carry no doubt.

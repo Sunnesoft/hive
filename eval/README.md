@@ -499,8 +499,25 @@ kimi-k2.6 (one call, 0.018 USD) doubted 14 of the 20 joined findings, each with 
 12 items that are wrong, three that are true of the code but no flaw, and one that is right, the Medium. It
 left the two High findings alone. In the answer a doubted finding stays, under its own heading.
 
-One contract, one model, one run each: a first sign, not a result. The stronger models could not be asked the
-same question that evening (DeepSeek at NEAR AI did not answer within three minutes).
+Later the same evening the two stronger models were asked the task alone as well (DeepSeek's reply came once
+replies were read as a stream: it had been writing 19 tokens a second into a timeout of 180), and a second reader
+read them blind with the answers above:
+
+| answer | findings of the report stated, of 11 | more, as "not confirmed" | wrong, of distinct items | cost, USD |
+|---|---|---|---|---|
+| DeepSeek alone, one call | 1 | | 4 of 7 | 0.008 |
+| kimi-k2.6 alone, one call | 2 | | 6 of 12 | 0.019 |
+| Qwen3.6-35B alone, one call | 2 | | 3 of 7 | 0.006 |
+| three NEAR reviewers on Qwen3.6-35B, joined | 3 | 1 | 10 of 18 | 0.344 |
+
+**On this NEAR contract the joined reviews state more of the audit than any model does alone, the stronger ones
+included, and are the only answer with the report's High and Medium findings all three.** On the Solidity
+contract from a public course the review never beat one call; here the models do not know the contract, and what
+finds the third finding is knowledge they were given. The price is precision: more than half of the joined
+findings are wrong by this reader's count (the first reader counted 6 of 15), where a single call is wrong in
+about half as well. The controller's doubts fall on 9 of those 10.
+
+One contract and one run of each: a sign, measured twice by readers who agree, not yet a result.
 
 ## What this does not show
 
