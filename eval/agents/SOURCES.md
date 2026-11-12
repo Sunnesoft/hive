@@ -1,8 +1,8 @@
 # Where the experts' knowledge comes from
 
-Each folder here is one expert of the evaluation ([../README.md](../README.md)). Three are built from audit
-skills that security firms published in the open, two from NEAR's own documentation and standards; the rest are
-invented.
+Each folder here is one expert of the evaluation ([../README.md](../README.md)). Two are built from audit
+skills that security firms published in the open under the MIT licence, two from NEAR's own documentation and
+standards, two hold case-books we wrote from public audit reports; the rest are invented.
 
 ## Built from open-source audit skills
 
@@ -11,11 +11,18 @@ These experts are built from the published material. They are not those firms an
 | expert | source | licence | what was taken | changes |
 |---|---|---|---|---|
 | `solidity-attack-paths` | [pashov/skills](https://github.com/pashov/skills) at `eacfc09`, `solidity-auditor/references/` | MIT, Copyright (c) 2024 AI Skills Contributors | the twelve `hacking-agents/*-agent.md` and `judging.md` | reworded from prompts for an AI agent into a reviewer's checklist; the output-format sections removed. As published, the files did not pass our entry audit, which refuses materials that give orders to an AI |
-| `solidity-code-maturity` | [trailofbits/skills](https://github.com/trailofbits/skills) at `39e10bd`, `plugins/building-secure-contracts` and `plugins/fp-check` | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), Copyright Trail of Bits | `ASSESSMENT_CRITERIA.md`, `ASSESSMENT_AREAS.md`, `ASSESSMENT_CATEGORIES.md`, `WORKFLOW_STEPS.md`, `false-positive-patterns.md` | none: a source line was added on top of each file |
 | `solidity-bug-patterns` | [quillai-network/quillshield_skills](https://github.com/quillai-network/quillshield_skills) at `8bdd3c0`, `plugins/*/skills/*/references/` | MIT, Copyright (c) 2025 QuillShield | fourteen reference files on reentrancy, denial of service, arithmetic, external calls, invariants, guards, oracles, signatures, proxies | none: a source line was added on top of each file |
 
-Every knowledge file starts with its own source line. The files of `solidity-code-maturity/knowledge` stay under
-CC BY-SA 4.0; the others under the MIT licence below. `expertise.md` and `method.md` in each folder are ours.
+Every knowledge file starts with its own source line; both sources are under the MIT licence below.
+`expertise.md` and `method.md` in each folder are ours.
+
+A third Solidity auditor, `solidity-case-book`, holds no firm's material: 121 kinds of findings that audits and
+audit contests of real protocols have reported, restated in our own words from 58 public reports (Code4rena,
+Sherlock, Pashov Audit Group, OpenZeppelin, Sigma Prime, Zellic;
+[the list](solidity-case-book/CASEBOOK-SOURCES.md)). No sentence, table or code of a report is in it and it names
+no project. It replaces `solidity-code-maturity`, which was built from Trail of Bits' skills under CC BY-SA 4.0 and
+took part in the runs that [../RESULTS.md](../RESULTS.md) and [../BLIND.md](../BLIND.md) record under that name;
+its files are no longer in this repository, and the session that wrote the case-book was told not to open them.
 
 The MIT licence, as both MIT sources give it:
 
@@ -45,7 +52,13 @@ repositories.
 | `near-standards` | [near/NEPs](https://github.com/near/NEPs) at `095fe98`, `neps/` | each proposal ends "Copyright and related rights waived via CC0" | NEP-141, NEP-145, NEP-148, NEP-297, NEP-171, NEP-178 | the sections that are not the standard taken off: reference implementation, drawbacks, future possibilities, history, changelog, errata, copyright |
 
 A third reviewer of NEAR contracts, `near-contract-review` in [../../agents](../../agents), holds a checklist we wrote
-ourselves. BlockSec's `rustle` has a good catalogue of detectors, but it is under AGPL-3.0: nothing here is taken from it.
+ourselves and a case-book: 87 kinds of findings that audits of NEAR contracts have reported, restated in our own
+words from 47 public reports of 16 firms ([the list](../../agents/near-contract-review/CASEBOOK-SOURCES.md)). No
+sentence or code of a report is in it, and it names no project. It was written by a session that was not shown the
+findings this evaluation scores against and was told not to open any report on a contract measured here; it does
+rest on reports about other contracts of some of the same projects (Ref Finance, Octopus Network, Sweat, Meta Pool),
+as an auditor's experience would. BlockSec's `rustle` has a good catalogue of detectors, but it is under AGPL-3.0:
+nothing here is taken from it.
 
 The NEAR reviews are scored against audits other people published: BlockSec's reports in
 [blocksecteam/audit-reports](https://github.com/blocksecteam/audit-reports) (`rust/`), Halborn's in

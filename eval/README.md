@@ -601,6 +601,60 @@ the two findings that matter most. It stays an option of the operator and is not
 What is still wrong after all of it: 11 of the 26 items, and the first two of the answer are Critical findings
 the code refutes.
 
+## The third contract: a clean one, and fifteen grave findings that are not there
+
+The last contract of the development set is a small staking token in which BlockSec found three Low findings and
+made three recommendations. Read blind by two readers who agree on every letter:
+
+| answer | findings of the report stated, of 6 | items | wrong | rated Critical or High, and real among them |
+|---|---|---|---|---|
+| Qwen3.6-35B alone | 0 | 8 | 2 | 5, 1 |
+| kimi-k2.6 alone | 3 | 14 | 3 | 2, 1 |
+| DeepSeek alone | 2 | 12 | 4 | 2, 1 |
+| the three models' answers together | 4 | | | |
+| the three reviews joined | 3 | 38 | 15 or 16 | 15, 0 |
+
+**On a contract with little wrong in it the reviews made alarms.** Fifteen findings rated Critical or High, none
+real, and one finding fewer than the three models state between them. The checks had confirmed claims that
+something is not done where the code does it (a callback that "does not restore" an amount it restores), quoting
+the lines around the place and never the place; and one check kept a finding Critical whose own text says the
+tokens come back.
+
+Three things were changed, each asked for by the person this is built for:
+
+- **A check looks for what would stop a finding before it confirms it** ([check.md](../policies/check.md)): a
+  claim that something is missing is about the place where it would be done, and that place is read.
+- **What makes a finding is the expert's to say, not the protocol's.** The methods of all six audit experts now
+  say it: a finding needs someone who gains, someone who loses, or a service that stops; with nobody who gains,
+  what it costs to do against what is lost decides how grave it is; a point with none of the three is not a
+  finding. The NEAR experts' methods also say what on NEAR undoes itself (a panic, within its receipt) and what
+  does not (anything saved before a cross-contract call that fails). The check is given its expert's method, so
+  the rule works where findings are judged, and no code enforces it.
+- **All three NEAR experts read and judge with DeepSeek**, the passes stay on the cheap model. kimi-k2.6, which
+  had been the judge of one expert and about 60% of a run's cost, confirmed again six of the nine wrong findings it
+  was shown, five of them as Critical or High.
+
+Tried on the 40 findings of the two contracts that the readers had called wrong or right, each checked again once:
+
+| | the check as it was | the check as it is, DeepSeek judging |
+|---|---|---|
+| wrong findings confirmed, of 29 | 29 | 9 |
+| of them as Critical or High | 22 | 0 |
+| right findings kept, of 11 | 11 | 10 |
+
+The right finding that is refused had been worded with its steps in an impossible order. This is a trial of one
+step on findings already made, not a run of a review: a whole run on the development contracts was not paid for
+again.
+
+**The knowledge added nothing here.** The journal of both runs says where each finding of the audits came from:
+every one the reviews stated had been raised by an expert's own reading, before any knowledge was read; the
+passes over the knowledge raised more records (three times as many on one contract) and not one of the audits'
+findings beyond those;
+what the reviews missed neither had raised. The knowledge is NEAR's documentation and standards, which the models
+know. So the third reviewer was given what they do not: a case-book of what audits of other NEAR contracts have
+reported, restated in our words from public reports, none of them a report on a contract measured here
+([SOURCES.md](agents/SOURCES.md)).
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.

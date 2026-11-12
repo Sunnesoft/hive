@@ -239,3 +239,18 @@ reader had given it. Of the controller's 16 doubts both count 10 as right (9 of 
 is no flaw) and 6 as mistaken: on both items that state finding 5, on findings 1, 2 and 11, and on a Low one
 outside the list. Two wrong findings carry no doubt. Finding 11 was raised with its direction wrong ("finishes a second early"), which
 is why the unchecked list has it as `P`; the check wrote it right.
+
+## A third NEAR contract (`xref audit`, 6 findings of BlockSec's report)
+
+The last contract of the development set, reviewed once with the code as it stood after the vesting contract (no
+controller). Two readers, four answers, different order; they gave every answer the same six letters.
+
+| answer | verdicts, both readers | stated | items | distinct | wrong | Critical or High: items, distinct, real | not confirmed, real |
+|---|---|---|---|---|---|---|---|
+| alone, with room: Qwen3.6-35B-A3B | `AAAAAA` | 0 | 8 | 6 | 2 | 5, 4-5, 1 | |
+| alone, with room: kimi-k2.6 | `SASAAS` | 3 | 14 | 10 | 3 | 2, 2, 1 | |
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `PSPAAS` | 2 | 12 | 12 | 4 | 2, 2, 1 | |
+| the three reviews joined | `PSSAAS` | 3 | 38 | 30 | 15-16 | 15, 13, 0 | 13, 0 |
+
+The three models together state findings 1, 2, 3 and 6: four. Finding 6 is `S` for three answers on a lenient
+reading (they word the missing gas check as an underflow of the subtraction; read strictly all three are `P`).

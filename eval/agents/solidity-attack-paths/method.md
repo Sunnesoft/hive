@@ -9,6 +9,13 @@ A finding is reported only if it passes four gates: the attack runs end to end p
 vulnerable state is reachable in a live deployment; an unprivileged actor can trigger it; the harm is material.
 What fails a gate is dropped or given as a lead in one line, not as a finding.
 
+A finding needs one of three: someone who gains, someone who loses, or a service that stops. Say which: who gains
+what, who loses what, or what can no longer be done and by whom; and who can make it happen (anyone, a user to
+their own cost, a privileged account) and what it costs them. With nobody who gains, a loss or a stopped service
+is still a finding: how grave depends on what the attack costs the attacker against what the others lose. A
+point with none of the three is not a finding: at most a Low note. What only the owner can do to users is Medium
+at most, unless the contract promises users it cannot happen.
+
 The report holds the findings, not the way to them. First every finding in one line: severity, function, what
 happens. Then each finding in at most 100 words: how it is triggered, with concrete values, what is lost, the
 smallest fix. Then the proof of concept, if code was asked for.

@@ -57,6 +57,20 @@ follow the receipts in order (the call, what is saved before it, the callback, w
 who can trigger it and what they gain or what others lose. A rule the code keeps is not reported. Something that
 only could be better, with no harm that follows, is Low or left out.
 
+A finding needs one of three: someone who gains, someone who loses, or a service that stops. Say which: who gains
+what, who loses what, or what can no longer be done and by whom; and who can make it happen (anyone, a user to
+their own cost, a privileged account) and what it costs them. With nobody who gains, a loss or a stopped service
+is still a finding: how grave depends on what the attack costs the attacker against what the others lose. A
+point with none of the three is not a finding: at most a Low note. What only the owner can do to users is Medium
+at most, unless the contract promises users it cannot happen.
+
+What undoes itself is not a finding, and what does not is. A panic (assert!, require!, unwrap, env::panic_str)
+undoes every change its own receipt made to the state and sends the attached deposit back: "state left half done"
+is true only across receipts. A cross-contract call is a later receipt: when it fails, nothing that was saved
+before it is undone, and only a callback that restores it can put it back. Tokens sent with ft_transfer_call come
+back to the sender when ft_on_transfer panics. A #[private] method can be called by the contract alone. Before a
+finding stands, read the place that would stop it.
+
 Severity: Critical or High when an unprivileged account can take or lock funds or tokens; Medium when it needs a
 condition outside the attacker's control, or the harm is bounded; Low for losses of dust, missing checks on the
 owner's own input and departures from a standard that break integrations, not balances.
@@ -97,9 +111,9 @@ decide whether the code keeps it.
 neps = src / 'near-NEPs' / 'neps'
 STANDARDS = ['nep-0141', 'nep-0145', 'nep-0148', 'nep-0297', 'nep-0171', 'nep-0178']
 write('near-standards', {
-    'model': 'moonshotai/kimi-k2.6', 'pass_model': 'Qwen/Qwen3.6-35B-A3B-FP8',
+    'model': 'deepseek-ai/DeepSeek-V4.1-Flash-1017', 'pass_model': 'Qwen/Qwen3.6-35B-A3B-FP8',
     'skills': "Conformance review of NEAR smart contracts in Rust against the contract standards: NEP-141 fungible tokens (ft_transfer, ft_transfer_call, ft_on_transfer and refunds), NEP-145 storage management (storage_deposit, storage_withdraw, storage_unregister), NEP-148 metadata, NEP-297 events, NEP-171 non-fungible tokens, NEP-178 approvals. Reviews attached contract code against each requirement and quotes the lines each finding rests on. Knowledge: the NEAR Enhancement Proposals (CC0).",
-    'rate': '1.00', 'max_cost': '3.60', 'work': 'review',
+    'rate': '1.00', 'max_cost': '1.60', 'work': 'review',
     'examples': ['Does this token contract follow NEP-141 and NEP-145, and what breaks for wallets and exchanges if not?', 'Review how this contract receives tokens with ft_on_transfer and returns what it does not use.', 'Is the storage deposit of this contract handled the way NEP-145 requires?'],
     'topics': ['dev_tools'],
 }, """

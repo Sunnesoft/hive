@@ -49,7 +49,7 @@ const TSWAP = 'https://raw.githubusercontent.com/Cyfrin/5-t-swap-audit/7bd52c6a7
 const BRIDGE = 'https://raw.githubusercontent.com/Cyfrin/7-boss-bridge-audit/d59479cbf925f281ef79ccb35351c4ddb002c3ef/src/L1BossBridge.sol';
 const THUNDER = 'https://raw.githubusercontent.com/Cyfrin/6-thunder-loan-audit/2250d81b89aebdd9cb135382e068af8c269e3a4b/src/protocol/ThunderLoan.sol';
 const audit = (link: string, path: string) => `Audit this Solidity contract before we deploy it: ${link}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: our repository has the contract at ${path}, compiles with Solidity 0.8.20 and has forge-std in lib/forge-std.`;
-const AUDITORS = ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'];
+const AUDITORS = ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-case-book'];
 
 const GAS = { text: "The settlement callback must get 22 Tgas", match: '22\\s*T\\s?gas' };
 
@@ -141,7 +141,7 @@ export const TASKS: Task[] = [
     unknown: 'Calder Fund has three tiers, Seed, Build and Scale: there is no Harbor tier',
   },
   {
-    id: 'audit', group: 'one field, three schools', experts: ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'], usdc: '6', material: RAFFLE, named: true,
+    id: 'audit', group: 'one field, three schools', experts: ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-case-book'], usdc: '6', material: RAFFLE, named: true,
     task: `Audit this Solidity contract before we deploy it: ${RAFFLE}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: ${REPO}.`,
     facts: [
       REENTRANCY, RANDOMNESS, OVERFLOW,
@@ -171,7 +171,7 @@ export const TASKS: Task[] = [
     ],
   },
   {
-    id: 'raffle on-chain', group: 'schools and fields', experts: ['play-safeguards', 'solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity', 'sorvia-games-law'], usdc: '8', material: RAFFLE,
+    id: 'raffle on-chain', group: 'schools and fields', experts: ['play-safeguards', 'solidity-attack-paths', 'solidity-bug-patterns', 'solidity-case-book', 'sorvia-games-law'], usdc: '8', material: RAFFLE,
     task: `The Lindenhof housing cooperative in Sorvia (1,200 households) wants to run its monthly playground raffle on-chain with this contract: ${RAFFLE}\n\nThree questions. First, is the contract safe to deploy? List its vulnerabilities with their severity, and for each High one write a proof of concept as a Foundry test (${REPO}). Second, does the contract as written comply with Sorvia's Community Games Act: the share it keeps, how it draws the winner, refunds, who may enter? Third, what does it lack to protect residents who spend more than they can afford?`,
     facts: [
       REENTRANCY, RANDOMNESS, OVERFLOW, DOS,

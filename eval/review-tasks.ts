@@ -37,7 +37,7 @@ export type ReviewTask = {
   findings: string[];
 };
 
-const SOLIDITY = ['solidity-attack-paths', 'solidity-code-maturity', 'solidity-bug-patterns'];
+const SOLIDITY = ['solidity-attack-paths', 'solidity-case-book', 'solidity-bug-patterns'];
 const NEAR = ['near-security-guide', 'near-standards', 'near-contract-review'];
 const fromTasks = (id: string): ReviewTask => {
   const t = TASKS.find((x) => x.id === id)!;

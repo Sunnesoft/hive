@@ -99,14 +99,15 @@ const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
 /** The files a check is shown: those the findings name, by file name or by a name they use that stands in the
  *  file; all of them if the findings name none. A check of one finding does not need ten files, and reading all
  *  of them for every check is most of what a review costs. Evidence is still looked up in all the materials. */
-function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
+export function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
   if (pages.length < 2) return pages;
   const said = group.map((f) => `${f.where} ${f.title} ${f.how}`).join(' ');
   const names = new Set(said.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []);
   const placed = new Set(group.flatMap((f) => f.where.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []));
   const fileOf = (p: Page) => p.url.split(/[\/ ]/).at(-1) ?? p.url;
-  const named = pages.filter((p) => said.includes(fileOf(p)) || [...placed].some((n) => new RegExp(`\\b(fn|function|struct|impl|contract|def)\\s+${n}\\b`).test(p.text)));
-  const used = named.length ? named : pages.filter((p) => [...names].some((n) => new RegExp(`\\b(fn|function)\\s+${n}\\b`).test(p.text)));
+  const defines = (p: Page, n: string, kinds: string) => new RegExp(`\\b(${kinds})\\s+${n}\\b`).test(p.text);
+  // A flaw is often between two files: the one the finding names and the one that calls it or is called by it.
+  const used = pages.filter((p) => said.includes(fileOf(p)) || [...placed].some((n) => defines(p, n, 'fn|function|struct|impl|contract|def')) || [...names].some((n) => defines(p, n, 'fn|function')));
   return used.length ? used : pages;
 }
 
