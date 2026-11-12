@@ -9,8 +9,9 @@ export type Shelf = { for: (question: string) => Promise<Page[]> };
 const MAX_CHARS = 1_000_000; // of all of a task's materials that are indexed
 const PICK = Math.floor(PUBLIC_CHARS / CHUNK); // chunks one expert gets
 
-/** The first `PUBLIC_CHARS` of the materials, source by source: what an expert gets if indexing is not possible. */
-const head = (pages: Page[]) => {
+/** The first `PUBLIC_CHARS` of the materials, source by source: what an expert gets if indexing is not possible,
+ *  and what the controller of a review reads. */
+export const head = (pages: Page[]) => {
   let left = PUBLIC_CHARS;
   return pages.flatMap((p) => {
     const text = p.text.slice(0, Math.max(0, left));

@@ -213,7 +213,9 @@ export async function step(kind: ReviewStep, m: Materials, knowledge: string, qu
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
   if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
-  const call = () => generateText({ model: nearai(model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  // No retries inside the call: a review tries a failed step once more itself, and a step that hangs must not
+  // hold the review for three timeouts in a row.
+  const call = () => generateText({ model: nearai(model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], maxRetries: 0, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
   try {
     const r = await metered(kind, model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
@@ -275,6 +277,16 @@ export async function compose(task: string, previous: string, contributions: { i
   const call = () => generateText({ model: nearai(model), instructions: policy.compose, prompt, temperature: 0, maxOutputTokens: PROTOCOL_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
   const r = await metered('compose', model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
   return r.finishReason === 'length' ? `${r.text}\n\n> The answer reached its length limit and stops here.` : r.text;
+}
+
+const Verdicts = z.object({ verdicts: z.array(z.object({ id: z.number(), verdict: z.enum(['agree', 'doubt', 'severity']), stops: z.string().nullish(), severity: z.string().nullish(), reason: z.string().nullish() })) });
+export type ControlVerdict = z.infer<typeof Verdicts>['verdicts'][number];
+/** The controller's verdicts on the joined findings of a review (policies/control.md), by the model set for it.
+ *  It sees the customer's materials and the findings as their experts wrote them; what it says is shown beside
+ *  them. No controller is set, or it does not answer: no verdicts. */
+export async function control(pages: Page[], findings: { id: number; severity: string; where: string; claim: string; how: string; evidence: string }[]): Promise<ControlVerdict[]> {
+  if (!cfg.CONTROL_MODEL || !findings.length) return [];
+  return ask(cfg.CONTROL_MODEL, 'control', { materials: pages, findings }, Verdicts).then((r) => r.verdicts, () => []);
 }
 
 const Dangerous = z.object({ dangerous: z.array(z.object({ id: z.number(), reason: z.string() })) });

@@ -94,7 +94,7 @@ try {
       cwd: root, stdio: ['ignore', 'pipe', 'inherit'],
       env: {
         ...process.env, NEAR_RPC: sandbox.rpcUrl, CONTRACT: swarm.accountId, RUNNER_ACCOUNT: runner.accountId, DEV_KEY: devKey.toString(),
-        NEARAI_URL: `${ai.url}/v1`, NEARAI_API_KEY: 'test', PROTOCOL_MODEL: 'z-ai/glm-5.3', MARKET_URL: market.url, MARKET_TOKEN: 'aat_test',
+        NEARAI_URL: `${ai.url}/v1`, NEARAI_API_KEY: 'test', PROTOCOL_MODEL: 'z-ai/glm-5.3', CONTROL_MODEL: 'z-ai/glm-5.3', MARKET_URL: market.url, MARKET_TOKEN: 'aat_test',
         POLL_MS: '1000', PORT: '0', STORE_DIR: store, MAX_REWORKS: '2', ...extra,
       },
     });
@@ -502,6 +502,12 @@ try {
   check('review: the findings reach the customer as the experts wrote them, with the line of the file each rests on', report.includes('**Evidence:** `function withdraw() { send(everything, caller); }`') && report.includes('**Fix:** guard withdraw.') && !report.includes('[['), report);
   check('review: the composer saw the titles only and wrote around the list', ai.composed.at(-1)!.contributions.every((c) => c.text.startsWith('Checked findings') && !c.text.includes('Evidence')) && report.indexOf('## Findings') > report.indexOf('Checked findings'), ai.composed.at(-1));
   check('review: the confirmed findings are looked at together, and what two of them allow that neither says alone is a finding once its own check confirms it', did(first).combined === 1 && did(second).combined === 0 && ai.review.combines.every((c) => c.includes('function withdraw()') && !/-ONLY/.test(c)) && /High: Project Alpha fee and withdraw together empty the ledger\n\n\*Where:\* withdraw\. \*Found by 1 of 2 experts\.\*[\s\S]*?\*\*Evidence:\*\* `function withdraw\(\)/.test(confirmed), { first: did(first), second: did(second) });
+  const about = (title: string) => confirmed.slice(confirmed.indexOf(title)).split('\n### ')[0]!;
+  check('review: the controller reads the joined findings and says its word beside them: a doubt with the line of the file that stops it, another rating; the finding stays as written',
+    ai.review.controls.length === 1 && ai.review.controls[0]!.includes('function withdraw()') && !/-ONLY/.test(ai.review.controls[0]!)
+    && /\*Second opinion, from the controller:\* it doubts this\. Three thousandths[^\n]*The line it points at: `function fee\(\) \{ return amount \* 3 \/ 1000; \}`/.test(about('Project Alpha fee rounds to zero')) && about('Project Alpha fee rounds to zero').includes('**Fix:** guard fee.')
+    && /### \d+\. High: Project Alpha fee and withdraw together[\s\S]*it would rate this Medium\. It needs both flaws at once\./.test(confirmed), { fee: about('Project Alpha fee rounds to zero') });
+  check('review: a doubt that names a line the file does not have is not shown: the controller, too, must point at the page', !about('Project Alpha owner is anyone').includes('Second opinion') && ai.review.controls[0]!.includes('owner is anyone'), about('Project Alpha owner is anyone'));
   check('review: the task asked for code, so the grave finding has a proof, marked as not run', did(first).proofs === 2 && report.includes('// proof: withdraw is open') && !report.includes('// proof: fee') && report.includes('**Proof** (written, not run):') && report.includes('The code in this answer was not run'), report);
   const rv = await job('a-review#1');
   const slot = (who: Account) => rv!.slots.find((x) => x.agent === agentId(who))!;

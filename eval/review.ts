@@ -9,7 +9,7 @@ import { docsOf, filesOf, linksOf } from '../node/src/audit.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
+import { controlled, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, usdc } from '../node/src/rules.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
 import { REVIEWS, type ReviewTask } from './review-tasks.ts';
@@ -48,11 +48,13 @@ async function reviewed(t: ReviewTask, name: string, pages: { url: string; text:
 }
 
 /** The experts' reviews as one answer: what the customer gets below the composer's summary. */
-async function joined(t: ReviewTask) {
+async function joined(t: ReviewTask, pages: { url: string; text: string }[]) {
   const parts = t.experts.map((name, id) => ({ id, r: kept[t.id]?.[`review: ${name}`] })).filter((p) => p.r?.review && !p.r.why);
   if (parts.length < t.experts.length || kept[t.id]?.['review: the swarm']) return;
   const all = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
   keep(t.id, 'review: the swarm', { text: listOf(all, parts.length), usd: 0, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
+  // The same list with the controller's word beside each finding, if CONTROL_MODEL is set.
+  if (process.env.CONTROL_MODEL) keep(t.id, 'review: the swarm, with the controller', { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }
 
 /** The model of an expert, asked the task alone and at once: the same call as an expert's answer, with the files
@@ -78,7 +80,7 @@ for (const t of tasks) {
   if (spent < LIMIT) await Promise.all(models.map((model) => alone(t, model, pages)));
   if (!args.includes('--alone')) {
     for (const name of t.experts) if (spent < LIMIT) await reviewed(t, name, pages); // one after another: a model's queue is short
-    await joined(t);
+    await joined(t, pages);
   }
   if (spent >= LIMIT) console.error(`stopped: $${spent.toFixed(3)} spent, the limit is $${LIMIT}`);
 }

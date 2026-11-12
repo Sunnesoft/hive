@@ -31,7 +31,8 @@ import type { Page } from './web.ts';
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
 export type Raised = Finding & { also?: string[] };
-export type Checked = Raised & { proof?: string };
+/** `second`: what the controller said of it, if it did not simply agree. */
+export type Checked = Raised & { proof?: string; second?: string };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
 export type Counts = { passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
@@ -222,6 +223,7 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
     f.how,
     f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
+    f.second && `*Second opinion, from the controller:* ${f.second}`,
     f.evidence && `**Evidence:** ${f.evidence}`,
     f.fix && `**Fix:** ${f.fix}`,
     f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
@@ -266,6 +268,24 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   });
   const leads = sorted.filter((j) => !confirmedIn(j)).map((j): Lead => ({ ...oneOf(j), seen: ids(j.flat()) }));
   return { findings: bySeverity(findings), leads: bySeverity(leads.sort((a, b) => b.seen.length - a.seen.length)).slice(0, MAX_LEADS) };
+}
+
+/** A second pair of eyes on the joined findings: the controller's model (policies/control.md) reads them all with
+ *  the customer's materials. It may doubt a finding, if it names a line of the materials that stops it and code
+ *  finds that line there, or rate it otherwise. Its word is put beside the finding; the finding stays as its
+ *  expert wrote it, where it was. A model's "no" removes nothing here either. */
+export async function controlled<T extends Checked>(findings: T[], pages: Page[]): Promise<T[]> {
+  const verdicts = await llm.control(pages, findings.map((f, id) => ({ id, severity: f.severity, where: f.where, claim: f.title, how: f.how, evidence: f.evidence })));
+  const material = pages.map((p) => p.text).join('\n');
+  const said = new Map<number, string>();
+  for (const v of verdicts) {
+    const reason = (v.reason ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    if (!findings[v.id] || said.has(v.id) || !reason) continue;
+    if (v.verdict === 'doubt' && v.stops && grounded(`\`${v.stops}\``, material)) said.set(v.id, `it doubts this. ${reason} The line it points at: \`${v.stops.trim().replace(/\s+/g, ' ').slice(0, 200)}\``);
+    const rated = SEVERITIES.find((s) => s.toLowerCase() === (v.severity ?? '').toLowerCase());
+    if (v.verdict === 'severity' && rated && rated !== findings[v.id]!.severity) said.set(v.id, `it would rate this ${rated}. ${reason}`);
+  }
+  return findings.map((f, id) => (said.has(id) ? { ...f, second: said.get(id)! } : f));
 }
 
 /** The joined review as the last part of the customer's answer. Each finding carries the [[id]] marks of the

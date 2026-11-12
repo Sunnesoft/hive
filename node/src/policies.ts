@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const text = (f: string) => readFileSync(new URL(`../../policies/${f}`, import.meta.url), 'utf8');
-const names = ['scan', 'audit', 'job', 'route', 'stand-in', 'agent', 'lookup', 'pass', 'check', 'combine', 'same', 'proof', 'evaluate', 'compose', 'code', 'scope'] as const;
+const names = ['scan', 'audit', 'job', 'route', 'stand-in', 'agent', 'lookup', 'pass', 'check', 'combine', 'same', 'proof', 'evaluate', 'control', 'compose', 'code', 'scope'] as const;
 
 export const policy = Object.fromEntries(names.map((n) => [n, text(`${n}.md`)])) as Record<(typeof names)[number], string>;
 

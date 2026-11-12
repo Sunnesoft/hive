@@ -11,10 +11,10 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
+import { controlled, digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
-import { shelve, type Shelf } from './shelf.ts';
+import { head, shelve, type Shelf } from './shelf.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
 
 
@@ -246,7 +246,8 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   // Of a review it sees the titles alone: the findings go to the customer as code joined them, after what it wrote.
   const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.review ? digestOf(p.review) : p.text, review: p.review }] : []));
   const reviews = good.flatMap((g) => (g.review ? [{ id: g.id, ...g.review }] : []));
-  const joined = await join(reviews);
+  const all = await join(reviews);
+  const joined = { ...all, findings: await controlled(all.findings, head(pages.filter((p) => given.has(p.url)))) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
   const written = good.length ? (await llm.compose(task, previous, good.map(({ id, question, text }) => ({ id, question, text })), sources).catch(() => '')).trim() : '';
   const marked = [written || (list && '> The summary of this answer could not be written. The checked findings follow.'), list].filter(Boolean).join('\n\n');
@@ -255,7 +256,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
   const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);
   const answer = await gate(provenance(marked).text, known);
-  log('composed', { from: good.length, findings: joined.findings.length, leads: joined.leads.length, chars: answer.length }, { marked, answer });
+  log('composed', { from: good.length, findings: joined.findings.length, leads: joined.leads.length, second: joined.findings.filter((f) => f.second).length, chars: answer.length }, { marked, answer });
   const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
   const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
   const label = (url: string) => url.replace(/^attachment: /, '');

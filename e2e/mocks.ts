@@ -39,7 +39,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
-  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
+  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -145,6 +145,17 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       const [, list = ''] = user.split('# Confirmed findings');
       const both = !general && /\| withdraw \|/.test(list) && /\| fee \|/.test(list);
       return (review.combines.push(`${system}\n${user}`), reply(both ? '### High | withdraw | Project Alpha fee and withdraw together empty the ledger\nThe open withdraw takes what the fee leaves.' : 'NOTHING FOUND'));
+    }
+    if (is('You are the controller of a review')) {
+      // Fixed rule: it doubts the rounding fee with a line of the file, doubts the owner with a line that is not there, and rates the combination lower.
+      const { materials, findings } = data() as { materials: { text: string }[]; findings: { id: number; claim: string }[] };
+      review.controls.push(user);
+      const feeLine = materials.flatMap((m) => m.text.split('\n')).find((l) => l.includes('fee(')) ?? '';
+      return reply({ verdicts: findings.flatMap((f): object[] =>
+        f.claim.includes('rounds to zero') ? [{ id: f.id, verdict: 'doubt', stops: feeLine, reason: 'Three thousandths of a small amount is meant to be nothing.' }]
+        : f.claim.includes('owner is anyone') ? [{ id: f.id, verdict: 'doubt', stops: 'require(msg.sender == owner);', reason: 'The owner is checked.' }]
+        : f.claim.includes('together empty') ? [{ id: f.id, verdict: 'severity', severity: 'Medium', reason: 'It needs both flaws at once.' }]
+        : []) });
     }
     if (is('You sort the findings')) {
       // Fixed rule: a finding marked "(twin)" says the same as the first other finding in the same place. Stand-ins: nothing is the same.
