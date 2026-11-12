@@ -33,6 +33,7 @@ export const PASS_OUT = 2_400; // output tokens of one pass: a strong model rais
 export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first
 export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed
 export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
+export const CHECK_AT_ONCE = 5; // wordings one check is shown: a model that joined twenty findings into a group must not have them dismissed in one line
 export const CHECK_OUT = 1_400; // a strong model confirms a group as several findings, each with its lines and its fix
 export const COMBINE_IN = 6_000; // bytes of confirmed findings the step that looks at them together is given
 export const COMBINE_OUT = 900;

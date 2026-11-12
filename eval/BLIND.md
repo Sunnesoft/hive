@@ -153,3 +153,20 @@ first reading again and the same three earlier answers. `P` also for a reference
 | expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 | `SASSSSASA` | 6 | 16 | 11 | 1 | | 1 | yes |
 
 The four answers both readers read got the same verdict on every finding from both.
+
+## A NEAR contract (`convertor audit`, 11 findings of BlockSec's report)
+
+One reader, five answers under random names, the evening of 2026-11-12. Every answer was made on
+Qwen3.6-35B-A3B: that evening it was the one model at NEAR AI that answered in time.
+
+| answer | verdicts, finding by finding | stated | as "not confirmed" | items | distinct | wrong | tests | cut off |
+|---|---|---|---|---|---|---|---|---|
+| alone, at once: Qwen3.6-35B-A3B | `SSPAAAAAAAA` | 2 | | 7 | 8 | 3 | 1 | yes |
+| a review by near-contract-review | `SAPAAAAPPAA` | 1 | 0 | 8 | 8 | 3 | 0 | no |
+| a review by near-standards | `SASAAAALAAA` | 2 | 1 | 9 | 8 | 4 | 3 | no |
+| a review by near-security-guide | `SSSAAAALPAP` | 3 | 1 | 8 | 6 | 2 | 3 | no |
+| the three reviews joined | `SSSAAAALPAP` | 3 | 1 | 20 | 15 | 6 | 5 | no |
+
+The reader's notes: the model alone states both rate flaws in one item (a strict "item of its own" makes one of
+them `P`). Findings 1 to 3 are the report's two High findings and its Medium; 4 to 8 its Low ones; 9 to 11
+recommendations.

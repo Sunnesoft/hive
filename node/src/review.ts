@@ -25,7 +25,7 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
@@ -172,9 +172,14 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // and of equally grave ones those more passes arrived at.
   const alikeRaised = await sortedBy(m.model, await same(raised.map((f): Item => ({ f, held: false })), (x) => x.f), hold);
   cost += alikeRaised.cost;
+  // A check is shown the different wordings of a group, CHECK_AT_ONCE at a time: the model's answer may have
+  // joined more than belongs together, and a check that is shown twenty claims dismisses them in one line.
   const groups = alikeRaised.groups
-    .map((joined) => ({ wordings: wordingsOf(joined), all: [...new Set([...joined.map(headOf), ...joined.flat().map((x) => x.f)])] as Finding[] }))
-    .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.all.length - a.all.length);
+    .flatMap((joined) => {
+      const heads = joined.map(headOf) as Finding[];
+      return Array.from({ length: Math.ceil(heads.length / CHECK_AT_ONCE) }, (_, k) => heads.slice(k * CHECK_AT_ONCE, (k + 1) * CHECK_AT_ONCE)).map((all) => ({ all, wordings: all.map((f) => f.title), raised: joined.flat().length }));
+    })
+    .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.raised - a.raised);
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
   const checked = (group: Finding[]) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN));

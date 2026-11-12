@@ -471,6 +471,37 @@ this contract the review is not better than one call. The contract is from a pub
 its flaws; where a review can add something is a contract they do not know, with knowledge they do not have
 ([the NEAR contracts](review-tasks.ts)).
 
+## A NEAR contract: the review against the same model alone
+
+The first contract the models are unlikely to know: a pool that converts NEP-141 tokens, audited by BlockSec in
+2022 ([review-tasks.ts](review-tasks.ts) has its 11 findings, written down before the run). Three reviewers of
+NEAR contracts ([agents/SOURCES.md](agents/SOURCES.md)) reviewed its ten source files with `npm run eval:review`,
+all on Qwen3.6-35B-A3B, and the same model was asked the task alone, at once. Read blind ([BLIND.md](BLIND.md)):
+
+| answer | findings of the report stated, of 11 | more, as "not confirmed" | items, distinct | wrong | proofs | cost, USD |
+|---|---|---|---|---|---|---|
+| the model alone, one call | 2 | | 7, 8 | 3 | 1 | 0.006 |
+| a review with our own NEAR checklist | 1 | 0 | 8, 8 | 3 | 0 | 0.045 |
+| a review with the NEAR standards | 2 | 1 | 9, 8 | 4 | 3 | 0.124 |
+| a review with NEAR's security guide | 3 | 1 | 8, 6 | 2 | 3 | 0.176 |
+| the three joined | 3 | 1 | 20, 15 | 6 | 5 | 0.344 |
+
+**The review found the report's two High findings and its Medium; the model alone found the two High, in one
+item, and its answer broke off.** The third, a rollback that fails in the callback of a failed transfer, is what
+the security guide's pages on callbacks and the storage standard are about. Nobody found the report's Low
+findings or its recommendations: of those the passes raised (a pool id that overflows, zero rates, pools that
+cost nothing to make), the checks of this model refuted them, with wrong reasons where we looked.
+
+Two things the run showed about the mechanics. The model's answer to "which of these say the same" joined
+nineteen different findings into one group, and the check dismissed the group in a line, the zero rates with
+it: a check is now shown five wordings at a time. And of 15 distinct items 6 are wrong. A controller on
+kimi-k2.6 (one call, 0.018 USD) doubted 14 of the 20 joined findings, each with a line of the contract: 11 of the
+12 items that are wrong, three that are true of the code but no flaw, and one that is right, the Medium. It
+left the two High findings alone. In the answer a doubted finding stays, under its own heading.
+
+One contract, one model, one run each: a first sign, not a result. The stronger models could not be asked the
+same question that evening (DeepSeek at NEAR AI did not answer within three minutes).
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
