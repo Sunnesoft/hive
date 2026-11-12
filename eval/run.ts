@@ -1,7 +1,7 @@
 // The measurements behind eval/README.md: the same questions answered in several ways and scored against facts
 // written down in advance (eval/tasks.ts). Every stage keeps what it got in eval/out/, so a rerun pays only for
 // what is missing.
-//   npm run eval -- bare solo swarm compose modes market ablate passes merge score report        any subset, in this order
+//   npm run eval -- bare solo swarm compose modes market ablate passes merge union score report        any subset, in this order
 // Needs a runner on testnet started with TRACE_DIR (its trace is how the swarm's answers and costs are read), the
 // experts of eval/agents and agents/ registered there, and CUSTOMER: an account with test USDC whose key is in
 // ~/.near-credentials. RUNNER_URL and RUNNER_TRACE say where the runner and its trace are.
@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { docsOf } from '../node/src/audit.ts';
 import * as chain from '../node/src/chain.ts';
 import { cfg, policy } from '../node/src/config.ts';
-import { index, search } from '../node/src/library.ts';
+import { index, search, similarity, unit } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
 import { provenance, usdc } from '../node/src/rules.ts';
@@ -55,6 +55,8 @@ const THINKING = 'alone, thinking first, 16,000 tokens: kimi-k2.6';
 // A skill used as it was written to be used: one pass over the contract for each file of its checklist, then a verdict.
 const PASSES = 'the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017';
 const MERGED = 'the attack-paths skill in passes, merged by the composer';
+const UNION = 'the attack-paths skill in passes, joined by code';
+const SAME = Number(process.env.EVAL_SAME ?? '0.85'); // findings whose first lines are this close say the same thing
 const PASS_RULE = 'This is one pass of several over the same contract. Go through the checklist in your knowledge item by item and report only what it finds here: each finding in at most 80 words, with its severity and its function. No code. If the checklist finds nothing in this contract, say so in one line.';
 const VERDICT_RULE = 'Below are the findings of several passes over the same contract, each made with one part of your checklist. Check each finding against the contract by the rules in your knowledge, drop the ones that do not hold, state each remaining one once, and write the report the task asks for.';
 const short = (model: string) => model.split('/')[1]!;
@@ -345,6 +347,37 @@ const stages: Record<string, () => Promise<void>> = {
       const prompt = JSON.stringify({ task: t.task, previous: '', contributions: passes.map((p, id) => ({ id, question: `${t.task}\n\n${PASS_RULE}`, text: p.text })), sources: [{ url: t.material }] });
       const a = await ask(cfg.PROTOCOL_MODEL, policy.compose, prompt, { limit: 8_000 });
       keep(t.id, MERGED, { text: provenance(a.text).text, usd: a.usd, seconds: a.seconds, marked: a.text }); // usd: the composing alone; the passes are counted with PASSES
+    }
+  },
+
+  /** The same twelve passes, joined without a model. Every finding a pass wrote is taken as it stands; findings whose
+   *  first lines are close enough to say the same thing are listed once, with how many passes had them. Nothing is
+   *  rewritten, so a finding that one pass alone made cannot be lost. Nothing is checked either. */
+  async union() {
+    const RANK = ['critical', 'high', 'medium', 'low', 'info'];
+    const HEAD = /^(?:#{2,4}\s+|[-*]\s+)?\*{0,2}(?:\d+\.\s+)?\*{0,2}(?:Finding\s+\d+\s*[—:–-]+\s*)?\*{0,2}(Critical|High|Medium|Low|Informational|Info)\b/i;
+    for (const t of TASKS.filter((x) => answers[x.id]?.[PASSES]?.parts?.length && !answers[x.id]?.[UNION]?.text.trim())) {
+      const items: { head: string; body: string; rank: number; pass: string }[] = [];
+      for (const p of answers[t.id]![PASSES]!.parts!) {
+        let cur: (typeof items)[number] | undefined;
+        for (const line of p.text.split('\n')) {
+          const m = HEAD.exec(line.trim());
+          if (m) items.push((cur = { head: line.trim().replace(/^#{2,4}\s+|^[-*]\s+/, ''), body: '', rank: RANK.findIndex((r) => m[1]!.toLowerCase().startsWith(r)), pass: p.agent.replace('pass/', '') }));
+          else if (cur && line.trim()) cur.body += `${line.trim()}\n`;
+        }
+      }
+      const { vectors } = await llm.embed('search', items.map((x) => `${x.head}\n${x.body}`.slice(0, 500)));
+      const v = vectors.map(unit);
+      const of = items.map((_, i) => i);
+      const root = (i: number): number => (of[i] === i ? i : (of[i] = root(of[i]!)));
+      for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (similarity(v[i]!, v[j]!) >= SAME) of[root(j)] = root(i);
+      const groups = new Map<number, typeof items>();
+      items.forEach((x, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), x]));
+      const found = [...groups.values()].map((g) => ({ shown: [...g].sort((a, b) => a.rank - b.rank || b.body.length - a.body.length)[0]!, passes: new Set(g.map((x) => x.pass)).size }))
+        .sort((a, b) => a.shown.rank - b.shown.rank || b.passes - a.passes);
+      const text = `# Findings\n\n${found.length} findings from twelve passes over the contract, each as the pass that found it wrote it; findings that say the same thing are listed once. None of them has been checked against the code.\n\n${found.map((f, k) => `## ${k + 1}. ${f.shown.head.replace(/^\*+|\*+$/g, '')}\n\n${f.shown.body.trim().slice(0, 900)}\n\n*Found by ${f.passes} of 12 passes.*`).join('\n\n')}\n`;
+      keep(t.id, UNION, { text, usd: 0, seconds: 0 });
+      console.error(`${t.id}: ${items.length} findings written by the passes, ${found.length} after joining at ${SAME}; in one pass only: ${found.filter((f) => f.passes === 1).length}`);
     }
   },
 

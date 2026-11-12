@@ -393,6 +393,17 @@ composing is new. Read blind beside answers read before. It counts as working by
 on the bridge and 6 of 9 on the loan, and only if both of those two findings are stated. What the composer keeps
 that is false is counted as well: nothing in this version checks a finding.
 
+## The passes joined by code: the design, fixed before the run
+
+A model that rewrites a hundred findings into one text keeps what many passes said and drops what one pass said,
+and the finding worth having is the one that only one pass made. So in this version nothing is rewritten. The
+findings are cut out of the passes' texts at their headings, findings whose first lines are close enough to say
+the same thing are joined (by embedding; the threshold is set once, by looking at which findings fall together,
+before anything is read for the score), and the list is given as the passes wrote it, with how many passes had
+each finding. The mark is the same: 7 of 9 on the bridge, 6 of 9 on the loan, and both of the two findings named
+above stated. The list will be long and none of it checked: how many findings it lists and how many of them the
+code refutes is part of the result.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
