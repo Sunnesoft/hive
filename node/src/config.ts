@@ -24,6 +24,9 @@ const Env = z.object({
   BIDS: z.enum(['on', 'off']).default('on'), // bid on board jobs at the price of the team each task needs
   MARKET_LISTING_URL: z.url().optional(), // the swarm's page on Agent Market, for the site's "Hire" buttons
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // A review starts no new call after this long: what is not checked by then is given as not confirmed. Keep it well
+  // under the contract's run_secs, after which an order can be sent back unanswered.
+  REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)
   STORE_DIR: z.string().default('./store'), // sealed uploads; an encrypted volume in the TEE

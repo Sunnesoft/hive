@@ -14,6 +14,7 @@
 // expert's hold. The worst case of the whole review must fit the hold before the first call is sent.
 import type { Expert } from './admit.ts';
 import { filesOf } from './audit.ts';
+import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
@@ -100,10 +101,14 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
   if (cost + worst > hold) return stop('too_expensive');
 
-  /** One step, tried again once if the model failed: a failed call costs the expert nothing. */
-  const step = async (kind: llm.ReviewStep, knowledge: string, about: string) => {
+  /** One step, tried again once if the model failed: a failed call costs the expert nothing. No step starts once
+   *  the review has run its time: the task has a deadline on chain, and a late answer is no answer. */
+  const deadline = Date.now() + cfg.REVIEW_TIMEOUT_MS;
+  const late = { text: '', cost: 0n, why: 'model_failed' as const };
+  const step = async (kind: llm.ReviewStep, knowledge: string, about: string): ReturnType<typeof llm.step> => {
+    if (Date.now() > deadline) return late;
     const first = await llm.step(kind, m, knowledge, question, pages, about, hold);
-    const r = first.why === 'model_failed' ? await llm.step(kind, m, knowledge, question, pages, about, hold) : first;
+    const r = first.why === 'model_failed' && Date.now() < deadline ? await llm.step(kind, m, knowledge, question, pages, about, hold) : first;
     cost += r.cost;
     return r;
   };
@@ -119,7 +124,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const material = pages.map((p) => p.text).join('\n');
   const toCheck = groups.slice(0, MAX_CHECKS);
   const checks = await each(toCheck, (group) => step('check', '', section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN)));
-  if (toCheck.length && checks.every((r) => r.why)) return stop(checks[0]!.why!);
+  if (toCheck.length && checks.every((r) => r.why) && Date.now() < deadline) return stop(checks[0]!.why!); // the model is not there; out of time, what was raised is still given
   const held = checks.map((r) => (r.why ? [] : findingsIn(r.text).filter((f) => grounded(f.evidence, material))));
   // A group of which nothing held, or that was never checked, stays as the pass raised it: not confirmed.
   const open = groups.filter((_, i) => !held[i]?.length).map(gravest);
