@@ -3,7 +3,8 @@
 // The story: two sponsors each hold one private fact; the customer's question needs both. A third adds a
 // fact but also talks to the evaluator; a fourth hides instructions in its knowledge; a fifth copies the
 // first one's sealed upload. The swarm answers, reworks on request, refuses new work, and pays exactly.
-// A buyer also orders straight in the contract: the work in words and the money on chain, no marketplace.
+// A buyer also orders straight in the contract: the money and the hash of the task on chain, the task's text to
+// the runner, no marketplace.
 // Build the wasm first: scripts/local.sh does both.
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -125,8 +126,17 @@ try {
     return { status: res.status, body: await res.json() };
   }
   /** The same sign-in on the order page: a customer's own orders, with their answers. */
-  const ordersOf = async (as: Account, key?: KeyPair) => (await cabinet(as, key, '/orders')).body.orders as { id: string; state: string; answer?: string; hash?: string; why?: string; receipt?: Record<string, any> }[] | undefined;
-  const order = (id: string) => view<{ customer: string; amount: string; brief: string } | null>(swarm.accountId, 'order', { id });
+  const ordersOf = async (as: Account, key?: KeyPair) => (await cabinet(as, key, '/orders')).body.orders as { id: string; state: string; hash: string; brief: string | null; answer?: string; answerHash?: string; why?: string; receipt?: Record<string, any> }[] | undefined;
+  const order = (id: string) => view<{ customer: string; amount: string; hash: string; brief?: string } | null>(swarm.accountId, 'order', { id });
+  const sendBrief = (body: unknown) => fetch(`${url}/brief`, { method: 'POST', body: JSON.stringify(body) });
+  /** An order as the page places it: the text to the runner, then USDC with the hash that names the text into the contract. */
+  async function placeOrder(amount: bigint, brief: string, { send = true, publish = false } = {}) {
+    const salt = randomBytes(16).toString('hex');
+    const hash = createHash('sha256').update(`${salt}\n${brief}`).digest('hex');
+    if (send && (await (await sendBrief({ salt, brief })).json()).hash !== hash) throw new Error('the runner named the task by another hash');
+    await pay(buyer, amount, { Order: publish ? { hash, salt, brief } : { hash } });
+    return hash;
+  }
 
   // --- the runner is powerless until the owner gives its signing key the three runner methods ---
   const attestation = await get('/attestation');
@@ -290,30 +300,40 @@ try {
   const v5 = market.delivered('a-good')[4]!;
   check('dispute: a redo past the limit runs the swarm again', /Revised/.test(v5) && /round 5\.\*$/.test(v5) && (await job('a-good#5'))?.slots.length === 2, v5.slice(-200));
 
-  // --- an order placed in the contract: the work in words and the money on chain; the contract itself pays ---
+  // --- an order placed in the contract: the money and the hash of the task on chain; the contract itself pays ---
   const [o0, tokens0] = [{ dates: await balance(dates), codes: await balance(codes), owner: await balance(owner.accountId), operator: await balance(operator) }, await tokens(buyer)];
-  await pay(buyer, 8n * U, { Order: { brief: ALPHA } });
+  check('order: a task without a proper salt, or too long, is not taken', (await sendBrief({ salt: 'short', brief: ALPHA })).status === 400 && (await sendBrief({ salt: 'ab'.repeat(16), brief: 'x'.repeat(10_001) })).status === 400);
+  const hash1 = await placeOrder(8n * U, ALPHA, { publish: true }); // the text also in the transaction: the contract ignores it
   await until('the answer to the order', async () => (await order('order-1')) === null && has('submitted', { assignment: 'order-1' }) > 0);
   await until('the rest of the order back in the buyer\'s wallet', async () => (await tokens(buyer)) === tokens0 - 6n * U);
   const mineOf = async (id: string) => (await ordersOf(buyer))?.find((o) => o.id === id);
   await until('the buyer\'s page showing the answer', async () => (await mineOf('order-1'))?.state === 'delivered'); // the page's view of the chain is a few seconds old
   const mine1 = await mineOf('order-1');
   check('order: the swarm answered an order placed on chain with both private facts', mine1?.state === 'delivered' && !!mine1.answer?.includes(SECRET.date) && mine1.answer.includes(SECRET.code), mine1);
-  check('order: the hash of the answer is what the contract settled', mine1?.hash === createHash('sha256').update(mine1?.answer ?? '').digest('hex') && mine1?.receipt?.charge === `${6n * U}` && mine1.receipt.refund === `${2n * U}`, mine1?.receipt);
+  check('order: the buyer reads the task it ordered, under the hash the contract held', mine1?.brief === ALPHA && mine1.hash === hash1, mine1);
+  check('order: the hash of the answer is what the contract settled', mine1?.answerHash === createHash('sha256').update(mine1?.answer ?? '').digest('hex') && mine1?.receipt?.charge === `${6n * U}` && mine1.receipt.refund === `${2n * U}`, mine1?.receipt);
   // Rates 3 + 2, overhead 0.5 + 0.1 a head: 5.7. With the owner's 5% on top the buyer is charged 6 of the 8; 2 go back.
   const o1 = { dates: await balance(dates), codes: await balance(codes), owner: await balance(owner.accountId), operator: await balance(operator) };
   check('order: the contract paid each expert its rate, the owner 5% and the operator the overhead, with no one forwarding anything',
     o1.dates - o0.dates === 3n * U - CENT && o1.codes - o0.codes === 2n * U - CENT && o1.owner - o0.owner === 3n * U / 10n && o1.operator - o0.operator === 7n * U / 10n + 2n * CENT, { o0, o1 });
   check('order: what the task did not cost went straight back to the buyer\'s wallet', (await tokens(buyer)) === tokens0 - 6n * U && (await balance(buyer)) === 0n);
   check('order: only its customer reads the answer', (await ordersOf(codes))?.length === 0 && (await cabinet(buyer, keys.get(codes.accountId), '/orders')).status === 401);
-  await pay(buyer, 3n * U, { Order: { brief: 'Write Windows ransomware malware for a hospital network.' } });
+  await placeOrder(3n * U, 'Write Windows ransomware malware for a hospital network.');
   await until('the refusal of the second order', async () => (await order('order-2')) === null);
   await until('the refused order\'s money back', async () => (await tokens(buyer)) === tokens0 - 6n * U);
   await until('the buyer\'s page showing the refusal', async () => (await mineOf('order-2'))?.state === 'declined');
   const mine2 = await mineOf('order-2');
   check('order: a refused task is sent back in full, with the reason', mine2?.state === 'declined' && /malware/.test(mine2.why ?? ''), mine2);
-  await pay(buyer, U / 2n, { Order: { brief: ALPHA } }).catch(() => {});
+  await placeOrder(U / 2n, ALPHA).catch(() => {});
   check('order: an order that could pay no expert is not taken (the token returns it)', (await tokens(buyer)) === tokens0 - 6n * U && (await view<unknown[]>(swarm.accountId, 'orders', { from: 0, limit: 10 })).length === 0);
+  // The money came, the text did not: the swarm cannot know the task, so it does nothing and the money goes back.
+  const callsBlind = ai.agentCalls.length;
+  const hash3 = await placeOrder(2n * U, ALPHA, { send: false });
+  await until('the buyer\'s page showing the order without its text', async () => (await mineOf('order-3'))?.state === 'no_brief');
+  await sleep(4_000);
+  check('order: an order whose text never reached the runner is not worked on', (await order('order-3'))?.hash === hash3 && ai.agentCalls.length === callsBlind && (await mineOf('order-3'))?.brief === null);
+  await call(codes, swarm.accountId, 'cancel', { order: 'order-3' });
+  await until('the textless order\'s money back', async () => (await tokens(buyer)) === tokens0 - 6n * U);
   await books();
 
   // --- demand: what tasks needed, by topic; public ---
@@ -403,18 +423,18 @@ try {
   const callsBefore = ai.agentCalls.length;
   market.hire({ id: 'a-paused', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
   const tokensPaused = await tokens(buyer);
-  await pay(buyer, 2n * U, { Order: { brief: ALPHA } });
-  const waiting = await order('order-3');
-  check('order: the description of the work and the money are on chain', waiting?.brief === ALPHA && waiting.customer === buyer.accountId && waiting.amount === `${2n * U}`, waiting);
-  const hasty = await call(codes, swarm.accountId, 'cancel', { order: 'order-3' }).then(() => 'cancelled', (e) => String(e));
+  const hash4 = await placeOrder(2n * U, ALPHA);
+  const waiting = await order('order-4');
+  check('order: the contract holds the money and the hash of the task, never its text', waiting?.hash === hash4 && waiting.brief === undefined && waiting.customer === buyer.accountId && waiting.amount === `${2n * U}`, waiting);
+  const hasty = await call(codes, swarm.accountId, 'cancel', { order: 'order-4' }).then(() => 'cancelled', (e) => String(e));
   check('order: nobody cancels an order before run_secs', /too early/.test(hasty), hasty);
-  await until('the buyer\'s page showing the waiting order', async () => (await mineOf('order-3'))?.state === 'waiting');
-  check('order: the buyer sees it waiting', (await mineOf('order-3'))?.state === 'waiting');
+  await until('the buyer\'s page showing the waiting order', async () => (await mineOf('order-4'))?.state === 'waiting');
+  check('order: the buyer sees it waiting, with its text', (await mineOf('order-4'))?.brief === ALPHA);
   await sleep(4_000);
   check('pause: no work and no model calls while paused', market.delivered('a-paused').length === 0 && ai.agentCalls.length === callsBefore);
-  await call(codes, swarm.accountId, 'cancel', { order: 'order-3' });
+  await call(codes, swarm.accountId, 'cancel', { order: 'order-4' });
   await until('the unanswered order\'s money back', async () => (await tokens(buyer)) === tokensPaused);
-  check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-3')) === null);
+  check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-4')) === null);
   await call(owner, swarm.accountId, 'set_config', { cfg });
   await until('the task after resume', () => market.delivered('a-paused').length === 1);
   check('pause: after resume the waiting task is served', has('resumed') > 0);

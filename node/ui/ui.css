@@ -622,3 +622,8 @@ hr.soft { border: 0; height: 1px; background: var(--soft-2); margin: 0; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .md i { color: var(--ink-2); }
 .order .hash { font: 12.5px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.check { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.check input { flex: none; width: 20px; height: 20px; margin-top: 2px; accent-color: var(--honey-fill); }
+.check > span { display: grid; gap: 2px; }
+.check b { font-weight: 500; font-size: 15px; }
+.check small { color: var(--ink-3); font-size: 13.5px; }

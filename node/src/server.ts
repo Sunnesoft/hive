@@ -2,6 +2,7 @@
 // GET /info: what the pages need. POST /upload/<owner>/<name>: sealed materials of a registered agent.
 // POST /cabinet: a sponsor's own agents, after signing in with a wallet. GET /demand: tasks by topic.
 // POST /orders: a customer's own orders placed in the contract, with their answers, after the same sign-in.
+// POST /brief: the description of an order, handed over before the order is placed; the contract keeps its hash.
 // GET /agents: the public catalog, active experts with their record.
 // Pages (node/ui): / for everyone, /experts for customers, /order to order on chain, /app for sponsors.
 import { createHash } from 'node:crypto';
@@ -131,6 +132,20 @@ async function cabinet(req: IncomingMessage): Promise<Reply> {
   return [200, { account, balance, agents }];
 }
 
+let briefs = { minute: 0, n: 0 };
+/** The description of an order about to be placed: kept under the hash that will name it on chain. Anyone may
+ *  hand one over, so they are small, few a minute, and forgotten in two hours if no order comes for them. */
+async function brief(req: IncomingMessage): Promise<Reply> {
+  let body = '';
+  for await (const part of req as AsyncIterable<Buffer>) if ((body += part).length > 48_000) return [413, { error: `a task is at most ${orders.MAX_BRIEF} characters` }];
+  const minute = Math.floor(Date.now() / 60_000);
+  if (briefs.minute !== minute) briefs = { minute, n: 0 };
+  if (++briefs.n > 20) return [429, { error: 'busy: try again in a minute' }];
+  const sent = (() => { try { return JSON.parse(body); } catch { return null; } })();
+  const hash = await orders.keepBrief(sent?.salt, sent?.brief);
+  return hash ? [200, { hash }] : [400, { error: `send {salt: 32 hex characters, brief: 1 to ${orders.MAX_BRIEF} characters}` }];
+}
+
 /** The signed-in customer's orders: open ones and, once settled, their answers and what the contract paid. Nobody else's. */
 async function myOrders(req: IncomingMessage): Promise<Reply> {
   const account = await signedIn(req);
@@ -145,6 +160,7 @@ async function route(req: IncomingMessage, attestation: { sealKey: string }): Pr
   if (req.method === 'POST' && up) return upload(up[1]!, up[2]!, req);
   if (req.method === 'POST' && path === '/cabinet') return cabinet(req);
   if (req.method === 'POST' && path === '/orders') return myOrders(req);
+  if (req.method === 'POST' && path === '/brief') return brief(req);
   if (req.method !== 'GET') return [405, { error: 'method not allowed' }];
   if (path === '/health') return [200, { ok: true, state }];
   if (path === '/attestation') return [200, attestation];

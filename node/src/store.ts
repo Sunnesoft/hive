@@ -2,7 +2,7 @@
 // work decided, written before anything is sent, so a restart finishes the round instead of redoing it.
 // In the TEE this directory is an encrypted volume.
 import { randomUUID } from 'node:crypto';
-import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cfg } from './config.ts';
 
@@ -55,6 +55,21 @@ export async function keepOrder<T extends { id: string; customer: string }>(reco
 }
 export const ordersOf = async (customer: string, last = 50) =>
   (await readFile(ordersBy(customer), 'utf8').catch(() => '')).split('\n').filter(Boolean).slice(-last);
+
+/** Descriptions of orders, by the hash the order names them with, from the moment the customer hands one over
+ *  until its order is settled. The contract holds only the hash. */
+const briefFile = (hash: string) => join(dir('orders'), `brief-${hash}.json`);
+export const keepBrief = (hash: string, brief: object) => writeFile(briefFile(hash), JSON.stringify(brief));
+export const briefOf = <T>(hash: string) => readFile(briefFile(hash), 'utf8').then((s) => JSON.parse(s) as T, () => null);
+export const dropBrief = (hash: string) => rm(briefFile(hash), { force: true });
+export async function sweepBriefs(keep: Set<string>, olderMs: number) {
+  for (const name of await readdir(dir('orders'))) {
+    const hash = /^brief-([0-9a-f]{64})\.json$/.exec(name)?.[1];
+    if (!hash || keep.has(hash)) continue;
+    const file = join(dir('orders'), name);
+    if (Date.now() - (await stat(file)).mtimeMs > olderMs) await rm(file, { force: true });
+  }
+}
 
 /** What the runner itself spent at NEAR AI, by UTC day, in millionths of a dollar: the daily limit is checked against it. */
 const spendFile = () => join(cfg.STORE_DIR, 'spend.json');

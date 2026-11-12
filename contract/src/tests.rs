@@ -406,19 +406,20 @@ fn an_agent_name_is_plain() {
     deposit(&mut c, A, 2 * U, named("Bad/Name", &hash('b'), U, U, 1));
 }
 
-// ---- orders: a customer's money and the description of the work, in the contract itself ----
+// ---- orders: a customer's money and the hash of the work's description, in the contract itself ----
 
 const BUYER: &str = "buyer.near";
 const O1: &str = "order-1";
 
-fn order(brief: &str) -> String {
-    json!({ "Order": { "brief": brief } }).to_string()
+/// An order for the work whose salted description hashes to `c` repeated.
+fn order(c: char) -> String {
+    json!({ "Order": { "hash": hash(c) } }).to_string()
 }
 
 /// An order of `amount` that both agents worked on: `a` and `b` say whether each delivered.
 fn worked_order(amount: u128, a: bool, b: bool) -> Contract {
     let mut c = setup();
-    deposit(&mut c, BUYER, amount, order("Review my contract"));
+    deposit(&mut c, BUYER, amount, order('d'));
     call(RUNNER, 1);
     c.assign(O1.into(), vec![ag(A), ag(B)]);
     c.finish(O1.into(), vec![out(CENT, a, false), out(CENT, b, false)]);
@@ -426,11 +427,11 @@ fn worked_order(amount: u128, a: bool, b: bool) -> Contract {
 }
 
 #[test]
-fn an_order_keeps_the_work_in_words_and_the_money_until_it_is_settled() {
+fn an_order_keeps_the_hash_of_the_work_and_the_money_until_it_is_settled() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     let o = c.order(O1.into()).unwrap();
-    assert_eq!((o.customer, o.amount.0, o.brief.as_str()), (acc(BUYER), 8 * U, "Review my contract"));
+    assert_eq!((o.customer, o.amount.0, o.hash), (acc(BUYER), 8 * U, hash('d')));
     assert_eq!(c.orders(0, 10).len(), 1);
     assert_eq!(c.total().0, 28 * U);
     assert_books(&c, &[]);
@@ -473,7 +474,7 @@ fn an_order_too_small_for_its_team_is_shared_pro_rata() {
 #[test]
 fn a_declined_order_is_sent_back_in_full() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Write malware"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(RUNNER, 1);
     c.refuse(O1.into(), "rejected".into());
     assert!(c.order(O1.into()).is_none());
@@ -495,7 +496,7 @@ fn a_declined_order_drops_its_finished_job_unpaid() {
 #[should_panic(expected = "job running")]
 fn an_order_is_not_refunded_while_its_agents_hold_money_for_it() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(RUNNER, 1);
     c.assign(O1.into(), vec![ag(A)]);
     c.refuse(O1.into(), "failed".into());
@@ -504,7 +505,7 @@ fn an_order_is_not_refunded_while_its_agents_hold_money_for_it() {
 #[test]
 fn an_unanswered_order_goes_back_after_run_secs() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(X, 600);
     c.cancel(O1.into());
     assert!(c.order(O1.into()).is_none());
@@ -516,7 +517,7 @@ fn an_unanswered_order_goes_back_after_run_secs() {
 #[should_panic(expected = "too early")]
 fn an_order_cannot_be_cancelled_early() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(BUYER, 599);
     c.cancel(O1.into());
 }
@@ -524,7 +525,7 @@ fn an_order_cannot_be_cancelled_early() {
 #[test]
 fn a_refund_that_bounces_waits_in_the_customers_balance() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(RUNNER, 1);
     c.refuse(O1.into(), "rejected".into());
     callback_failed(); // the customer left the token meanwhile
@@ -535,12 +536,12 @@ fn a_refund_that_bounces_waits_in_the_customers_balance() {
 #[test]
 fn an_order_id_is_never_used_twice() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("One"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(RUNNER, 1);
     c.refuse(O1.into(), "rejected".into());
-    deposit(&mut c, BUYER, 8 * U, order("Two"));
+    deposit(&mut c, BUYER, 8 * U, order('e'));
     assert!(c.order(O1.into()).is_none());
-    assert_eq!(c.order("order-2".into()).unwrap().brief, "Two");
+    assert_eq!(c.order("order-2".into()).unwrap().hash, hash('e'));
 }
 
 #[test]
@@ -562,7 +563,7 @@ fn only_the_runner_delivers() {
 #[should_panic(expected = "not allowed")]
 fn only_the_runner_declines() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("Review my contract"));
+    deposit(&mut c, BUYER, 8 * U, order('d'));
     call(OP, 1);
     c.refuse(O1.into(), "rejected".into());
 }
@@ -571,19 +572,20 @@ fn only_the_runner_declines() {
 #[should_panic(expected = "order too small")]
 fn an_order_must_bring_more_than_the_overhead() {
     let mut c = setup();
-    deposit(&mut c, BUYER, U / 2, order("Review my contract"));
+    deposit(&mut c, BUYER, U / 2, order('d'));
 }
 
 #[test]
-#[should_panic(expected = "brief empty or too long")]
-fn an_order_needs_the_work_in_words() {
+#[should_panic(expected = "bad brief hash")]
+fn an_order_names_its_work_by_a_sha256() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order("  "));
+    deposit(&mut c, BUYER, 8 * U, json!({ "Order": { "hash": "Review my contract" } }).to_string());
 }
 
 #[test]
-#[should_panic(expected = "brief empty or too long")]
-fn an_order_is_at_most_four_thousand_bytes() {
+fn a_customer_may_publish_the_work_beside_the_hash_and_none_of_it_is_stored() {
     let mut c = setup();
-    deposit(&mut c, BUYER, 8 * U, order(&"x".repeat(4_001)));
+    let msg = json!({ "Order": { "hash": hash('d'), "salt": "00ff", "brief": "Review my contract" } }).to_string();
+    deposit(&mut c, BUYER, 8 * U, msg); // the text is in the transaction for anyone to read; the contract keeps the hash
+    assert_eq!(c.order(O1.into()).unwrap().hash, hash('d'));
 }

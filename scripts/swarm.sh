@@ -25,7 +25,8 @@
 #   payouts                        pay every accepted assignment's rounds: each delivered expert its rate (cron-safe)
 #   revenue <assignment#round> <usdc>  forward one payout by hand
 # customer (CUSTOMER=<account>)
-#   order "<the work>" <usdc>      place an order in the contract: the task in words and its budget; prints its id
+#   order "<the work>" <usdc>      the task's text to the runner (RUNNER_URL), its hash and budget into the contract;
+#                                  prints the order's id. PUBLISH=1 puts the text into the transaction as well
 #   answers                        the customer's orders and their answers, from the runner (RUNNER_URL), signed with its key
 #   cancel <order>                 send back an order nobody answered within run_secs (anyone may call it)
 # anyone
@@ -151,10 +152,16 @@ revenue) # the round is in the accepted answer's footer: "round N"
   [[ $2 == *#* ]] || { echo "give the round: <assignment>#<round>" >&2; exit 1; }
   echo "paying $3 USDC to $2"
   pay "operator.$ROOT" "$(usdc "$3")" "$(jq -nc --arg j "$2" '{Revenue:{job:$j}}')" ;;
-order) # the description is public on chain; the answer is read on the runner's /order page with the same wallet
-  : "${CUSTOMER:?account that orders and pays}"
-  pay "$CUSTOMER" "$(usdc "$3")" "$(jq -nc --arg b "$2" '{Order:{brief:$b}}')"
-  view "$C" orders '{"from":0,"limit":100}' | jq -c --arg c "$CUSTOMER" '.[] | select(.customer == $c) | {id, amount}' ;;
+order) # the contract keeps only the hash; the answer is read with `answers`, or on the runner's /order page with the same wallet
+  : "${CUSTOMER:?account that orders and pays}" "${RUNNER_URL:?the runner that gets the text, e.g. http://127.0.0.1:8080}"
+  salt=$(openssl rand -hex 16)
+  hash=$(printf '%s\n%s' "$salt" "$2" | openssl dgst -sha256 -r | cut -d' ' -f1) # computed here: the runner cannot name the task by another
+  told=$(curl -fsS "$RUNNER_URL/brief" -H 'content-type: application/json' -d "$(jq -nc --arg s "$salt" --arg b "$2" '{salt:$s, brief:$b}')" | jq -r .hash)
+  [[ $told == "$hash" ]] || { echo "the runner did not take the text under its hash" >&2; exit 1; }
+  msg=$(jq -nc --arg h "$hash" '{Order:{hash:$h}}')
+  [[ ${PUBLISH:-} == 1 ]] && msg=$(jq -nc --arg h "$hash" --arg s "$salt" --arg b "$2" '{Order:{hash:$h, salt:$s, brief:$b}}')
+  pay "$CUSTOMER" "$(usdc "$3")" "$msg"
+  view "$C" orders '{"from":0,"limit":100}' | jq -c --arg h "$hash" '.[] | select(.hash == $h) | {id, amount, hash}' ;;
 answers) # reads the key from ~/.near-credentials, as near-cli-rs saves it with KEYCHAIN=legacy-keychain
   ts scripts/cabinet.ts "${CUSTOMER:?account that ordered}" "${RUNNER_URL:?the runner, e.g. http://127.0.0.1:8080}" "$NETWORK" --orders ;;
 cancel)
@@ -181,5 +188,5 @@ status)
       (( $(jq length <<<"$page") == 100 )) || break
     done
   fi ;;
-*) sed -n '2,35p' "$0"; exit 1 ;;
+*) sed -n '2,36p' "$0"; exit 1 ;;
 esac

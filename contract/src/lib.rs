@@ -7,9 +7,10 @@
 //!   The cost goes to the operator, the rest of the hold back to the agent.
 //! - Customer revenue pays the owner's fee, then each agent that delivered exactly its rate,
 //!   then the operator the rest. Nobody gains from another agent failing.
-//! - A customer may also order here: USDC with a description of the work. When the swarm delivers,
-//!   the order pays that job by the same rule plus the protocol's overhead; the rest is sent back.
-//!   An order the swarm declines, or does not answer in time, is sent back in full.
+//! - A customer may also order here: USDC with the hash of the work's description. The text itself
+//!   goes to the runner and is never kept here. When the swarm delivers, the order pays that job by the
+//!   same rule plus the protocol's overhead; the rest is sent back. An order the swarm declines, or
+//!   does not answer in time, is sent back in full.
 //! - A stuck job can be closed by anyone after a timeout. Every balance can be withdrawn.
 //!
 //! What the agents know is not here: it is sealed and kept by the runner in a TEE.
@@ -26,7 +27,6 @@ const MAX_TEAM: usize = 32; // agents in one job: bounds the gas of finish and r
 const MAX_SKILLS: usize = 500; // bytes of the public card text
 const MAX_NAME: usize = 32; // an agent's name: lowercase letters, digits and dashes
 const MAX_SIZE_MB: u32 = 10; // sealed materials a sponsor may upload
-const MAX_BRIEF: usize = 4_000; // bytes of an order's description, kept here until the order is settled
 const MAX_REASON: usize = 200; // bytes of why an order was declined
 const MAX_FEE_BPS: u16 = 2_000;
 const MAX_SECS: u64 = 90 * 86_400;
@@ -88,14 +88,15 @@ pub struct Job {
     pub slots: Vec<Slot>,
 }
 
-/// A customer's order: the work in words and the most it may cost, held until the swarm delivers or declines.
+/// A customer's order: which work, by the hash of its description, and the most it may cost; held until
+/// the swarm delivers or declines. The description itself is given to the runner, which checks it against the hash.
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Order {
     pub customer: AccountId,
-    pub amount: U128,  // what is not spent is sent back to the customer
-    pub brief: String, // the description of the work: public
-    pub at: u64,       // seconds: placed
+    pub amount: U128, // what is not spent is sent back to the customer
+    pub hash: String, // sha256 of the salted description: commits the customer and the swarm to the same text
+    pub at: u64,      // seconds: placed
 }
 
 #[near(serializers = [json])]
@@ -111,7 +112,8 @@ pub enum Msg {
     Register { name: String, skills: String, rate: U128, max_cost: U128, hash: String, size_mb: u32 },
     TopUp { agent: String }, // adds to the balance of the agent's owner
     Revenue { job: String },
-    Order { brief: String }, // the customer's order; its id is in the `order` event
+    Order { hash: String }, // the customer's order; its id is in the `order` event. A customer who wants the work
+                            // public adds `salt` and `brief` here: this contract ignores them, the chain keeps them
 }
 
 #[near(serializers = [json])]
@@ -175,7 +177,7 @@ impl Contract {
                 emit("top_up", json!({ "agent": agent, "amount": amount }));
             }
             Msg::Revenue { job } => self.revenue(sender_id, amount.0, job),
-            Msg::Order { brief } => self.place(sender_id, amount.0, brief),
+            Msg::Order { hash } => self.place(sender_id, amount.0, hash),
         }
         self.total += amount.0;
         U128(0)
@@ -399,14 +401,14 @@ impl Contract {
         );
     }
 
-    /// Holds a customer's money with the description of the work. The id is new every time.
-    fn place(&mut self, customer: AccountId, amount: u128, brief: String) {
-        require!(!brief.trim().is_empty() && brief.len() <= MAX_BRIEF, "brief empty or too long");
+    /// Holds a customer's money for the work its hash names. The id is new every time.
+    fn place(&mut self, customer: AccountId, amount: u128, hash: String) {
+        require!(is_sha256_hex(&hash), "bad brief hash");
         require!(amount > self.cfg.overhead.0, "order too small"); // or it could pay no agent at all
         self.placed += 1;
         let id = format!("order-{}", self.placed);
-        emit("order", json!({ "order": id, "customer": customer, "amount": U128(amount) }));
-        self.orders.insert(id, Order { customer, amount: U128(amount), brief, at: now() });
+        emit("order", json!({ "order": id, "customer": customer, "amount": U128(amount), "hash": hash }));
+        self.orders.insert(id, Order { customer, amount: U128(amount), hash, at: now() });
     }
 
     /// Ends an order with all its money back in the customer's balance. Its job, if one finished, is dropped unpaid.

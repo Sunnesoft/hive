@@ -177,7 +177,7 @@ function orderOnChain() {
   sessionStorage.setItem('swarm.order', JSON.stringify({ brief: briefText(), amount }));
   location.href = '/order';
 }
-$('chainHint').textContent = `The contract pays the experts and returns the rest. No marketplace fee; one answer, no changes or disputes; your task is public on chain.`;
+$('chainHint').textContent = 'The contract pays the experts and returns the rest, and keeps only a hash of your task. No marketplace fee; one answer, no changes or disputes.';
 $('chain').addEventListener('click', orderOnChain);
 $('search').addEventListener('input', list);
 $('task').addEventListener('input', () => (compose(), list()));

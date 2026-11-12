@@ -4,7 +4,7 @@ import { cfg } from './config.ts';
 import type { Agent, Job, Outcome } from './rules.ts';
 
 export type Config = { runner: string; fee_bps: number; audit_base: string; audit_per_mb: string; min_deposit: string; overhead: string; overhead_per_agent: string; run_secs: number };
-export type Order = { id: string; customer: string; amount: string; brief: string; at: number }; // an open order
+export type Order = { id: string; customer: string; amount: string; hash: string; at: number }; // an open order; `hash` names its description
 export type Event = { event: string; data: Record<string, any> }; // what the contract logged
 
 export const provider = new JsonRpcProvider({ url: cfg.NEAR_RPC });

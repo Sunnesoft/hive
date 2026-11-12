@@ -30,7 +30,11 @@ async function tick() {
   agents.forEach(warm);
   // The two doors, each on its own: one being down does not stop the other.
   await each([
-    async () => { for (const row of orders.rows(await chain.orders())) serve(row, fee_bps, orders.door(config)); },
+    async () => {
+      const open = await chain.orders();
+      for (const row of await orders.rows(open)) serve(row, fee_bps, orders.door(config));
+      orders.sweep(open);
+    },
     async () => {
       if (!cfg.MARKET_TOKEN) return;
       if (cfg.BIDS === 'on') await each(await market.board(), (job) => bid(job, agents, fee_bps));
