@@ -517,7 +517,16 @@ finds the third finding is knowledge they were given. The price is precision: mo
 findings are wrong by this reader's count (the first reader counted 6 of 15), where a single call is wrong in
 about half as well. The controller's doubts fall on 9 of those 10.
 
-One contract and one run of each: a sign, measured twice by readers who agree, not yet a result.
+**Against the three models' answers put together by hand it is a draw.** A customer can ask several models and
+join what they say; that, not one model, is what a swarm has to beat. DeepSeek stated finding 1, kimi 1 and 8,
+Qwen3.6 1 and 2: together 1, 2 and 8, three of eleven, for 0.03 USD. The joined reviews stated 1, 2 and 3 and
+have 8 among the unconfirmed: three of eleven as well, other ones, for 0.34. The reviews are alone in having the
+Medium finding, the models' answers together in stating the zero rates outright.
+
+One contract and one run of each, and two runs of one model differed by a finding or two on the earlier
+contracts: 3 against 2 is inside that noise. A sign, measured twice by readers who agree, not a result. What a
+swarm gives that no joining of public models can is measured elsewhere in this file: knowledge the models do not
+have (22 of 22 facts against 0 or 1).
 
 ## What this does not show
 
