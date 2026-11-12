@@ -47,14 +47,16 @@ async function reviewed(t: ReviewTask, name: string, pages: { url: string; text:
   keep(t.id, `review: ${name}`, { text: r.why ? '' : reportOf(r), usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model: m.model, review: { findings: r.findings, leads: r.leads, counts: r.counts }, ...(r.why ? { why: r.why } : {}) });
 }
 
-/** The experts' reviews as one answer: what the customer gets below the composer's summary. */
+/** The experts' reviews as one answer: what the customer gets below the composer's summary. With CONTROL_MODEL
+ *  set, also the same list with the controller's word beside each finding. */
 async function joined(t: ReviewTask, pages: { url: string; text: string }[]) {
   const parts = t.experts.map((name, id) => ({ id, r: kept[t.id]?.[`review: ${name}`] })).filter((p) => p.r?.review && !p.r.why);
-  if (parts.length < t.experts.length || kept[t.id]?.['review: the swarm']) return;
+  const second = `review: the swarm, with the controller ${(process.env.CONTROL_MODEL ?? '').split('/').at(-1)}`;
+  const wanted = [...(kept[t.id]?.['review: the swarm'] ? [] : ['review: the swarm']), ...(process.env.CONTROL_MODEL && !kept[t.id]?.[second] ? [second] : [])];
+  if (parts.length < t.experts.length || !wanted.length) return;
   const all = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
-  keep(t.id, 'review: the swarm', { text: listOf(all, parts.length), usd: 0, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
-  // The same list with the controller's word beside each finding, if CONTROL_MODEL is set.
-  if (process.env.CONTROL_MODEL) keep(t.id, 'review: the swarm, with the controller', { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
+  if (wanted.includes('review: the swarm')) keep(t.id, 'review: the swarm', { text: listOf(all, parts.length), usd: 0, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
+  if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }
 
 /** The model of an expert, asked the task alone and at once: the same call as an expert's answer, with the files

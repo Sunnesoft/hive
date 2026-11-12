@@ -31,8 +31,8 @@ import type { Page } from './web.ts';
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
 export type Raised = Finding & { also?: string[] };
-/** `second`: what the controller said of it, if it did not simply agree. */
-export type Checked = Raised & { proof?: string; second?: string };
+/** `second`: what the controller said of it, if it did not simply agree; `doubted`: it said the materials stop it. */
+export type Checked = Raised & { proof?: string; second?: string; doubted?: boolean };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
 export type Counts = { passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
@@ -277,28 +277,33 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
 export async function controlled<T extends Checked>(findings: T[], pages: Page[]): Promise<T[]> {
   const verdicts = await llm.control(pages, findings.map((f, id) => ({ id, severity: f.severity, where: f.where, claim: f.title, how: f.how, evidence: f.evidence })));
   const material = pages.map((p) => p.text).join('\n');
-  const said = new Map<number, string>();
+  const said = new Map<number, { second: string; doubted?: boolean }>();
   for (const v of verdicts) {
     const reason = (v.reason ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
     if (!findings[v.id] || said.has(v.id) || !reason) continue;
-    if (v.verdict === 'doubt' && v.stops && grounded(`\`${v.stops}\``, material)) said.set(v.id, `it doubts this. ${reason} The line it points at: \`${v.stops.trim().replace(/\s+/g, ' ').slice(0, 200)}\``);
+    if (v.verdict === 'doubt' && v.stops && grounded(`\`${v.stops}\``, material)) said.set(v.id, { doubted: true, second: `it doubts this. ${reason} The line it points at: \`${v.stops.trim().replace(/\s+/g, ' ').slice(0, 200)}\`` });
     const rated = SEVERITIES.find((s) => s.toLowerCase() === (v.severity ?? '').toLowerCase());
-    if (v.verdict === 'severity' && rated && rated !== findings[v.id]!.severity) said.set(v.id, `it would rate this ${rated}. ${reason}`);
+    if (v.verdict === 'severity' && rated && rated !== findings[v.id]!.severity) said.set(v.id, { second: `it would rate this ${rated}. ${reason}` });
   }
-  return findings.map((f, id) => (said.has(id) ? { ...f, second: said.get(id)! } : f));
+  return findings.map((f, id) => (said.has(id) ? { ...f, ...said.get(id)! } : f));
 }
 
 /** The joined review as the last part of the customer's answer. Each finding carries the [[id]] marks of the
  *  experts that confirmed it; a lead carries none: it is nobody's finding yet. `experts`: how many reviewed, so
  *  that "found by 2 of 3" says how sure a finding is. */
-export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number) =>
-  [
+export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number) => {
+  // Findings the controller doubts are not taken out: they come after the others, whole, each with its reason.
+  const [clear, doubted] = [r.findings.filter((f) => !f.doubted), r.findings.filter((f) => f.doubted)];
+  const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '');
+  return [
     r.findings.length
-      ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on.`
+      ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on.${doubted.length ? ` The controller, a second model that read them all, doubts ${doubted.length} of them: those come after the others, under their own heading.` : ''}`
       : '## Findings\n\nNo finding was confirmed against your materials.',
-    ...r.findings.map((f, i) => entry(f, i + 1, f.by.map((id) => ` [[${id}]]`).join(''), experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '')),
+    ...clear.map((f, i) => shown(f, i + 1)),
+    ...(doubted.length ? [`## Findings the controller doubts\n\nAn expert confirmed each of these and the controller named a line of your materials that, in its reading, stops it. Both are models: read the finding and the doubt.`, ...doubted.map((f, i) => shown(f, clear.length + i + 1))] : []),
     ...(r.leads.length
       ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.`,
         r.leads.map((f) => line(f, experts > 1 && f.seen.length > 1 ? ` *(raised by ${f.seen.length} of ${experts} experts)*` : '')).join('\n')]
       : []),
   ].join('\n\n');
+};

@@ -454,10 +454,22 @@ writes a third as much (replies of 440 tokens at the median against DeepSeek's 1
 had surfaced the day before, the vault passed as `from`, was raised by no pass this time. Qwen3.8 as the checker
 refuted a true finding five times with the same wrong reason; it reached the customer only as "not confirmed".
 
-Changed after these trials, and not yet measured: a pass is told what earlier passes raised and reports only what
-they missed; a pass may write 2,400 tokens and a check 900; findings that say the same in other words are joined
-by one narrow question to the model (58 confirmed wordings of the DeepSeek trial became 15 findings, on both
-models, for a tenth of a cent); what a check does not confirm is listed apart instead of dropped.
+Changed after these trials: a pass is told what earlier passes raised and reports only what they missed; a pass
+may write 2,400 tokens; findings that say the same in other words are joined by one narrow question to the model
+(58 confirmed wordings of the DeepSeek trial became 15 findings, on both models, for a tenth of a cent); what a
+check does not confirm is listed apart instead of dropped.
+
+Two more trials on the same contract, read blind by a second reader, did not do better:
+
+| answer | reference findings stated, of 9 | what went wrong |
+|---|---|---|
+| a review on DeepSeek in every step | 4 | no pass was cut any more, but DeepSeek at NEAR AI had slowed to a quarter of its speed: the passes took 13 of the review's 15 minutes, and 15 of 69 groups were checked. The findings were not yet sorted before the checks |
+| a review with Qwen3.8 reading and DeepSeek judging | 2 | told that its reply was "for what earlier passes missed", Qwen3.8 raised one finding a pass, 13 in all |
+
+Both readers gave the three earlier answers 5, 4 and 6, finding by finding the same: the reading is steady, and on
+this contract the review is not better than one call. The contract is from a public course and the models know
+its flaws; where a review can add something is a contract they do not know, with knowledge they do not have
+([the NEAR contracts](review-tasks.ts)).
 
 ## What this does not show
 

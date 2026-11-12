@@ -136,3 +136,20 @@ them, of distinct items the code refutes, of lines in the "Not confirmed" list a
 
 The three earlier answers are in the table above, read by other readers: 5, 4 and 6 stated. This reader gave them
 the same counts, and the same verdict on every finding but one (finding 7 of DeepSeek alone: `P` here, `A` there).
+
+## The review after the first fixes (`bridge audit`, 9 findings)
+
+A second reader, six answers under random names, the evening of 2026-11-12: two new reviews, the review of the
+first reading again and the same three earlier answers. `P` also for a reference finding that stands only in a
+"The same was raised as" line.
+
+| answer | verdicts, finding by finding | stated | items | distinct | wrong | not confirmed | tests | cut off |
+|---|---|---|---|---|---|---|---|---|
+| a review on DeepSeek in every step, passes told what was raised (trial 4; its fifteen minutes ended after 15 of 69 checks) | `SASSPSAAA` | 4 | 9 | 8 | 1 | 11 | 0 | no |
+| a review with Qwen3.8-27B reading and DeepSeek judging (trial 5) | `SASPAPAAA` | 2 | 8 | 6 | 2 | 0 | 5 | no |
+| a review by solidity-attack-paths on DeepSeek (trial 3, read again) | `SASSSSALA` | 5 | 38 | 18 | 3 | 12 | 5 | no |
+| swarm, experts named by the customer | `SASSSAASA` | 5 | 11 | 11 | 0 | | 3 | no |
+| alone, at once: DeepSeek-V4.1-Flash-1017 #1 | `SASSSAPAA` | 4 | 11 | 10 | 1 | | 2 | yes |
+| expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 | `SASSSSASA` | 6 | 16 | 11 | 1 | | 1 | yes |
+
+The four answers both readers read got the same verdict on every finding from both.
