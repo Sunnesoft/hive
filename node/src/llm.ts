@@ -2,7 +2,7 @@
 // public policy, always with the input as JSON data. An agent is one call with our template, its own
 // materials and its own question: no tools, no network, no other agents, no memory between jobs.
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { embedMany, generateText, Output } from 'ai';
+import { embedMany, generateText, Output, streamText } from 'ai';
 import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
@@ -11,7 +11,7 @@ import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
-const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true });
+const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL, apiKey: cfg.NEARAI_API_KEY, supportsStructuredOutputs: true, includeUsage: true });
 
 // ---- prices ----
 
@@ -78,6 +78,32 @@ const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a co
 // Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
+
+const SLOWEST = 10; // tokens a second: a model slower than this over a whole reply is not waited for to its end
+/** A text reply, read as the model writes it. One timeout for the whole call cannot tell a slow model from a dead
+ *  one: at 20 tokens a second a reply of 4,000 tokens takes 200 seconds, and a call cut at 180 looks like a model
+ *  that hangs. So a model is waited for as long as it keeps writing, and given up on when it has not started within
+ *  AGENT_TIMEOUT_MS, has written nothing for MODEL_SILENCE_MS, or is slower than SLOWEST over the whole reply.
+ *  Never retried inside: who calls decides whether to ask again. */
+async function written(model: string, o: { instructions: string; prompt: string; limit: number; temperature?: number }) {
+  const control = new AbortController();
+  const giveUp = (why: string) => () => control.abort(new DOMException(why, 'TimeoutError'));
+  let quiet = setTimeout(giveUp('the model did not start writing'), cfg.AGENT_TIMEOUT_MS);
+  const whole = setTimeout(giveUp('the model wrote too slowly'), cfg.AGENT_TIMEOUT_MS + (o.limit / SLOWEST) * 1_000);
+  const stream = streamText({
+    model: nearai(model), instructions: o.instructions, prompt: o.prompt, ...(o.temperature === undefined ? {} : { temperature: o.temperature }),
+    maxOutputTokens: o.limit, maxRetries: 0, providerOptions: DIRECT, abortSignal: control.signal,
+    onChunk: () => { clearTimeout(quiet); quiet = setTimeout(giveUp('the model fell silent'), cfg.MODEL_SILENCE_MS); },
+    onError: () => {}, // the error is the rejection below; the library would otherwise print it
+  });
+  try {
+    const [text, usage, finishReason, response] = await Promise.all([stream.text, stream.usage, stream.finishReason, stream.response]);
+    return { text, usage, finishReason, response };
+  } finally {
+    clearTimeout(quiet);
+    clearTimeout(whole);
+  }
+}
 type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'combine' | 'same' | 'proof'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
@@ -213,9 +239,7 @@ export async function step(kind: ReviewStep, m: Materials, knowledge: string, qu
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
   if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
-  // No retries inside the call: a review tries a failed step once more itself, and a step that hangs must not
-  // hold the review for three timeouts in a row.
-  const call = () => generateText({ model: nearai(model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], maxRetries: 0, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const call = () => written(model, { instructions: system, prompt, limit: STEP_OUT[kind], temperature: 0 }); // not retried inside: a review tries a failed step once more itself
   try {
     const r = await metered(kind, model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
@@ -251,7 +275,7 @@ export async function answer(m: Materials, found: string[], question: string, pa
   const [system, prompt] = [instructions(m, found), asked(question, pages)];
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' }; // the model left the catalog: no work, no charge
   if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
-  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, maxOutputTokens: MAX_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const call = () => written(m.model, { instructions: system, prompt, limit: MAX_OUT });
   try {
     const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     const cost = microUsd(r.usage, price);
@@ -274,7 +298,7 @@ export const evaluate = (task: string, question: string, text: string) => protoc
 export async function compose(task: string, previous: string, contributions: { id: number; question: string; text: string }[], sources: string[]) {
   const prompt = JSON.stringify({ task, previous, contributions, sources: sources.map((url) => ({ url })) });
   const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
-  const call = () => generateText({ model: nearai(model), instructions: policy.compose, prompt, temperature: 0, maxOutputTokens: PROTOCOL_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const call = () => written(model, { instructions: policy.compose, prompt, limit: PROTOCOL_OUT, temperature: 0 });
   const r = await metered('compose', model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
   return r.finishReason === 'length' ? `${r.text}\n\n> The answer reached its length limit and stops here.` : r.text;
 }

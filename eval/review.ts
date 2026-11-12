@@ -78,7 +78,8 @@ await llm.refreshPrices();
 for (const t of tasks) {
   const pages = await pagesOf(t);
   console.error(`${t.id}: ${pages.length} files, ${pages.reduce((n, p) => n + p.text.length, 0)} characters`);
-  const models = [...new Set(t.experts.map((name) => Materials.parse(readAgent(folder(name)).materials).model))];
+  // Each expert's model is asked alone; EVAL_ALONE names more models to ask (a stronger one, to see what one call of it finds).
+  const models = [...new Set([...t.experts.map((name) => Materials.parse(readAgent(folder(name)).materials).model), ...(process.env.EVAL_ALONE ?? '').split(',').filter(Boolean)])];
   if (spent < LIMIT) await Promise.all(models.map((model) => alone(t, model, pages)));
   if (!args.includes('--alone')) {
     for (const name of t.experts) if (spent < LIMIT) await reviewed(t, name, pages); // one after another: a model's queue is short

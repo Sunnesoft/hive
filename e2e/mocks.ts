@@ -9,7 +9,18 @@ async function listen(handle: Handler, port = 0) {
   const server = createServer(async (req: IncomingMessage, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
-    const [status, json] = handle(req.method!, req.url!, raw ? JSON.parse(raw) : undefined, req.headers.authorization);
+    const body = raw ? JSON.parse(raw) : undefined;
+    const [status, json] = handle(req.method!, req.url!, body, req.headers.authorization);
+    const answer = json as { choices?: { message: { content: string }; finish_reason: string }[]; usage?: object };
+    if (body?.stream && status === 200 && answer.choices) { // a chat reply asked for as a stream: the text, the end, the tokens used
+      const { choices, usage, ...head } = answer;
+      const event = (part: object) => `data: ${JSON.stringify({ ...head, object: 'chat.completion.chunk', ...part })}\n\n`;
+      res.writeHead(200, { 'content-type': 'text/event-stream' }).end(
+        event({ choices: [{ index: 0, delta: { role: 'assistant', content: choices[0]!.message.content }, finish_reason: null }] }) +
+        event({ choices: [{ index: 0, delta: {}, finish_reason: choices[0]!.finish_reason }] }) +
+        event({ choices: [], usage }) + 'data: [DONE]\n\n');
+      return;
+    }
     res.writeHead(status, { 'content-type': 'application/json' }).end(typeof json === 'string' || Buffer.isBuffer(json) ? json : JSON.stringify(json));
   });
   await new Promise<void>((ok) => server.listen(port, '127.0.0.1', ok));

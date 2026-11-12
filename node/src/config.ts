@@ -27,7 +27,10 @@ const Env = z.object({
   MAX_REWORKS: z.coerce.number().int().min(0).default(2), // included in the price; written in our listing
   BIDS: z.enum(['on', 'off']).default('on'), // bid on board jobs at the price of the team each task needs
   MARKET_LISTING_URL: z.url().optional(), // the swarm's page on Agent Market, for the site's "Hire" buttons
+  // How long a model is given to start writing (and a call that is not read as a stream, to answer). A reply that
+  // is read as it is written goes on for as long as the model keeps writing: see MODEL_SILENCE_MS and llm.written.
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  MODEL_SILENCE_MS: z.coerce.number().int().positive().default(60_000), // a model that has started and then writes nothing for this long is given up on
   // A review starts no new call after this long: what is not checked by then is given as not confirmed. Keep it well
   // under the contract's run_secs, after which an order can be sent back unanswered.
   REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
