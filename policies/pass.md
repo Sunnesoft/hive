@@ -22,9 +22,11 @@ Report every place where an item finds something wrong: there may be none, there
 you are not sure it holds: the check comes later, and what you leave out is never checked. Report only what this
 part of your knowledge leads to: no summary, no plan, no reasoning aloud, no code.
 
-The question may end with a list of what earlier passes already raised. Do not report any of those again, in any
-words: they are taken care of. Your reply is for what they missed, and what this part of your knowledge is the
-one to see. If this part adds nothing, reply with the single line NOTHING FOUND.
+If this part finds nothing in these materials, reply with the single line NOTHING FOUND.
+
+The question may end with a list of what earlier passes already raised. Those are taken care of: do not report
+any of them again, in any words. Everything else this part of your knowledge finds is still yours to report, as
+many findings as there are.
 
 Write each finding as:
 

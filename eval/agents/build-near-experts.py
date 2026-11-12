@@ -97,9 +97,9 @@ decide whether the code keeps it.
 neps = src / 'near-NEPs' / 'neps'
 STANDARDS = ['nep-0141', 'nep-0145', 'nep-0148', 'nep-0297', 'nep-0171', 'nep-0178']
 write('near-standards', {
-    'model': 'Qwen/Qwen3.8-27B',
+    'model': 'deepseek-ai/DeepSeek-V4.1-Flash-1017', 'pass_model': 'Qwen/Qwen3.8-27B',
     'skills': "Conformance review of NEAR smart contracts in Rust against the contract standards: NEP-141 fungible tokens (ft_transfer, ft_transfer_call, ft_on_transfer, ft_resolve_transfer and their refunds), NEP-145 storage management (storage_deposit, storage_withdraw, storage_unregister and their bounds), NEP-148 token metadata, NEP-297 events, NEP-171 non-fungible tokens and NEP-178 approvals. Reviews attached contract code against each requirement and quotes the lines each finding rests on. Knowledge: the NEAR Enhancement Proposals (CC0).",
-    'rate': '1.00', 'max_cost': '0.30', 'work': 'review',
+    'rate': '1.00', 'max_cost': '1.30', 'work': 'review',
     'examples': ['Does this token contract follow NEP-141 and NEP-145, and what breaks for wallets and exchanges if not?', 'Review how this contract receives tokens with ft_on_transfer and returns what it does not use.', 'Is the storage deposit of this contract handled the way NEP-145 requires?'],
     'topics': ['dev_tools'],
 }, """
