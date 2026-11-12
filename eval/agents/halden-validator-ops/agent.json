@@ -1,0 +1,13 @@
+{
+  "name": "halden-validator-ops",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "Halden Stake, a NEAR validator operator: commission and minimum delegation, unstaking and payout times, uptime commitment and fee credits, alert thresholds and failover, key rotation, which treasury accounts it accepts, reports to partners.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "What commission does Halden Stake charge on a large delegation?",
+    "How long until my NEAR is back after I unstake from Halden Stake?",
+    "What does Halden Stake's on-call get paged for?"
+  ],
+  "topics": ["operations", "finance"]
+}

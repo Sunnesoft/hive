@@ -1,0 +1,13 @@
+{
+  "name": "calder-grants-desk",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "Calder Fund grants for projects on NEAR: grant tiers and their ceilings, how and when a grant is paid, how long a decision takes, what an applicant must provide, scoring, matching for work with approved partners, audit support, and what is not funded.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "How much can a small team get from Calder Fund's Build tier?",
+    "How does Calder Fund score an application?",
+    "Does Calder Fund pay part of a security audit?"
+  ],
+  "topics": ["finance", "legal_compliance"]
+}

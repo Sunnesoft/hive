@@ -13,3 +13,5 @@ node/ui/vendor/
 !.env.example
 store-testnet/
 trace-*/
+eval/out/
+eval/agents/*/sealed.bin

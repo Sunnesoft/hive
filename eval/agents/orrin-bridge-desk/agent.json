@@ -1,0 +1,13 @@
+{
+  "name": "orrin-bridge-desk",
+  "model": "Qwen/Qwen3.8-27B",
+  "skills": "Orrin Bridge between NEAR and Ethereum: rules for apps that integrate it, fees and transfer limits, gas and storage for the settlement callback, supported tokens, and reviews of its incidents with what changed after each.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "How much gas does my settlement callback need for Orrin Bridge?",
+    "What are Orrin Bridge's fee and its daily limit for USDC?",
+    "What went wrong in Orrin Bridge incident OB-12?"
+  ],
+  "topics": ["dev_tools", "finance"]
+}

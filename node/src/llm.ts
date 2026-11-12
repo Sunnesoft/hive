@@ -40,7 +40,7 @@ type Used = Usage & { outputTokenDetails?: { reasoningTokens?: number | undefine
 /** One call to NEAR AI, under the name of its step. Its price is counted against the day's limit, a call that
  *  answered badly included: NEAR AI bills it too. Its size and time go to the log; what was sent and what came
  *  back go only to the trace. */
-async function metered<R>(step: string, model: string, sent: object, limit: number, call: () => Promise<R>, read: (r: R) => { usage: Used; got: unknown; finish?: string }): Promise<R> {
+async function metered<R>(step: string, model: string, sent: object, limit: number, call: () => Promise<R>, read: (r: R) => { usage: Used; got: unknown; finish?: string; id?: string | undefined }): Promise<R> {
   const at = Date.now();
   const line = (usage: Used | undefined, more: object, got: unknown) => {
     const price = priceOf(model);
@@ -51,8 +51,8 @@ async function metered<R>(step: string, model: string, sent: object, limit: numb
   };
   try {
     const r = await call();
-    const { usage, got, finish } = read(r);
-    line(usage, { finish }, got);
+    const { usage, got, finish, id } = read(r);
+    line(usage, { finish, id }, got); // `id` is what NEAR AI bills the call under: POST /v1/billing/costs tells its real cost
     return r;
   } catch (e) {
     const failed = e as { name?: string; usage?: Used; text?: string; finishReason?: string };
@@ -75,7 +75,9 @@ export async function embed(step: string, values: string[], timeoutMs = cfg.AGEN
 const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a composed answer, a ceiling for a runaway one
 // A model answers at once, without a reasoning pass. Reasoning counts against the same output limit, so a hard
 // question could spend the whole limit thinking and return nothing; without it a call's time and cost are bounded.
-const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false } } };
+// Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
+const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
+const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
 type Step = Exclude<keyof typeof policy, 'agent'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
@@ -91,7 +93,7 @@ async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodTyp
     providerOptions: DIRECT,
     abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS),
   });
-  return (await metered(step, model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason }))).output;
+  return (await metered(step, model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }))).output;
 }
 const protocol = <T>(step: Step, data: unknown, schema: z.ZodType<T>) => ask(cfg.PROTOCOL_MODEL, step, data, schema);
 
@@ -165,7 +167,7 @@ export async function answer(m: Materials, found: string[], question: string, pa
   if (ceiling(Buffer.byteLength(system + prompt), price) > cap) return { text: '', cost: 0n, why: 'too_expensive' }; // max_cost too low for this prompt
   const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, maxOutputTokens: MAX_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
   try {
-    const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason }));
+    const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     const cost = microUsd(r.usage, price);
     return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap };
   } catch {

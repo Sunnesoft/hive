@@ -30,6 +30,7 @@ const MAX_TASK = 20_000; // characters of brief and messages the protocol reads
 // The most of a prompt that is not the agent's own: its share of the customer's materials, their source tags, the question.
 export const WORST_PUBLIC = PUBLIC_CHARS + (MAX_SOURCES + 5) * 300 + llm.MAX_QUESTION;
 const TRIES = 5; // rounds that fail on our side, tried again after 1, 2, 4, 8 minutes, then given up
+const PARALLEL = 4; // tasks in work at once: the most that can be running when the day's spending limit is reached
 
 /** Agents that may work now: active, funded, admitted in this runner's memory, and whose cap covers a worst-case answer. */
 function candidates(agents: Agent[]): Member[] {
@@ -219,7 +220,7 @@ const failed = new Map<string, { n: number; next: number }>(); // per assignment
 /** Serves a task that is waiting for us. Rounds of different tasks run side by side. */
 export function serve(row: market.Row, feeBps: number, door: Door = market.door) {
   const id = row.assignment.assignmentId;
-  if (row.assignment.status !== 'in_progress' || row.job.jobKind === 'competition' || busy.has(id)) return;
+  if (row.assignment.status !== 'in_progress' || row.job.jobKind === 'competition' || busy.has(id) || busy.size >= PARALLEL) return;
   const f = failed.get(id);
   if (f && Date.now() < f.next) return;
   busy.add(id);

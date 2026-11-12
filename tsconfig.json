@@ -4,5 +4,5 @@
     "allowImportingTsExtensions": true, "erasableSyntaxOnly": true, "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true, "skipLibCheck": true
   },
-  "include": ["node", "e2e", "scripts"]
+  "include": ["node", "e2e", "scripts", "eval"]
 }
