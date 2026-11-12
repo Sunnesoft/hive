@@ -111,7 +111,10 @@ function summary(rounds) {
   const since = Date.now() - DAYS * 86_400_000;
   const recent = rounds.filter((r) => r.picked && Date.parse(r.at) >= since);
   const delivered = recent.filter((r) => r.delivered);
+  const shared = delivered.filter((r) => r.share !== undefined);
   return {
+    share: shared.length ? `${Math.round(shared.reduce((s, r) => s + r.share, 0) / shared.length)}%` : null, // of the answers it worked on, on average
+    reworked: delivered.filter((r) => r.reworked).length,
     earned: delivered.reduce((s, r) => s + BigInt(r.pay), 0n),
     spent: recent.reduce((s, r) => s + BigInt(r.cost ?? 0), 0n),
     picked: recent.length,
@@ -244,6 +247,7 @@ const RESULTS = {
   off_topic: ['', 'off topic', 'It answered something else. Make “what it knows” match what your expert really knows.'],
   refused: ['', 'refused', 'It refused without a reason. Check that the prompt does not forbid what the expert promises.'],
   repeated_question: ['', 'no substance', 'It repeated the question. Add substance to the files.'],
+  cut_off: ['', 'cut off', 'The answer ran into the length limit before it got to the point. Say in the method what the answer must hold and in what order, or choose a model that answers hard questions briefly.'],
   too_expensive: ['warn', 'over max spend', 'The question did not fit your max spend, so another expert took it. Raise the max spend, or shorten the prompt.'],
   addressed_others: ['bad', 'violation', `It spoke to the checker or other agents. ${SUSPENDS}`],
   asked_for_score: ['bad', 'violation', `It asked for a score or payment. ${SUSPENDS}`],
@@ -255,6 +259,10 @@ const RESULTS = {
   not_checked: ['info', 'not checked', 'The checker failed on our side.'],
 };
 const result = (r) => (r.picked ? RESULTS[r.why] ?? ['', r.why, ''] : ['', 'not picked', 'Another expert fit the task better, or the budget ran out. Nothing was spent.']);
+/** Under "Delivered": how much of the answers came from this expert, and how many of them customers sent back. */
+const used = (s) => (s.share || s.reworked ? h('span', { class: 'faint' }, [s.share ? `${s.share} of an answer, on average` : '', s.reworked ? `${s.reworked} sent back for changes` : ''].filter(Boolean).join(' · ')) : '');
+/** What became of a delivered part: its share of the answer's statements, and whether the customer sent the answer back. */
+const fate = (r) => [r.share !== undefined ? `${r.share}% of the answer came from it.` : '', r.reworked ? 'The customer sent this answer back for changes.' : ''].filter(Boolean).join(' ');
 
 function renderAgent(name) {
   const a = data.agents.find((x) => nameOf(x) === name);
@@ -268,7 +276,7 @@ function renderAgent(name) {
       h('p', { class: 'lead' }, a.skills), h('div', { class: 'profile' }, topicChips(a.audit?.topics), askList(a.audit?.examples)))),
     h('div', { class: 'banners' }, attention([a], data.balance, { onAgentPage: true })),
     h('section', { class: 'tiles', 'aria-label': 'Totals' },
-      tile(`Tasks, ${DAYS} days`, `${s.picked}`), tile('Delivered', s.rate), tile('Earned', money(s.earned)), tile('Spent on the model', money(s.spent))),
+      tile(`Tasks, ${DAYS} days`, `${s.picked}`), tile('Delivered', s.rate, used(s)), tile('Earned', money(s.earned)), tile('Spent on the model', money(s.spent))),
     h('div', { class: 'split' },
       h('div', { class: 'main' }, charts(a.rounds, { earned: false }), tasks(a.rounds)),
       h('aside', { class: 'side' }, topics(a.rounds), auditCard(a),
@@ -314,7 +322,7 @@ function topics(rounds) {
 
 function tasks(rounds) {
   const box = h('div', { class: 'scroll' });
-  const FILTERS = [['all', 'All', () => true], ['delivered', 'Delivered', (r) => r.picked && r.delivered], ['attention', 'Needs attention', (r) => r.picked && !r.delivered]];
+  const FILTERS = [['all', 'All', () => true], ['delivered', 'Delivered', (r) => r.picked && r.delivered], ['attention', 'Needs attention', (r) => r.picked && (!r.delivered || r.reworked)]];
   const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' });
   const more = h('div', { class: 'more-rows' });
   const PAGE = 15;
@@ -332,7 +340,7 @@ function tasks(rounds) {
             return h('tr', {},
               h('td', { class: 'nowrap', title: r.at }, when(r.at)),
               h('td', { class: 'nowrap muted' }, topicName(r.topic)),
-              h('td', { class: 'full' }, h('span', { class: `pill ${tone}` }, text), why && !paid ? h('div', { class: 'why' }, why) : ''),
+              h('td', { class: 'full' }, h('span', { class: `pill ${tone}` }, text), why && !paid ? h('div', { class: 'why' }, why) : '', paid && fate(r) ? h('div', { class: 'why' }, fate(r)) : ''),
               h('td', { class: 'num', 'data-label': 'Cost' }, r.picked ? usd(r.cost ?? 0) : '–'),
               h('td', { class: `num ${paid ? 'pay-ok' : 'muted'}`, 'data-label': 'Pay' }, paid ? `+${usd(r.pay)}` : '–'));
           })))

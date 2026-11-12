@@ -159,7 +159,7 @@ export const instructions = (m: Materials, found: string[]) =>
 
 /** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
  *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
-export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why }> {
+export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
   const [system, prompt] = [instructions(m, found), materials ? `# Question\n\n${question}\n\n# Public materials\n\n${materials}` : `# Question\n\n${question}`];
@@ -169,7 +169,7 @@ export async function answer(m: Materials, found: string[], question: string, pa
   try {
     const r = await metered('agent', m.model, { agent: m.name, system, prompt }, MAX_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     const cost = microUsd(r.usage, price);
-    return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap };
+    return { text: r.text.slice(0, 20_000), cost: cost < cap ? cost : cap, cut: r.finishReason === 'length' }; // cut: it ran into MAX_OUT before it was whole
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' }; // a failed call costs the agent nothing: what NEAR AI billed for it is ours
   }
@@ -177,15 +177,20 @@ export async function answer(m: Materials, found: string[], question: string, pa
 
 /** Why a contribution counted or not, as its sponsor may see it: a rule, never the question. */
 export const WHYS = ['answered', 'empty', 'off_topic', 'refused', 'repeated_question', 'addressed_others', 'asked_for_score', 'changed_rules', 'hidden_content', 'attack'] as const;
-export type Why = (typeof WHYS)[number] | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
+export type Why = (typeof WHYS)[number] | 'cut_off' | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
 const Check = z.object({ delivered: z.boolean(), violation: z.boolean(), why: z.enum(WHYS), reason: z.string() });
 /** Did this agent do its part? Sees only its question and answer, so no agent can sway another's verdict. */
 export const evaluate = (task: string, question: string, text: string) => protocol('evaluate', { task, question, answer: text }, Check);
 
-const Composed = z.object({ answer: z.string() });
-/** Joins the contributions into the customer's answer; every statement carries [[id]] of its source. */
-export const compose = (task: string, previous: string, contributions: { id: number; question: string; text: string }[], sources: string[]) =>
-  protocol('compose', { task, previous, contributions, sources: sources.map((url) => ({ url })) }, Composed).then((c) => c.answer);
+/** Joins the contributions into the customer's answer; every statement carries [[id]] of its source. The answer
+ *  is the model's text as it is, not a field of a JSON object: inside a JSON string every quotation mark and line
+ *  break of a long Markdown answer has to be escaped, and one that is not ends the answer there. */
+export async function compose(task: string, previous: string, contributions: { id: number; question: string; text: string }[], sources: string[]) {
+  const prompt = JSON.stringify({ task, previous, contributions, sources: sources.map((url) => ({ url })) });
+  const call = () => generateText({ model: nearai(cfg.PROTOCOL_MODEL), instructions: policy.compose, prompt, temperature: 0, maxOutputTokens: PROTOCOL_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const r = await metered('compose', cfg.PROTOCOL_MODEL, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+  return r.finishReason === 'length' ? `${r.text}\n\n> The answer reached its length limit and stops here.` : r.text;
+}
 
 const Dangerous = z.object({ dangerous: z.array(z.object({ id: z.number(), reason: z.string() })) });
 export const reviewCode = (blocks: { id: number; code: string }[]) => protocol('code', { blocks }, Dangerous).then((d) => d.dangerous);

@@ -84,7 +84,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     if (is('You write the final answer') && general) {
       const { previous, contributions } = data() as { previous: string; contributions: { id: number; text: string }[] };
       const parts = contributions.map((c) => `${c.text} [[${c.id}]]`).join('\n\n');
-      return reply({ answer: `${previous ? '_Revised after your note._\n\n' : ''}${parts}\n\n_Stand-in answer: excerpts from the experts' knowledge closest to your question. With a NEAR AI key the experts' models answer._` });
+      return reply(`${previous ? '_Revised after your note._\n\n' : ''}${parts}\n\n_Stand-in answer: excerpts from the experts' knowledge closest to your question. With a NEAR AI key the experts' models answer._`);
     }
     if (is('You put together a team')) {
       // An agent is picked when the task names the topic of its skills ("<topic>: <what>"), in the order of the list.
@@ -107,7 +107,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
         '```js\nconsole.log("launch");\n```', // ordinary code: kept, with a warning
         'More at [the portal](https://evil.example/portal). ![pixel](https://track.example/p.png)', // link defanged, image gone
       ].join('\n\n');
-      return reply({ answer: `${facts}${previous ? ' Revised: it launches at 09:00 UTC.' : ''}\n\n${extras}` });
+      return reply(`${facts}${previous ? ' Revised: it launches at 09:00 UTC.' : ''}\n\n${extras}`);
     }
     if (is('You review code blocks')) return reply({ dangerous: [] }); // the static check must catch the curl | sh itself
     if (is("You check a customer's request")) return reply({ in_scope: !/new|marketing/i.test(data().feedback), reason: 'mock scope' });

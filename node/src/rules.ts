@@ -80,6 +80,15 @@ export function quote(rates: bigint[], feeBps: number, overhead: bigint, perAgen
   return ((gross + COST_STEP - 1n) / COST_STEP) * COST_STEP;
 }
 
+/** How much of an answer each contribution carried: its part of the answer's source marks, in percent to the
+ *  nearest ten. Coarse like the costs: a sponsor learns how much of its expert's part was used, not what was said. */
+export function sharesOf(answer: string) {
+  const marks = [...answer.matchAll(/\[\[(\d+)\]\]/g)].map((m) => Number(m[1]));
+  const count = new Map<number, number>();
+  for (const id of marks) count.set(id, (count.get(id) ?? 0) + 1);
+  return new Map([...count].map(([id, n]) => [id, Math.round((10 * n) / marks.length) * 10]));
+}
+
 /** An answer with [[n]] source marks -> the text without them, and which contributions it used. */
 export function provenance(answer: string) {
   const used = new Set([...answer.matchAll(/\[\[(\d+)\]\]/g)].map((m) => Number(m[1])));

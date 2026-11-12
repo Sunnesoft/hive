@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, share, usdc, type Agent } from '../src/rules.ts';
+import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, share, sharesOf, usdc, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -45,6 +45,12 @@ test('only active agents with money for one more job are ready', () => {
   const a = (status: Agent['status'], balance: bigint): Agent =>
     ({ id: 'a.near/x', sponsor: 'a.near', skills: '', rate: '0', max_cost: `${U}`, materials_hash: '', size_mb: 1, status, registration: 1, balance: `${balance}` });
   assert.equal(ready([a('Active', U), a('Active', U - 1n), a('Pending', 9n * U), a('Suspended', 9n * U)]).length, 1);
+});
+
+test('sharesOf: each contribution\'s part of the marks, to the nearest ten percent', () => {
+  assert.deepEqual([...sharesOf('A [[0]]. B [[2]][[0]]. C [[0]].')].sort(), [[0, 80], [2, 30]]); // 3 of 4 and 1 of 4, each rounded on its own
+  assert.deepEqual([...sharesOf('One [[1]]. Two [[0]].')].sort(), [[0, 50], [1, 50]]);
+  assert.equal(sharesOf('No marks at all.').size, 0);
 });
 
 test('provenance strips the source marks and remembers which were used', () => {

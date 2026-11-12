@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { budget, ceiling, coarse, fit, provenance, quote, ready, usdc, type Agent, type Outcome } from './rules.ts';
+import { budget, ceiling, coarse, fit, provenance, quote, ready, sharesOf, usdc, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { shelve, type Shelf } from './shelf.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
@@ -101,19 +101,30 @@ async function contribute(task: string, t: Member & { question: string }, shelf:
   const failed = { delivered: false, violation: false, why: (r.why ?? (r.text.trim() ? 'not_checked' : 'empty')) as llm.Why };
   const check = r.text.trim() ? await llm.evaluate(task, t.question, r.text).catch(() => failed) : failed;
   const outcome: Outcome = { cost: coarse(found.cost + r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
-  log('contribution', { agent: t.agent.id, ...outcome, why: check.why, chunks: found.chunks.length, pages: pages.length }, { question: t.question, answer: r.text, check });
-  return { text: r.text, outcome, why: check.why };
+  // The checker calls an answer that stopped mid-way empty or off topic. Its owner is told what really happened.
+  const why: llm.Why = r.cut && !check.delivered && !check.violation ? 'cut_off' : check.why;
+  log('contribution', { agent: t.agent.id, ...outcome, why, chunks: found.chunks.length, pages: pages.length }, { question: t.question, answer: r.text, check });
+  return { text: r.text, outcome, why };
 }
 
-/** A line in each considered agent's cabinet: when, which round, picked or not, and how it went. Never the question. */
-function noteRound(key: string, topic: string, considered: Member[], members: Member[], parts: { outcome: Outcome; why: llm.Why }[]) {
+/** A line in each considered agent's cabinet: when, which round, picked or not, how it went, and how much of the
+ *  composed answer (`marked`) its part carried. Never the question. */
+function noteRound(key: string, topic: string, considered: Member[], members: Member[], parts: { outcome: Outcome; why: llm.Why }[], marked: string) {
   const at = new Date().toISOString();
+  const shares = sharesOf(marked); // empty if the answer carries no marks: then nobody's share is known
   return Promise.all(considered.map((c) => {
     const i = members.findIndex((m) => m.agent.id === c.agent.id);
     const part = parts[i];
-    const line = part ? { at, job: key, topic, picked: true, ...part.outcome, why: part.why, pay: part.outcome.delivered ? c.agent.rate : '0' } : { at, job: key, topic, picked: false };
+    const share = part?.outcome.delivered && shares.size ? { share: shares.get(i) ?? 0 } : {};
+    const line = part ? { at, job: key, topic, picked: true, ...part.outcome, why: part.why, pay: part.outcome.delivered ? c.agent.rate : '0', ...share } : { at, job: key, topic, picked: false };
     return store.note(c.agent.id, line);
   })).catch((e) => log('note_failed', { job: key, error: String(e) }));
+}
+
+/** The customer sent a round's answer back for changes: the owner of each expert whose part was in it is told. */
+async function noteRework(key: string) {
+  const delivered = ((await chain.job(key))?.slots ?? []).filter((s) => BigInt(s.pay) > 0n);
+  await Promise.all(delivered.map((s) => store.note(s.agent, { job: key, reworked: true }))).catch((e) => log('note_failed', { job: key, error: String(e) }));
 }
 
 /** Takes the holds. An agent that stopped being ready since it was picked (withdrew, registered again) is left out. */
@@ -153,6 +164,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
     const scope = await llm.inScope(brief, fresh.map((n) => n.body).join('\n\n') || '(no message)');
     if (!scope.in_scope) return stand(`this change is new work beyond the original task (${scope.reason}) Please post it as a new job.`);
   }
+  if (round > 1) await noteRework(door.key(id, round - 1));
   const screened = await llm.screen({ title: job.title, description: task });
   log('screened', { allow: screened.allow, topic: screened.topic }, { reason: screened.reason });
   if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
@@ -184,12 +196,12 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const parts = await Promise.all(members.map((t) => contribute(task, t, shelf)));
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.id);
-  await noteRound(key, screened.topic, considered, members, parts);
   void store.count(screened.topic, 'served');
 
   // Only delivered parts reach the composer; only the composer, the protocol's model, sees more than one.
   const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.text }] : []));
   const marked = good.length ? await llm.compose(task, previous, good, sources).catch(() => '') : '';
+  await noteRound(key, screened.topic, considered, members, parts, marked);
   if (!marked.trim()) return { outcomes, ...refuse('failed', 'The swarm could not compose an answer to this task.') };
   // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
   const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);

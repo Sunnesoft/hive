@@ -78,7 +78,9 @@
 | `GET /order` | заказ через контракт: задача, бюджет, оплата кошельком; свои заказы, ответы и расчёт |
 | `GET /health` | `{ok, state}`: `starting`, `waiting_for_key`, `ready`, `paused`, `out_of_budget` (дневной лимит NEAR AI исчерпан) |
 
-`rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`.
+`rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`. У принятой части ещё
+`share` — доля утверждений итогового ответа с её пометкой, в процентах с шагом 10 (нет, если в ответе нет пометок), и
+`reworked: true`, если заказчик вернул этот ответ на доработку.
 `audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model}` для текущей регистрации.
 Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
 `legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.

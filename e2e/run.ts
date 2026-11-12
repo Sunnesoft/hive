@@ -245,6 +245,7 @@ try {
   check('cabinet: the balance is the sponsor\'s, shared by its agents', mine.balance === `${await balance(dates)}`, mine.balance);
   const bad = (await cabinet(namer)).body.agents[0].rounds.find((r: { job: string }) => r.job === 'a-good#1');
   check('cabinet: the violator sees what it did wrong', bad?.violation === true && bad.why === 'addressed_others', bad);
+  check('cabinet: a delivered part shows its share of the answer, an undelivered one has none', line?.share === 50 && bad?.share === undefined && line.reworked === undefined, { line, bad });
   const start0 = 5n * U - 2n * U / 10n; // deposit minus the audit fee
   check('costs: one cent per agent, coarse', (await balance(dates)) === start0 - CENT && (await balance(codes)) === start0 - CENT, { dates: await balance(dates), codes: await balance(codes) });
   check('violation: namer pays only its cost, and nobody gains from it', (await balance(namer)) === start0 - CENT && (await balance(owner.accountId)) === 0n);
@@ -256,6 +257,8 @@ try {
   const v2 = market.delivered('a-good')[1]!;
   check('rework: round 2 delivered, revised', /Revised/.test(v2) && /round 2\.\*$/.test(v2), v2);
   check('rework: only the composer saw the answer sent back', ai.composed.at(-1)?.previous === v1 && ai.agentCalls.every((c) => !c.includes('Composed by Swarm-for-Hire')));
+  const firstRound = async (a: Account) => (await cabinet(a)).body.agents[0].rounds.find((r: { job: string }) => r.job === 'a-good#1');
+  check('cabinet: the experts whose parts were in the answer sent back see that; the one left out of it does not', (await firstRound(dates))?.reworked === true && (await firstRound(dates)).share === 50 && (await firstRound(codes))?.reworked === true && (await firstRound(namer))?.reworked === undefined, { dates: await firstRound(dates), namer: await firstRound(namer) });
   // Rounds share the budget: 8.525 for experts, round 1 owes 3 + 2 and 0.10 overhead each, so 3.325 is left.
   check('rework: round 2 spends only what round 1 left (one expert fits); the suspended agent is out', (await job('a-good#2'))?.slots.length === 1, await job('a-good#2'));
 

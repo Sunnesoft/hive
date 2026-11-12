@@ -23,7 +23,12 @@ export const auditOf = (agent: string) => readFile(agentFile(agent, 'audit.json'
 export const note = (agent: string, line: object) => appendFile(agentFile(agent, 'rounds.jsonl'), `${JSON.stringify(line)}\n`);
 export const historyOf = async (agent: string, last = 500) => {
   const text = await readFile(agentFile(agent, 'rounds.jsonl'), 'utf8').catch(() => '');
-  return text.split('\n').filter(Boolean).slice(-last).map((l) => JSON.parse(l));
+  const rounds = new Map<string, Record<string, any>>(); // a later line about the same round adds to it: a rework asked for after it
+  for (const l of text.split('\n').filter(Boolean)) {
+    const line = JSON.parse(l);
+    rounds.set(line.job, { ...rounds.get(line.job), ...line });
+  }
+  return [...rounds.values()].slice(-last);
 };
 
 /** Demand by topic, over all tasks: public, so sponsors see what knowledge the swarm lacks. */

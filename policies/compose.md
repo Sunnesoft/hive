@@ -7,4 +7,5 @@ Write the complete answer to the task, in its language and format. If "previous"
 it as the task's customer messages ask. Use only what the contributions, the sources and the task
 support, and say what remains unknown. After each statement that comes from a contribution, put its
 id in double brackets, like [[0]] or [[1]][[2]]. Link only to the given sources and to links the contributions themselves give. Do not mention the
-agents, the ids or this process outside the brackets.
+agents, the ids or this process outside the brackets. Your reply is the answer itself, as Markdown:
+nothing before it and nothing after it.
