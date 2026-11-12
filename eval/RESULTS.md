@@ -78,7 +78,7 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 | | facts found | by the judge | model cost per task | seconds | characters |
 |---|---|---|---|---|---|
 | model alone: Qwen3.8-27B | 4 of 7 (57%) | — | $0.0105 | 147 | 13131 |
-| swarm | 3 of 7 (43%) | — | $0.0116 | 163 | 13430 |
+| swarm | 6 of 16 (38%) | — | $0.0113 | 157 | 12308 |
 | swarm, experts named by the customer | 18 of 25 (72%) | — | $0.0432 | 256 | 18291 |
 
 ## The swarm, task by task
@@ -99,8 +99,9 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 | playground | estate-sociology, fundraising-economics, play-safeguards, sorvia-games-law | estate-sociology, fundraising-economics, play-safeguards, sorvia-games-law | 10 of 12 facts | 3.05 | 1.95 |
 | raffle on-chain | play-safeguards, solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity, sorvia-games-law | play-safeguards, solidity-attack-paths, sorvia-games-law | 9 of 9 facts | 2.95 | 5.05 |
 | second audit | solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity | solidity-attack-paths | 3 of 7 facts | 1.68 | 4.32 |
+| bridge audit | solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity | solidity-code-maturity | 3 of 9 facts | 1.68 | 4.32 |
 
-The router took exactly the experts the task needs in 11 of 14 tasks.
+The router took exactly the experts the task needs in 11 of 15 tasks.
 
 ## Who was paid for what: audit, swarm
 
@@ -158,6 +159,14 @@ The parts together held 3 of 7 facts; the composed answer has 3. The customer wa
 | solidity-bug-patterns | 1.00 | yes | 1.00 | 6 of 7 | 0 | 16 | 16882 |
 
 The parts together held 6 of 7 facts; the composed answer has 6. The customer was charged 4.00 USDC: 3.00 to the experts, 1.00 for the protocol's overhead and the owner's fee.
+
+## Who was paid for what: bridge audit, swarm
+
+| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
+|---|---|---|---|---|---|---|---|
+| solidity-code-maturity | 1.00 | yes | 1.00 | 5 of 9 | 5 | 0 | 13698 |
+
+The parts together held 5 of 9 facts; the composed answer has 3. The customer was charged 1.68 USDC: 1.00 to the experts, 0.68 for the protocol's overhead and the owner's fee.
 
 ## Who was paid for what: bridge audit, swarm, experts named by the customer
 
@@ -227,4 +236,4 @@ The score of these answers is the blind reading in [README.md](README.md); the p
 | market: new work | a change that is new work is turned down, and the last answer stands | ok | — | — |
 | poisoned expert | materials with instructions for an AI do not pass the entry audit | ok (denied: malware) | — | — |
 
-Spent on this evaluation at NEAR AI: $1.451.
+Spent on this evaluation at NEAR AI: $1.571.

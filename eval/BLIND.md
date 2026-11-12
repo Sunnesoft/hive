@@ -77,3 +77,27 @@ by the text the reader quoted; three readers had swapped two names each, and tho
 | swarm, experts named by the customer | `SAASSAAAS` | 4 | 3 | no | 16 | 6 |
 | swarm, experts named by the customer | `SAPSSAAAS` | 4 | 3 | no | 16 | 5 |
 | swarm, experts named by the customer | `SAASSAAAS` | 4 | 3 | no | 16 | 4 |
+
+## The second round: a skill in passes, and an order after the router replaced its pick
+
+One reader per contract. Each batch held answers that had been read before, to see whether this reader counts as
+the earlier ones did: seven of the eight repeated counts are the same, one differs by one.
+
+### Boss Bridge (9 findings)
+
+| answer | verdicts, finding by finding | stated | tests | cut off | findings listed | wrong |
+|---|---|---|---|---|---|---|
+| alone, at once: DeepSeek-V4.1-Flash-1017 #2 (read before: 5) | `SASSPSASA` | 5 | 2 | no | 13 | 1 |
+| expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 (read before: 6) | `SASSSSASA` | 6 | 1 | yes | 19 | 1 |
+| swarm, experts named by the customer (read before: 5, three times) | `SASSSAASA` | 5 | 3 | no | 11 | 0 |
+| swarm, placed without names after the router replaced its pick | `SASSAAASA` | 4 | 3 | no | 16 | 2 |
+| the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017 | `SASSPPAAA` | 3 | 2 | yes | 10 | 0 |
+
+### Thunder Loan (9 findings)
+
+| answer | verdicts, finding by finding | stated | tests | cut off | findings listed | wrong |
+|---|---|---|---|---|---|---|
+| alone, at once: DeepSeek-V4.1-Flash-1017 #1 (read before: 4) | `SAASSAAAS` | 4 | 0 | yes | 15 | 4 |
+| expert solidity-attack-paths on DeepSeek-V4.1-Flash-1017 (read before: 3) | `SASSSAAAA` | 4 | 1 | yes | 10 | 3 |
+| swarm, experts named by the customer (read before: 4, three times) | `SAASSAAAS` | 4 | 3 | no | 16 | 6 |
+| the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017 | `SPPPPSAAA` | 2 | 1 | yes | 17 | 4 |

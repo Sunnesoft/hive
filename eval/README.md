@@ -349,6 +349,34 @@ at the first wording. It counts as working if the order for the bridge audit, pl
 to an auditor other than the one whose parts were used least. For this the team size of four earlier orders was
 added to the runner's record of rounds, which did not keep it then.
 
+## Two things tried next: the result (2026-11-12)
+
+**A skill in passes: it did not work.** Findings stated as an item of their own, read blind
+([BLIND.md](BLIND.md)):
+
+| | Boss Bridge, of 9 | Thunder Loan, of 9 | model cost |
+|---|---|---|---|
+| DeepSeek alone, asked twice | 4 and 5 | 4 and 3 | under 1 cent |
+| with the attack-paths materials, one call | 6 | 3 | 1 cent |
+| the attack-paths skill in twelve passes and a verdict | 3 | 2 | 4 to 5 cents |
+| what would have counted as working | 7 | 6 | |
+
+- The answer in passes states fewer findings than the model alone, at about seven times the cost.
+- It mentions more than it states: counting what is only named in passing, 5 and 6, against 5 or 6 and 4 for the
+  model alone. The passes wrote 70,000 characters on each contract; the last call had 4,000 tokens for its
+  report, was cut off both times, and by the skill's own rules turned findings into "leads". What twelve passes
+  found did not fit through one report. Whether another last step would carry it through was not tried.
+- On the bridge it asserted nothing false; on the loan, as much as the others.
+
+**A router that replaces a weak pick: it works, and it showed a cost.** The bridge audit, ordered without naming
+anyone: the router picked the same auditor as always, the runner found two whose parts had been used clearly
+more, the protocol's model said both could be asked the same question, and the better one was asked instead
+(`replaced` in the runner's log). That answer states 4 of the 9 findings; the auditor it replaced had stated 1
+on this contract. The first such order was declined and refunded: the replacing expert runs on a slower model,
+which did not answer within the runner's three minutes. The measure the runner goes by says how much of an
+expert's parts were used, not whether its model answers in time; the "delivered/picked" record says that, and
+the rule does not weigh the two together.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
