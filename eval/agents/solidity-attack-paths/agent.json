@@ -3,11 +3,14 @@
   "model": "Qwen/Qwen3.8-27B",
   "skills": "Solidity security audit by attack paths: reads a contract as an attacker and traces each exploit end to end with concrete values: external call boundaries, value flows, mirrored functions, invariants, casts and precision, access control, economic attacks. Validates each finding through four gates and writes Foundry proofs of concept. Knowledge: Pashov Audit Group's open solidity-auditor skill (MIT).",
   "rate": "1.00",
-  "max_cost": "0.20",
+  "max_cost": "0.30",
   "examples": [
     "Audit this Solidity contract and show how an attacker drains it, step by step.",
     "Is this finding real? Trace the exploit from the attacker's call to the loss.",
     "Write a Foundry proof of concept for this reentrancy."
   ],
-  "topics": ["dev_tools"]
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
 }

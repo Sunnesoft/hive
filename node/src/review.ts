@@ -13,7 +13,8 @@
 import type { Expert } from './admit.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
-import { bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, MAX_CHECKS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, piecesOf, PROOF_IN, SAME, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { log } from './log.ts';
+import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, MAX_CHECKS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, piecesOf, PROOF_IN, SAME, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
 export type Checked = Finding & { proof?: string };
@@ -22,6 +23,7 @@ export type Counts = { passes: number; raised: number; groups: number; checked: 
 export type Review = { findings: Checked[]; cost: bigint; counts: Counts; why?: llm.Why };
 
 const AT_ONCE = 3; // calls of one review in flight at once: more, and a model's queue answers with timeouts
+const EMBED_WAIT = 30_000; // ms a review waits for the embeddings of its findings before it compares them by words
 // Chunks of a larger knowledge that always fit MAX_PASSES parts: a part is closed only when the next chunk does
 // not fit, so with one chunk less than fills it every closed part is still more than that full.
 const FITS = MAX_PASSES * (Math.floor(PASS_CHARS / CHUNK) - 1);
@@ -52,13 +54,16 @@ async function parts(expert: Expert, question: string, pages: Page[], hold: bigi
 /** What two findings are compared by: the place, the claim and how it happens, as the model worded them. */
 const wordsOf = (f: Finding) => `${f.where} | ${f.title}\n${f.how}`.slice(0, 500);
 
-/** The items in groups that say the same thing (rules.groupsOf over their embeddings). The protocol pays for the
- *  embeddings. If they cannot be had, every item stands alone: nothing is joined that may be different. */
+/** The items in groups that say the same thing (rules.groupsOf): by their embeddings, which the protocol pays for.
+ *  If the embedding service does not answer, by the words they share: fewer are joined, so more are checked, and
+ *  the review still ends. */
 async function same<T>(items: T[], findingOf: (item: T) => Finding): Promise<T[][]> {
   if (items.length < 2) return items.map((x) => [x]);
-  const vectors = await llm.embed('findings', items.map((x) => wordsOf(findingOf(x)))).then((r) => r.vectors.map(unit), () => null);
-  if (!vectors) return items.map((x) => [x]);
-  return groupsOf(items.length, (i, j) => similarity(vectors[i]!, vectors[j]!) >= SAME).map((g) => g.map((i) => items[i]!));
+  const words = items.map((x) => wordsOf(findingOf(x)));
+  const vectors = await llm.embed('findings', words, EMBED_WAIT).then((r) => r.vectors.map(unit), () => null);
+  if (!vectors) log('degraded', { step: 'findings', by: 'words' });
+  const close = vectors ? (i: number, j: number) => similarity(vectors[i]!, vectors[j]!) >= SAME : (i: number, j: number) => alike(words[i]!, words[j]!) >= SAME_WORDS;
+  return groupsOf(items.length, close).map((g) => g.map((i) => items[i]!));
 }
 
 const gravest = (group: Finding[]) => bySeverity(group)[0]!;

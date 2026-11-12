@@ -1,13 +1,16 @@
 {
   "name": "near-contract-review",
-  "model": "Qwen/Qwen3.8-27B",
-  "skills": "NEAR smart contracts in Rust: security review of cross-contract calls and callbacks, NEP-141 token transfers, storage staking, access keys, state migrations and upgrades.",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "NEAR smart contracts in Rust: security review of cross-contract calls and callbacks, NEP-141 token transfers, storage staking, access keys, state migrations and upgrades. Reviews attached contract code item by item and quotes the lines each finding rests on; answers questions about these mechanisms when no code is given.",
   "rate": "1.00",
-  "max_cost": "0.20",
+  "max_cost": "0.80",
   "examples": [
     "Is my ft_on_transfer safe if anyone can call it?",
     "What breaks if a cross-contract call fails after my contract changed its state?",
     "How much storage deposit should my contract take from each new user?"
   ],
-  "topics": ["dev_tools"]
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
 }

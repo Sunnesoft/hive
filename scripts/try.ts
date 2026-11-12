@@ -21,7 +21,7 @@ const llm = await import('../node/src/llm.ts');
 const { audit, docsOf } = await import('../node/src/audit.ts');
 const { index, search } = await import('../node/src/library.ts');
 const { review, reportOf } = await import('../node/src/review.ts');
-const { ceiling, piecesOf, show, usdc } = await import('../node/src/rules.ts');
+const { ceiling, MAX_PASSES, piecesOf, show, usdc } = await import('../node/src/rules.ts');
 const { linksOf } = await import('../node/src/audit.ts');
 const { readFileSync } = await import('node:fs');
 const { basename } = await import('node:path');
@@ -41,16 +41,18 @@ if (question === '--audit') {
   process.exit(v.allow ? 0 : 1);
 }
 
-const lib = await index(docs);
 const pages = given ? [{ url: `attachment: ${basename(given)}`, text: readFileSync(given, 'utf8') }] : [];
+const reviews = m.work === 'review' && pages.length > 0 && docs.length > 0;
+// A review that reads all of the knowledge needs no index of it: only a larger knowledge is searched for its closest parts.
+const lib = reviews && piecesOf(docs).length <= MAX_PASSES ? { chunks: docs, vectors: [] } : await index(docs);
 const hold = usdc(card.max_cost);
 const paid = async (text: string) => {
   const check = await llm.evaluate(question, question, text);
   console.log(`\nevaluator: ${check.delivered && !check.violation ? 'PAID' : 'NOT PAID'} (${check.why}): ${check.reason}`);
 };
 
-if (m.work === 'review' && pages.length && docs.length) {
-  console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(piecesOf(docs).length, 16)} parts of the knowledge; your max cost ${show(hold)} USDC`);
+if (reviews) {
+  console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(piecesOf(docs).length, MAX_PASSES)} parts of the knowledge; your max cost ${show(hold)} USDC`);
   const r = await review({ m, lib, digest: '', links: linksOf(m) }, question, pages, hold, flag('--code'));
   const c = r.counts;
   console.log(`passes read ${c.passes}; findings raised ${c.raised}, in ${c.groups} groups; groups checked ${c.checked}; findings that held ${c.held}; proofs ${c.proofs}; cost ${show(r.cost)} USDC${r.why ? `; stopped: ${r.why}` : ''}`);

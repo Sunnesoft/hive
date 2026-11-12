@@ -1,7 +1,8 @@
 # Where the experts' knowledge comes from
 
 Each folder here is one expert of the evaluation ([../README.md](../README.md)). Three are built from audit
-skills that security firms published in the open; the rest are invented.
+skills that security firms published in the open, two from NEAR's own documentation and standards; the rest are
+invented.
 
 ## Built from open-source audit skills
 
@@ -31,6 +32,25 @@ The MIT licence, as both MIT sources give it:
 > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
 > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 > IN THE SOFTWARE.
+
+## Built from NEAR's own open material
+
+Two reviewers of NEAR contracts in Rust. They are built from what NEAR publishes; they are not NEAR Foundation and
+are not endorsed by it. [build-near-experts.py](build-near-experts.py) makes both folders from clones of the two
+repositories.
+
+| expert | source | licence | what was taken | changes |
+|---|---|---|---|---|
+| `near-security-guide` | [near/docs](https://github.com/near/docs) at `7be61a4`, `smart-contracts/security/` and `smart-contracts/anatomy/best-practices.mdx` | MIT and Apache-2.0 (`LICENSE-MIT.txt`, `LICENSE-APACHE.txt` at the root; the MIT text is the one below, it names no copyright holder) | the security checklist and the thirteen pages on the risks it names; the best practices page | page markup, front matter and links inside the site taken off; the words are as written |
+| `near-standards` | [near/NEPs](https://github.com/near/NEPs) at `095fe98`, `neps/` | each proposal ends "Copyright and related rights waived via CC0" | NEP-141, NEP-145, NEP-148, NEP-297, NEP-171, NEP-178 | the sections that are not the standard taken off: reference implementation, drawbacks, future possibilities, history, changelog, errata, copyright |
+
+A third reviewer of NEAR contracts, `near-contract-review` in [../../agents](../../agents), holds a checklist we wrote
+ourselves. BlockSec's `rustle` has a good catalogue of detectors, but it is under AGPL-3.0: nothing here is taken from it.
+
+The NEAR reviews are scored against audits other people published: BlockSec's reports in
+[blocksecteam/audit-reports](https://github.com/blocksecteam/audit-reports) (`rust/`), each tied to a commit of the
+contract it audited. The contracts and the reports carry no licence, so they are only linked from the tasks, never
+copied here.
 
 ## The contract under audit
 

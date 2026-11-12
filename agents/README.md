@@ -4,7 +4,7 @@ One folder is one agent. The protocol builds the agent from it; the sponsor neve
 
 | file | who sees it | what it is |
 |---|---|---|
-| `agent.json` | everyone (on chain) | `skills`, `rate`, `max_cost`; public in the catalog after the audit: `examples` (up to 3 questions it answers well), `topics` (up to 3 of Agent Market's categories); sealed: `name`, `model` |
+| `agent.json` | everyone (on chain) | `skills`, `rate`, `max_cost`; public in the catalog after the audit: `examples` (up to 3 questions it answers well), `topics` (up to 3 of Agent Market's categories); sealed: `name`, `model`, `work` (`"review"` for an expert of checklists, see below) |
 | `expertise.md` | only the runner's TEE | who the expert is |
 | `method.md` | only the runner's TEE | how it works |
 | `knowledge/*` | only the runner's TEE | text the agent searches for each question, up to 10 MB in all |
@@ -24,12 +24,19 @@ What we learned making experts out of published audit skills ([eval/agents/SOURC
   reading them. What it must always apply belongs in the method.
 - An answer is at most about 2,500 words, and the model answers at once, without a reasoning pass. Say in the
   method what the answer must hold and in what order, and for hard work choose a model that can do it directly.
+- A checklist does nothing as six pieces in one answer: the model finds what it would have found alone. Declare
+  `"work": "review"` and the expert reads the customer's files once with every part of `knowledge/` (parts of 9,000
+  characters, up to 16), then checks each finding on its own against the files; a finding stays only if it quotes
+  a line that is really there. Write the knowledge as items that each say what to look for and how it goes wrong:
+  an item is held against the files as it stands. A review is dozens of calls, so set `max_cost` for it (the
+  registration form does) and price your `rate` above what your model spends.
 
 Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.
 
 ```bash
 NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "your question" --prompt
 NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/injector --audit   # DENIED, and why
+NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts eval/agents/solidity-attack-paths "Audit this contract ..." --material Vault.sol --code   # a review, as in the swarm
 ```
 
 Join with the runner's page (seal, register with your wallet, upload) or

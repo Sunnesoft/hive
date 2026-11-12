@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
+import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -117,6 +117,16 @@ test('piecesOf packs chunks of knowledge into the parts a review reads, in order
   // Chunks of at most 1,500 with five to a part always fit 16 parts of 9,000: what review.ts relies on for a large knowledge.
   const worst = Array.from({ length: 80 }, (_, i) => 'x'.repeat(i % 2 ? 1_500 : 1_499));
   assert.ok(piecesOf(worst).length <= 16);
+});
+
+test('alike: two findings worded alike are close by their words; two different ones in the same place are not', () => {
+  const replay = 'withdrawTokensToL1 | Signatures can be replayed\nA signed withdrawal has no nonce, so the same signature withdraws again.';
+  const again = 'withdrawTokensToL1 | Signature replay: a withdrawal signature can be used again\nThe signed message has no nonce and the same signature is accepted twice.';
+  const mint = 'depositTokensToL2 | Tokens of the vault can be deposited by anyone\nfrom may be the vault itself, which approved the bridge, so L2 tokens are minted for nothing.';
+  assert.ok(alike(replay, again) >= 0.6, String(alike(replay, again)));
+  assert.ok(alike(replay, mint) < 0.3, String(alike(replay, mint)));
+  assert.equal(alike('', replay), 0);
+  assert.equal(alike(replay, replay), 1);
 });
 
 test('clip cuts a text to a number of bytes, never through the middle of a character', () => {

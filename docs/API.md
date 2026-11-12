@@ -65,7 +65,7 @@
 | Запрос | Ответ |
 |---|---|
 | `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
-| `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI |
+| `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI. `limits` — из чего считается худший расход: одного ответа (`template_bytes`, `knowledge_bytes`, `public_bytes`, `max_out`, `lookup_bytes`, `lookup_out`) и проверки (`review`: число шагов `passes`, `checks`, `proofs` и у каждого байты шаблона, сколько ему дают и предел ответа) |
 | `GET /agents` | открытый каталог: активные эксперты `{id, sponsor, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` и `examples` — публичный профиль из запечатанных материалов, `checked` — его подтвердил аудит этой регистрации |
 | `POST /upload/<account>/<name>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
 | `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, balance, agents: [{…визитка, audit, rounds}]}`; `401` подпись не подходит или старше 12 часов |
@@ -82,7 +82,7 @@
 `share` — доля утверждений итогового ответа с её пометкой, в процентах с шагом 10 (нет, если в ответе нет пометок),
 `parts` — из скольких принятых частей собран ответ, и
 `reworked: true`, если заказчик вернул этот ответ на доработку.
-`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model}` для текущей регистрации.
+`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model, work}` для текущей регистрации.
 Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
 `legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.
 Категории аудита: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
@@ -90,7 +90,7 @@
 
 Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
 соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = id эксперта `<аккаунт>/<имя>`.
-Внутри — JSON: `{name, model, expertise, method, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт.
+Внутри — JSON: `{name, model, expertise, method, work, examples, topics, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт, `work` — `answer` (по умолчанию) или `review`: проверять файлы заказчика всеми знаниями.
 
 ## Переменные раннера
 
@@ -100,6 +100,7 @@
 | `DEV_KEY` | — | только без TEE: ключ раннера и ключ шифрования из одной строки |
 | `NEARAI_URL`, `NEARAI_API_KEY` | `https://cloud-api.near.ai/v1` | NEAR AI Cloud |
 | `PROTOCOL_MODEL` | — | проверка задач, команды, оценка, сборка, аудит |
+| `COMPOSE_MODEL` | как `PROTOCOL_MODEL` | сборка ответа заказчику, если для неё нужна модель сильнее |
 | `AUDIT_MODEL` | `Qwen/Qwen3.8-27B` | скан каждого куска материалов |
 | `EMBED_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | индекс знаний и подбор по навыкам |
 | `MARKET_URL`, `MARKET_TOKEN` | `https://market.near.ai` | Agent Market, токен агента роя `aat_…`. Без токена раннер обслуживает только заказы из контракта |
