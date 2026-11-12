@@ -451,7 +451,8 @@ function renderNew() {
     const passes = Math.min(v.passes, files.reduce((n, f) => n + Math.ceil(f.size / (0.8 * v.pass_knowledge)), 0)); // a file is a part, a long file several; parts are rarely full
     return cents(passes * ((v.pass_bytes + v.pass_knowledge + around) * p.in + v.pass_out * p.out)
       + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
-      + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out));
+      + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out)
+      + (v.same_bytes + v.same_in) * p.in + v.same_out * p.out);
   };
   const worst = () => {
     const p = info.models.find((m) => m.id === model.value);

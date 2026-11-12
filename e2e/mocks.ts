@@ -39,7 +39,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
-  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[] }; // what each step of a review saw
+  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[] }; // what each step of a review saw
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -136,6 +136,16 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       const [, severity, place, claim] = held as unknown as [string, string, string, string];
       const quote = claim.includes('misquoted') ? 'a line the file does not have' : general ? place.trim() : lineWith(materials, `${place}(`);
       return reply(`### ${severity} | ${place} | ${claim}\nThe materials allow it.\nEvidence: \`${quote}\`\nFix: guard ${general ? 'this line' : place}.`);
+    }
+    if (is('You sort the findings')) {
+      // Fixed rule: a finding marked "(twin)" says the same as the first other finding in the same place. Stand-ins: nothing is the same.
+      const lines: { id: number; text: string }[] = general ? [] : data().findings;
+      const place = (t: string) => t.split(' | ')[1];
+      const groups = lines.filter((l) => l.text.includes('(twin)')).flatMap((l) => {
+        const first = lines.find((o) => o.id !== l.id && !o.text.includes('(twin)') && place(o.text) === place(l.text));
+        return first ? [[first.id, l.id]] : [];
+      });
+      return (review.sorts.push(user), reply({ groups }));
     }
     if (is('You are an expert writing the proof')) {
       review.proofs.push(`${system}\n${user}`);

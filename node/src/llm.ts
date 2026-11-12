@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -78,7 +78,7 @@ const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a co
 // Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
-type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'proof'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'same' | 'proof'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -216,6 +216,26 @@ export async function step(kind: ReviewStep, m: Materials, knowledge: string, qu
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' };
+  }
+}
+
+const Same = z.object({ groups: z.array(z.array(z.number())) });
+/** The most the question "which of these are the same" can cost on `bytes` of findings. */
+export const sameCeiling = (bytes: number, price: Price) => microUsd({ inputTokens: Buffer.byteLength(policy.same) + bytes, outputTokens: SAME_OUT }, price);
+/** Which of the findings, a line each, say the same thing (policies/same.md): a narrow question whose answer only
+ *  sorts, and code does the joining (rules.partition). Asked of an expert's own model inside its review (`cap`:
+ *  what its hold covers) and of the protocol's model when the reviews of several experts are joined. No answer, or
+ *  one that does not fit `cap`: nothing is joined. */
+export async function sameFindings(model: string, lines: string[], cap?: bigint): Promise<{ groups: number[][]; cost: bigint }> {
+  const price = priceOf(model);
+  const prompt = JSON.stringify({ findings: lines.map((text, id) => ({ id, text })) });
+  if (!price || lines.length < 2 || (cap !== undefined && sameCeiling(Buffer.byteLength(prompt), price) > cap)) return { groups: [], cost: 0n };
+  const call = () => generateText({ model: nearai(model), instructions: policy.same, prompt, output: Output.object({ schema: Same }), temperature: 0, maxOutputTokens: SAME_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  try {
+    const r = await metered('same', model, { prompt }, SAME_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    return { groups: r.output.groups, cost: microUsd(r.usage, price) };
+  } catch {
+    return { groups: [], cost: 0n };
   }
 }
 

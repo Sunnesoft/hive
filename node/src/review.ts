@@ -9,6 +9,8 @@
 //            rests on, and code looks those lines up in the materials: no such line, not confirmed
 //   leads    what a check did not confirm is not thrown away either: a model's "no" is a judgement like any
 //            other. If it would be grave, it is listed apart, as unconfirmed
+//   same     the expert's model is asked one narrow question: which of these say the same thing in other words?
+//            Code joins what it names, and the other wordings stay under the finding: the model sorts, never drops
 //   proofs   code for the gravest confirmed findings, when the task asks for code
 // Every call is the expert's own model under a public policy (policies/pass.md, check.md, proof.md), paid from the
 // expert's hold. The worst case of the whole review must fit the hold before the first call is sent.
@@ -18,10 +20,11 @@ import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
-import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, MAX_CHECKS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partsOf, piecesOf, PROOF_IN, SAME, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
+import { alike, bySeverity, CHECK_IN, clip, findingsIn, groupsOf, grounded, lineOf, MAX_CHECKS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
 import type { Page } from './web.ts';
 
-export type Checked = Finding & { proof?: string };
+/** `also`: other wordings of the same finding, which the model named the same and code joined to this one. */
+export type Checked = Finding & { proof?: string; also?: string[] };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
 export type Counts = { passes: number; raised: number; groups: number; checked: number; held: number; leads: number; proofs: number };
 /** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
@@ -75,6 +78,29 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 }
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
+
+type Item = { f: Checked; held: boolean; id?: number };
+/** What a group of items that say the same is known by: its gravest confirmed wording, or its gravest. */
+const headOf = (g: Item[]) => gravest((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
+/** Groups that code could not join because they are worded differently, joined by a model's answer to one narrow
+ *  question (policies/same.md): which of these say the same thing? The gravest are asked about first, as many as
+ *  fit the question. Returns each joined group as the groups it was made of. */
+async function sortedBy(model: string, groups: Item[][], cap?: bigint): Promise<{ groups: Item[][][]; cost: bigint }> {
+  const byRank = [...groups].sort((a, b) => rank(headOf(a)) - rank(headOf(b)));
+  const lines = byRank.map((g) => clip(lineOf(headOf(g)), 240));
+  let room = SAME_IN;
+  const asked = lines.filter((l) => (room -= Buffer.byteLength(l)) >= 0).length;
+  const said = await llm.sameFindings(model, lines.slice(0, asked), cap);
+  return { groups: [...partition(asked, said.groups).map((ids) => ids.map((i) => byRank[i]!)), ...byRank.slice(asked).map((g) => [g])], cost: said.cost };
+}
+/** The finding of a joined group: its gravest confirmed wording, with the other wordings it was joined from. */
+const oneOf = (joined: Item[][]): Checked => {
+  const first = gravest(joined.flat().filter((x) => x.held).map((x) => x.f));
+  const worded = [...joined.map((g) => headOf(g).title), ...joined.flat().flatMap((x) => x.f.also ?? [])]; // every group's wording, and what each member was already joined from
+  const others = [...new Set(worded)].filter((t) => t.toLowerCase() !== first.title.toLowerCase());
+  return { ...first, ...(others.length ? { also: others } : {}) };
+};
+const confirmedIn = (joined: Item[][]) => joined.some((g) => g.some((x) => x.held));
 const rank = (f: Finding) => SEVERITIES.indexOf(f.severity);
 const grave = (f: Finding) => f.severity === 'Critical' || f.severity === 'High';
 /** Worth a reader's time unconfirmed: what would matter if it were true. An unconfirmed Low is noise. */
@@ -98,6 +124,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const worst =
     chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, '', price), 0n) +
     BigInt(MAX_CHECKS) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
+    llm.sameCeiling(2 * SAME_IN, price) + // the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
   if (cost + worst > hold) return stop('too_expensive');
 
@@ -129,11 +156,12 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // A group of which nothing held, or that was never checked, stays as the pass raised it: not confirmed.
   const open = groups.filter((_, i) => !held[i]?.length).map(gravest);
   // Two groups may have held the same thing, and a lead may say what a finding says: of those that say the same,
-  // the confirmed one stays, in its gravest wording.
-  const sorted = await same([...held.flat().map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))], (x) => x.f);
-  const confirmed = (g: typeof sorted[number]) => g.filter((x) => x.held).map((x) => x.f);
-  const findings: Checked[] = bySeverity(sorted.filter((g) => confirmed(g).length).map((g) => gravest(confirmed(g))));
-  const leads = bySeverity(sorted.filter((g) => !confirmed(g).length).map((g) => gravest(g.map((x) => x.f)))).filter(worthALook).slice(0, MAX_LEADS);
+  // by code's measure or by the model's answer, the confirmed one stays, in its gravest wording.
+  const items: Item[] = [...held.flat().map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
+  const sorted = await sortedBy(m.model, await same(items, (x) => x.f), hold);
+  cost += sorted.cost;
+  const findings: Checked[] = bySeverity(sorted.groups.filter(confirmedIn).map(oneOf));
+  const leads = bySeverity(sorted.groups.filter((j) => !confirmedIn(j)).map((j) => headOf(j.flat()))).filter(worthALook).slice(0, MAX_LEADS);
   Object.assign(counts, { groups: groups.length, checked: checks.filter((r) => !r.why).length, held: findings.length, leads: leads.length });
 
   const toProve = code ? findings.filter(grave).slice(0, MAX_PROOFS) : [];
@@ -154,6 +182,7 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
     f.how,
+    f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
     f.evidence && `**Evidence:** ${f.evidence}`,
     f.fix && `**Fix:** ${f.fix}`,
     f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
@@ -186,17 +215,16 @@ export type Lead = Finding & { seen: number[] };
  *  wording, with everyone who found it; what no expert confirmed stays a lead. The experts never saw each other's
  *  findings. The gravest first; of leads, then those more experts raised. */
 export async function join(reviews: { id: number; findings: Checked[]; leads: Finding[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
-  const all = reviews.flatMap((r) => [...r.findings.map((f) => ({ f: f as Checked, id: r.id, held: true })), ...r.leads.map((f) => ({ f: f as Checked, id: r.id, held: false }))]);
-  const groups = await same(all, (x) => x.f);
-  const ids = (g: typeof all) => [...new Set(g.map((x) => x.id))].sort((a, b) => a - b);
-  const findings = groups.flatMap((g): Joined[] => {
-    const held = g.filter((x) => x.held);
-    if (!held.length) return [];
-    const first = gravest(held.map((x) => x.f));
+  const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
+  // Between experts the protocol's model answers which findings are the same; it sees a line of each, and code joins.
+  const sorted = reviews.length > 1 ? (await sortedBy(cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL, await same(all, (x) => x.f))).groups : all.map((x) => [[x]]);
+  const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
+  const findings = sorted.filter(confirmedIn).map((joined): Joined => {
+    const [held, first] = [joined.flat().filter((x) => x.held), oneOf(joined)];
     const proof = first.proof ?? held.find((x) => x.f.proof)?.f.proof;
-    return [{ ...first, ...(proof ? { proof } : {}), by: ids(held), seen: ids(g) }];
+    return { ...first, ...(proof ? { proof } : {}), by: ids(held), seen: ids(joined.flat()) };
   });
-  const leads = groups.filter((g) => !g.some((x) => x.held)).map((g): Lead => ({ ...gravest(g.map((x) => x.f)), seen: ids(g) }));
+  const leads = sorted.filter((j) => !confirmedIn(j)).map((j): Lead => ({ ...headOf(j.flat()), seen: ids(j.flat()) }));
   return { findings: bySeverity(findings), leads: bySeverity(leads.sort((a, b) => b.seen.length - a.seen.length)).slice(0, MAX_LEADS) };
 }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, partsOf, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
+import { alike, budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, partition, partsOf, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -132,6 +132,13 @@ test('findingsIn: evidence may be quoted in a fence; other code and a proof are 
   assert.equal(first!.evidence, 'payable(msg.sender).sendValue(entranceFee);');
   assert.equal(first!.fix, 'Clear the player first.'); // nothing of the proof
   assert.deepEqual([second!.title, second!.how, rest.length], ['Rounds down', 'Dust is lost.', 0]);
+});
+
+test('partition: a model may join findings, never drop one: what it did not name, or named wrongly, stands alone', () => {
+  assert.deepEqual(partition(5, [[0, 3], [1, 4]]), [[0, 3], [1, 4], [2]]);
+  assert.deepEqual(partition(4, [[0, 1], [1, 2]]), [[0, 1], [2], [3]]); // 1 is taken: the second group is left with one item, so it is no group
+  assert.deepEqual(partition(3, [[0, 7, -1, 1.5], [2, 2]]), [[0], [1], [2]]); // numbers outside the list and repeats join nothing
+  assert.deepEqual(partition(2, []), [[0], [1]]);
 });
 
 test('alike: two findings worded alike are close by their words; two different ones in the same place are not', () => {

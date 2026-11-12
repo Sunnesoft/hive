@@ -16,6 +16,11 @@ test('a review as one contribution: the count by severity, then every finding wi
   assert.ok(text.indexOf('### 2. Low: The fee rounds to zero') > text.indexOf('**Fix:** Add onlyOwner.'));
 });
 
+test('a finding joined from several wordings shows the others under it: nothing a pass raised is hidden', () => {
+  const text = reportOf({ findings: [{ ...drain, also: ['withdraw() has no owner check', 'The pool can be emptied by any caller', 'a', 'b', 'c'] }], leads: [], counts: { passes: 2, raised: 6, groups: 6, checked: 6, held: 1, leads: 0, proofs: 0 } });
+  assert.match(text, /withdraw\(\) sends the whole balance to msg\.sender\.\n\n\*The same was raised as:\* withdraw\(\) has no owner check; The pool can be emptied by any caller; a; b; and 1 more\n\n\*\*Evidence:\*\*/);
+});
+
 test('a review that found nothing says what it did, not nothing', () => {
   const text = reportOf({ findings: [], leads: [], counts: { passes: 4, raised: 1, groups: 1, checked: 1, held: 0, leads: 0, proofs: 0 } });
   assert.match(text, /^Checked findings: none\. .*4 parts of its checklist and raised 1 candidate; none was confirmed/);

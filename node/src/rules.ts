@@ -28,11 +28,13 @@ export const LOOKUP_OUT = 300; // output tokens of that look-up
 // then each finding is checked against the materials on its own. These bound what one review can cost.
 export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole: a file of it, or a part of a longer file
 export const MAX_PASSES = 16; // parts read in one review: up to 144,000 characters of knowledge
-export const PASS_OUT = 1_500; // output tokens of one pass
+export const PASS_OUT = 2_400; // output tokens of one pass: a strong model raises a dozen findings in one, and the last ones are the rare ones
 export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first
 export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed
 export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
-export const CHECK_OUT = 600;
+export const CHECK_OUT = 900;
+export const SAME_IN = 12_000; // bytes of findings, a line each, that one question "which of these are the same" is given
+export const SAME_OUT = 500;
 export const MAX_PROOFS = 5; // proofs written in one review, for the gravest findings
 export const PROOF_IN = 2_500; // bytes of the finding a proof is written for
 export const PROOF_OUT = 1_500;
@@ -167,6 +169,8 @@ export const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'] as const
 /** One finding of a review. In text it is a heading `### <severity> | <where> | <title>`, the lines that say how it
  *  happens, and, once checked, `Evidence:` (the lines of the material it rests on) and `Fix:`. */
 export type Finding = { severity: (typeof SEVERITIES)[number]; where: string; title: string; how: string; evidence: string; fix: string };
+/** A finding in one line, as the question "which of these are the same" gets it. */
+export const lineOf = (f: Finding) => `${f.severity} | ${f.where || '—'} | ${f.title}`;
 
 const HEADING = /^\s*(?:[-*]\s+)?(?:#{1,4}\s*)?\**\s*(?:\d+[.)]\s*)?\**\s*(Critical|High|Medium|Low|Info)[a-z]*\**(?:\s*[|:]\s*|\s+[—–-]\s+)(.+)$/i;
 const LABEL = /^\**\s*(Evidence|Fix)\s*:?\**\s*:?\s*(.*)$/i;
@@ -216,6 +220,22 @@ export function groupsOf(count: number, close: (i: number, j: number) => boolean
   const groups: number[][] = [];
   for (let i = 0; i < count; i++) (groups.find((g) => g.every((j) => close(i, j))) ?? groups[groups.push([]) - 1]!).push(i);
   return groups;
+}
+
+/** A model's answer to "which of these are the same" made safe to act on: only numbers of the list, each in one
+ *  group at most, groups of two and more; every item it did not join stands alone. The model can join findings, it
+ *  cannot drop one. */
+export function partition(count: number, groups: number[][]): number[][] {
+  const taken = new Set<number>();
+  const out: number[][] = [];
+  for (const g of groups) {
+    const ids = [...new Set(g)].filter((i) => Number.isInteger(i) && i >= 0 && i < count && !taken.has(i));
+    if (ids.length < 2) continue;
+    for (const i of ids) taken.add(i);
+    out.push(ids);
+  }
+  for (let i = 0; i < count; i++) if (!taken.has(i)) out.push([i]);
+  return out;
 }
 
 /** Does the evidence of a finding point at the material? True if a stretch of it stands in the material word for

@@ -19,7 +19,7 @@ import { log } from './log.ts';
 import * as orders from './orders.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
-import { CHECK_IN, CHECK_OUT, LOOKUP_OUT, MAX_CHECKS, MAX_OUT, MAX_PASSES, MAX_PROOFS, PASS_CHARS, PASS_OUT, PROOF_IN, PROOF_OUT, ready, TOPICS } from './rules.ts';
+import { CHECK_IN, CHECK_OUT, LOOKUP_OUT, MAX_CHECKS, MAX_OUT, MAX_PASSES, MAX_PROOFS, PASS_CHARS, PASS_OUT, PROOF_IN, PROOF_OUT, ready, SAME_IN, SAME_OUT, TOPICS } from './rules.ts';
 import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
@@ -104,6 +104,7 @@ function info(sealKey: string): Promise<Reply> {
       passes: MAX_PASSES, pass_bytes: Buffer.byteLength(policy.pass), pass_knowledge: PASS_CHARS, pass_out: PASS_OUT,
       checks: MAX_CHECKS, check_bytes: Buffer.byteLength(policy.check), check_in: CHECK_IN, check_out: CHECK_OUT,
       proofs: MAX_PROOFS, proof_bytes: Buffer.byteLength(policy.proof), proof_in: PROOF_IN, proof_out: PROOF_OUT,
+      same_bytes: Buffer.byteLength(policy.same), same_in: 2 * SAME_IN, same_out: SAME_OUT,
     };
     const limits = { template_bytes: Buffer.byteLength(policy.agent), knowledge_bytes: NEAREST * CHUNK, public_bytes: WORST_PUBLIC, max_out: MAX_OUT, lookup_bytes: Buffer.byteLength(policy.lookup), lookup_out: LOOKUP_OUT, review };
     const agents = chain.listed();
