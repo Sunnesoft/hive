@@ -29,6 +29,13 @@ do well: that is the hard case for us, and it is in the test.
 | private, several experts | 3 | a task that crosses two or three experts: the swarm's reason to exist |
 | public, specialised | 2 | the same on public knowledge, where a model alone is not helpless |
 | no record | 2 | the thing asked about does not exist: the right answer says so and names no value |
+| one field, three schools | 1 | an audit of a contract with known vulnerabilities by three auditors whose knowledge comes from three different firms' open skills: what does a second and a third expert of the same field add? |
+| four fields | 1 | one decision that needs a lawyer, an economist, a sociologist and a psychologist, and two figures that follow only from the law and the economics together |
+| schools and fields | 1 | both at once: the same contract audited and checked against the law and for harm to players |
+
+The last three came with the second run. Their experts and where the knowledge is from are in
+[agents/SOURCES.md](agents/SOURCES.md). The audit's answer key is not ours: it is the findings report published
+with the contract.
 
 ## Five ways to answer the same task
 
@@ -39,6 +46,10 @@ do well: that is the hard case for us, and it is in the test.
 | experts apart | Every expert of the pool gets the whole task, and the customer reads all the answers. Facts count if any answer has them; cost and length add up. |
 | swarm | The product itself: an order of 4 USDC placed in the contract on testnet, served by the runner, settled by the contract. |
 | swarm, stronger composer | The same contributions composed again by the strongest model. The runner's trace holds exactly what its composer was given, so only that one step differs. |
+| swarm, experts named by the customer | For the audit only: the same order with all three auditors named in it, so that all of them work whatever the router thinks. It shows what the second and the third auditor add, and what they cost. |
+
+Where a task links to a file, the swarm reads the link itself. A model alone and an expert alone get the file's
+text with the task: nobody is asked to audit a contract it cannot see.
 
 ## How an answer is scored
 
@@ -55,6 +66,11 @@ do well: that is the hard case for us, and it is in the test.
 For the swarm we also record which experts the router took against the experts the task needs, and what the
 contract charged and returned.
 
+**Who was paid for what.** For the last three tasks the report sets each expert's pay beside what its own part
+held: the facts in it, the facts no other expert of the team had, and how many statements of the composed answer
+carry its mark. An expert is paid its fixed rate if its part was delivered, whatever the others wrote; the table
+shows what that rule pays for.
+
 ## Ways of working, each tried once
 
 Real models, real contract, pass or fail read from the runner's trace: a task nobody has skills for; a harmful
@@ -68,8 +84,9 @@ whose materials carry instructions for an AI, at the entry audit.
 ```bash
 npm run start:testnet                       # a runner on testnet with TRACE_DIR set (it needs DEV_KEY: no TEE)
 npm run stand-ins                           # the stand-in of Agent Market, for the market's modes
-scripts/swarm.sh join eval/agents/<name> 2  # once for each of the three invented experts; agents/* likewise
+scripts/swarm.sh join eval/agents/<name> 2  # once for each expert of eval/agents; agents/* likewise
 CUSTOMER=<account with test USDC> npm run eval -- bare solo swarm compose modes market score
+npm run eval -- report                      # the report again from what is kept, without the judge
 ```
 
 Every stage keeps what it got in `eval/out/`, so a second run pays only for what is missing; delete the folder
@@ -93,6 +110,63 @@ to start over. The whole evaluation stops when it has spent `EVAL_LIMIT_USD` (0.
   average. A bare model that thinks first cost more ($0.006 to $0.02) and took 60 to 170 seconds.
 - **All eleven ways of working passed.**
 
+## What the second run showed (2026-11-12)
+
+Three cases, one task each, on the same day. Seven more experts: three auditors built from the open audit skills
+of Pashov Audit Group, Trail of Bits and QuillShield, and four invented field experts
+([agents/SOURCES.md](agents/SOURCES.md)).
+
+**The first attempt failed, and that was the most useful part.** Of four orders two were declined and refunded,
+and every auditor's answer was cut off. What was wrong, and what we changed in the runner before the run that is
+reported:
+
+- **A skill written as a prompt does not pass the entry audit.** Pashov's files address an AI agent ("You are an
+  attacker that..."), and the audit refuses materials that give orders to an AI. Reworded as a reviewer's
+  checklist they passed; Trail of Bits' and QuillShield's reference files passed as published.
+- **Experts did not know how long an answer may be.** The auditors reasoned aloud and ran into the 4,000-token
+  limit before the list of findings. The template now says how long an answer can be and asks for the answer
+  itself, the most important first. An answer that is still cut off is shown to its owner as `cut_off`, not as
+  "empty".
+- **The model matters more than the knowledge when the task is hard.** On the protocol's 27B model, without a
+  reasoning pass, an auditor missed the reentrancy in `refund`. With a reasoning pass the same model spent
+  10,000 tokens thinking and returned nothing. The auditors now run on the strongest allowed model, which gave a
+  complete report with tests in 2,700 tokens.
+- **The composer's answer broke on a quotation mark.** It was a string inside a JSON object, the model did not
+  escape a quote, and the rest of its limit went into whitespace: four experts had delivered and the order was
+  declined. The composer now writes plain Markdown.
+
+The results after these changes, facts found by pattern:
+
+| case | model alone | strongest model alone | swarm | what the swarm cost the customer |
+|---|---|---|---|---|
+| audit of a contract, one field | 4 of 8 | 5 of 8 | 6 of 8 with the one auditor the router took; 6 of 8 with all three named | 1.68 USDC; 4.00 USDC |
+| a playground raffle, four fields | 1 of 12 | 0 of 12 | 10 of 12 | 3.05 USDC |
+| the contract, the law and the players | 2 of 9 | 5 of 9 | 9 of 9 | 2.95 USDC |
+
+- **One field, three schools: the second and the third auditor added nothing the answer key asks for.** Their
+  parts held 7, 6 and 7 of the 8 findings, the same ones: no auditor had a finding the others lacked, and the
+  composed answer has 6, as with one auditor. The customer paid 4.00 USDC instead of 1.68. The router, left to
+  itself, took one auditor of the three: on this task it was right.
+- **Four fields: this is where a swarm earns its price.** No expert alone had more than 3 of the 12 facts. The
+  experts asked apart had 9 in 26,085 characters; the swarm has 10 in 7,837, and one of them is a conclusion no
+  expert could reach alone: sales of 75,600 EUR stay under the law's 90,000 EUR threshold, so a notification is
+  enough. The other cross-field fact it reached by another road: it says the raffle alone will not raise 60,000
+  EUR, counting 29,500 EUR from the benchmark's usual prize share, not the 41,580 EUR that the law's minimum
+  would leave. One fact of the sociologist was lost in composing.
+- **Schools and fields: 9 of 9 with three experts of the seven**, one auditor, the lawyer and the psychologist. The
+  lawyer read the contract and set its 20% fee against the Act's 12% cap; the strongest model alone found the
+  contract's bugs and could not know the Act.
+- **Proofs of concept were written, not run.** The audit answers carry 3 or 4 Foundry tests each. We did not run
+  them, and at least one is empty of proof: it ends in `assertTrue(true)`. An expert cannot run code, so a test it
+  writes is a draft for the customer's own repository.
+- **The knowledge of an auditor was hardly used.** An expert's knowledge is searched by the words of its question.
+  "Audit this contract" is close to nothing in particular, so the six pieces that reached the prompt were about
+  flash loans and proxies, not about what this contract does. Searching by the contract's code was tried and
+  found token checklists instead. What an auditor always applies is its `method.md`, which goes into every prompt
+  whole.
+- **Who was paid for what** is in [RESULTS.md](RESULTS.md), expert by expert. Each delivered expert got its rate
+  whatever the others wrote: three auditors with the same findings were paid 1.00 USDC each.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
@@ -107,3 +181,12 @@ to start over. The whole evaluation stops when it has spent `EVAL_LIMIT_USD` (0.
   everything else in the answer is true.
 - **An honest "no record" is refunded, not delivered.** The check that pays experts counts it as no answer, so
   the customer gets the money back but not the expert's "there is no such incident".
+- **The second run is three tasks, each run once, after a first attempt that failed.** The tasks and their facts
+  were not changed between the attempts; the runner, the auditors' model and their method were.
+- **The audited contract is famous.** It comes from a public security course, so a model may know its bugs by
+  heart: the gap between a model alone and the swarm is smallest exactly there.
+- **The judge was no second opinion on long answers.** On answers of 10,000 characters and more it disagreed with
+  the patterns in both directions, and where we checked by hand it was the judge that was wrong (it marked
+  "45%" missing in an answer that says "at least 45%"). The audit answers were read by hand instead; three
+  patterns were corrected after that reading, as [tasks.ts](tasks.ts) says.
+- **Same-field experts shared one model.** Three auditors on three different models might overlap less.

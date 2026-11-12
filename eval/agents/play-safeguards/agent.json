@@ -1,0 +1,13 @@
+{
+  "name": "play-safeguards",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "Psychology of small-stakes games of chance: who spends more than they can afford in raffles and prize draws, which game features drive it (near-miss messages, frequent draws, big single prizes, easy repeat buying), and which safeguards worked in trials: ticket caps per household, spending limits, cooling-off, donation framing.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "How do we protect residents who spend too much on our raffle?",
+    "Does a cap on tickets per household cost us much revenue?",
+    "Should our prize draw tell players how close they were to winning?"
+  ],
+  "topics": ["research"]
+}

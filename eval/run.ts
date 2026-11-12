@@ -1,7 +1,7 @@
 // The measurements behind eval/README.md: the same questions answered in several ways and scored against facts
 // written down in advance (eval/tasks.ts). Every stage keeps what it got in eval/out/, so a rerun pays only for
 // what is missing.
-//   npm run eval -- bare solo swarm compose modes score        any subset, in this order
+//   npm run eval -- bare solo swarm compose modes market score report        any subset, in this order
 // Needs a runner on testnet started with TRACE_DIR (its trace is how the swarm's answers and costs are read), the
 // experts of eval/agents and agents/ registered there, and CUSTOMER: an account with test USDC whose key is in
 // ~/.near-credentials. RUNNER_URL and RUNNER_TRACE say where the runner and its trace are.
@@ -22,7 +22,7 @@ import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
 import { provenance, usdc } from '../node/src/rules.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
-import { MODES, TASKS, type Outcome, type Task } from './tasks.ts';
+import { MODES, TASKS, type Group, type Outcome, type Task } from './tasks.ts';
 
 const OUT = 'eval/out';
 const RUNNER = process.env.RUNNER_URL ?? 'http://127.0.0.1:8080';
@@ -33,8 +33,18 @@ const STRONG = 'moonshotai/kimi-k2.6'; // composes the same contributions again:
 const JUDGE = 'moonshotai/kimi-k2.6'; // not the model that composes the swarm's answers: a judge should not grade its own style
 const PRIVATE = ['orrin-bridge-desk', 'halden-validator-ops', 'calder-grants-desk'];
 const PUBLIC = ['near-contract-review', 'agent-safety'];
-const folder = (name: string) => (PRIVATE.includes(name) ? `eval/agents/${name}` : `agents/${name}`);
-const poolOf = (t: Task) => (t.group === 'public, specialised' ? PUBLIC : PRIVATE);
+const SCHOOLS = ['solidity-attack-paths', 'solidity-code-maturity', 'solidity-bug-patterns']; // one field, three bodies of knowledge
+const FIELDS = ['sorvia-games-law', 'fundraising-economics', 'estate-sociology', 'play-safeguards'];
+const POOLS: Record<Group, string[]> = {
+  'private, one expert': PRIVATE, 'private, several experts': PRIVATE, 'no record': PRIVATE, 'public, specialised': PUBLIC,
+  // The auditors are not asked alone: an order that the router gives to one of them is that, and the order with
+  // all three named shows each one's own part. It also keeps the strongest model's calls within the budget.
+  'one field, three schools': [], 'four fields': FIELDS, 'schools and fields': [],
+};
+const FIRST = 'first attempt: '; // what the second run got before the runner was fixed: kept for its cost, not scored
+const folder = (name: string) => (existsSync(`eval/agents/${name}`) ? `eval/agents/${name}` : `agents/${name}`);
+const poolOf = (t: Task) => POOLS[t.group];
+const NAMED = 'swarm, experts named by the customer';
 const short = (model: string) => model.split('/')[1]!;
 const MARKET = [
   { id: 'market: answer', what: 'a hire on Agent Market is answered' },
@@ -45,7 +55,8 @@ const MARKET = [
 
 // ---- what was got so far ----
 
-type Answer = { text: string; usd: number; seconds: number; declined?: string | undefined; team?: string[]; charge?: string | undefined; order?: string };
+type Part = { agent: string; delivered: boolean; why: string; text: string }; // one expert's contribution to an order, from the runner's trace
+type Answer = { text: string; usd: number; seconds: number; declined?: string | undefined; team?: string[]; charge?: string | undefined; order?: string; parts?: Part[]; marked?: string };
 type Grade = { facts: ('correct' | 'wrong' | 'missing')[]; invented: boolean; usd: number };
 mkdirSync(OUT, { recursive: true });
 const load = <T>(name: string): Record<string, T> => (existsSync(join(OUT, name)) ? JSON.parse(readFileSync(join(OUT, name), 'utf8')) : {});
@@ -70,15 +81,28 @@ const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, think
 async function ask<T>(model: string, instructions: string, prompt: string, o: { thinking?: boolean; schema?: z.ZodType<T>; limit?: number } = {}) {
   if (spent() > LIMIT_USD) throw new Error(`the evaluation has spent its limit of ${LIMIT_USD} USD`);
   const at = Date.now();
+  const price = llm.priceOf(model)!;
+  const limit = o.limit ?? 4_000;
   const r = await generateText({
-    model: nearai(model), instructions, prompt, maxOutputTokens: o.limit ?? 4_000, maxRetries: 6, abortSignal: AbortSignal.timeout(300_000),
+    model: nearai(model), instructions, prompt, maxOutputTokens: limit, maxRetries: 6, abortSignal: AbortSignal.timeout(300_000),
     ...(o.schema ? { output: Output.object({ schema: o.schema }) } : {}),
     ...(o.thinking ? {} : { providerOptions: DIRECT }),
+  }).catch((e: Error) => {
+    if (e.name !== 'TimeoutError') throw e;
+    return null; // no answer in five minutes: no answer, and it is counted at the most it could have cost
   });
-  const price = llm.priceOf(model)!;
+  if (!r) return { text: '', output: undefined as T, usd: (Buffer.byteLength(instructions + prompt) * price.in + limit * price.out) / 1e6, seconds: (Date.now() - at) / 1000 };
   const usd = ((r.usage.inputTokens ?? 0) * price.in + (r.usage.outputTokens ?? 0) * price.out) / 1e6;
   return { text: r.finishReason === 'length' && o.thinking ? '' : r.text, output: (o.schema ? r.output : undefined) as T, usd, seconds: (Date.now() - at) / 1000 }; // cut off by its own thinking: no answer
 }
+
+/** The page a task links to, for a model or an expert asked outside the swarm: the swarm reads the link itself. */
+const pages = new Map<string, Promise<{ url: string; text: string }[]>>();
+const materialOf = (t: Task) => {
+  if (!t.material) return Promise.resolve([]);
+  if (!pages.has(t.material)) pages.set(t.material, fetch(t.material).then(async (r) => [{ url: t.material!, text: await r.text() }]));
+  return pages.get(t.material)!;
+};
 
 // ---- the swarm, through its own door: an order placed in the contract, read back from the runner's trace ----
 
@@ -115,6 +139,8 @@ async function outcomeOf(id: string, amount: string): Promise<Outcome & Answer> 
     return {
       order: id, amount: `${usdc(amount)}`, text: end.answer ?? '', declined: end.event === 'declined' ? `${end.reason}: ${end.detail}` : undefined,
       team: lines.find((l) => l.event === 'team')?.members ?? [], pages: lines.find((l) => l.event === 'materials')?.pages,
+      parts: lines.filter((l) => l.event === 'contribution').map((l) => ({ agent: l.agent, delivered: l.delivered, why: l.why, text: l.answer ?? '' })),
+      marked: lines.find((l) => l.event === 'composed')?.marked,
       charge: settled?.charge, refund: settled?.refund ?? settled?.amount,
       usd: lines.filter((l) => l.event === 'llm').reduce((s, l) => s + l.micro_usd, 0) / 1e6, seconds: (Date.parse(end.t) - Date.parse(lines[0]!.t)) / 1000,
     };
@@ -134,8 +160,10 @@ const stages: Record<string, () => Promise<void>> = {
       await Promise.all(TASKS.map(async (t) => {
         const was = answers[t.id]?.[`bare ${short(model)}`];
         if (was?.text.trim()) return;
-        const first = was ?? (await ask(model, BARE_RULES, t.task, { thinking: true }));
-        const a = first.text.trim() ? first : await ask(model, BARE_RULES, t.task);
+        const [page] = await materialOf(t);
+        const prompt = page ? `${t.task}\n\nThe file at ${page.url}:\n\n${page.text}` : t.task;
+        const first = was ?? (await ask(model, BARE_RULES, prompt, { thinking: true }));
+        const a = first.text.trim() ? first : await ask(model, BARE_RULES, prompt);
         keep(t.id, `bare ${short(model)}`, { text: a.text, usd: a === first ? a.usd : first.usd + a.usd, seconds: a === first ? a.seconds : first.seconds + a.seconds });
       }));
     }
@@ -143,7 +171,7 @@ const stages: Record<string, () => Promise<void>> = {
 
   /** Each expert alone gets the whole task: its own knowledge, model and template, no router, no check, no composer. */
   async solo() {
-    for (const name of [...PRIVATE, ...PUBLIC]) {
+    for (const name of [...new Set(Object.values(POOLS).flat())]) {
       const todo = TASKS.filter((t) => poolOf(t).includes(name) && !answers[t.id]?.[`solo ${name}`]);
       if (!todo.length) continue;
       const { card, materials } = readAgent(folder(name));
@@ -152,17 +180,23 @@ const stages: Record<string, () => Promise<void>> = {
       await Promise.all(todo.map(async (t) => {
         const at = Date.now();
         const found = await search(lib, t.task);
-        const r = await llm.answer(m, found.chunks, t.task, [], usdc(card.max_cost));
+        const r = await llm.answer(m, found.chunks, t.task, await materialOf(t), usdc(card.max_cost));
         keep(t.id, `solo ${name}`, { text: r.text, usd: Number(found.cost + r.cost) / 1e6, seconds: (Date.now() - at) / 1000 });
       }));
     }
   },
 
-  /** The product itself: an order of 4 USDC in the contract for each task. */
+  /** The product itself: an order in the contract for each task, of 4 USDC unless the task says otherwise. Where
+   *  several experts of one field could do the task, it is ordered once more with all of them named. */
   async swarm() {
-    const placed: [Task, string][] = [];
-    for (const t of TASKS) if (!answers[t.id]?.swarm) placed.push([t, await order(t.task, '4')]); // one after another: one key, one nonce
-    await Promise.all(placed.map(async ([t, id]) => keep(t.id, 'swarm', await outcomeOf(id, '4'))));
+    const catalog: { id: string }[] = await (await fetch(`${RUNNER}/agents`)).json();
+    const idOf = (name: string) => catalog.find((a) => a.id.endsWith(`/${name}`))?.id ?? name;
+    const placed: [Task, string, string][] = [];
+    for (const t of TASKS) { // one after another: one key, one nonce
+      if (!answers[t.id]?.swarm) placed.push([t, 'swarm', await order(t.task, t.usdc ?? '4')]);
+      if (t.named && !answers[t.id]?.[NAMED]) placed.push([t, NAMED, await order(`Please give this task to all of these experts: ${t.experts.map(idOf).join(', ')}.\n\n${t.task}`, t.usdc ?? '4')]);
+    }
+    await Promise.all(placed.map(async ([t, system, id]) => keep(t.id, system, await outcomeOf(id, t.usdc ?? '4'))));
   },
 
   /** The same contributions, composed again by a stronger model: the trace holds exactly what the composer was given. */
@@ -172,8 +206,8 @@ const stages: Record<string, () => Promise<void>> = {
       const a = answers[t.id]?.swarm;
       const was = a?.order ? traceOf(a.order).find((l) => l.event === 'llm' && l.step === 'compose') : undefined;
       if (!a || !was || answers[t.id]?.[system]) return;
-      const again = await ask(STRONG, policy.compose, was.sent.prompt, { schema: z.object({ answer: z.string() }), limit: 8_000 });
-      keep(t.id, system, { ...a, text: provenance(again.output.answer).text, usd: a.usd - was.micro_usd / 1e6 + again.usd, seconds: a.seconds - was.ms / 1000 + again.seconds });
+      const again = await ask(STRONG, policy.compose, was.sent.prompt, { limit: 8_000 });
+      keep(t.id, system, { ...a, text: provenance(again.text).text, usd: a.usd - was.micro_usd / 1e6 + again.usd, seconds: a.seconds - was.ms / 1000 + again.seconds });
     }));
   },
 
@@ -233,7 +267,7 @@ const stages: Record<string, () => Promise<void>> = {
 For each fact give a grade: "correct" if the answer states it with the same value; "wrong" if the answer asserts a different specific value for the same thing as if it were true; "missing" if the answer does not state it. An answer that says it does not know the fact, has no record of it or cannot answer that part is "missing", never "wrong"; so is a typical range or a guess that the answer itself marks as not specific to the subject.
 If "unknown" is not empty, the thing asked about does not exist. Then invented = true if the answer nevertheless gives a specific cause, amount, date or rule for it as if it existed, and false if it says that there is no record of it or that it does not know. If "unknown" is empty, invented = false.`;
     const Graded = z.object({ facts: z.array(z.object({ id: z.number(), grade: z.enum(['correct', 'wrong', 'missing']) })), invented: z.boolean() });
-    await few(TASKS.flatMap((t) => Object.values(answers[t.id] ?? {}).map((a) => ({ t, a }))), async ({ t, a }) => {
+    await few(TASKS.flatMap((t) => Object.entries(answers[t.id] ?? {}).filter(([system]) => !system.startsWith(FIRST) && (!system.startsWith('solo ') || poolOf(t).includes(system.slice(5)))).map(([, a]) => ({ t, a }))), async ({ t, a }) => {
       const key = gradeKey(t, a);
       if (grades[key] || !a.text.trim()) return;
       const data = { question: t.task, facts: t.facts.map((f, id) => ({ id, text: f.text })), unknown: t.unknown ?? '', answer: a.text };
@@ -243,6 +277,11 @@ If "unknown" is not empty, the thing asked about does not exist. Then invented =
     });
     writeFileSync('eval/RESULTS.md', report());
     console.log(report());
+  },
+
+  /** The report again from what is kept, without asking the judge about anything new. */
+  async report() {
+    writeFileSync('eval/RESULTS.md', report());
   },
 };
 
@@ -277,6 +316,7 @@ function waysOf(t: Task): Record<string, Row | undefined> {
     'one expert alone (the best one)': best,
     'experts apart (each asked the whole task)': apart,
     'swarm': rowOf(t, a.swarm),
+    [NAMED]: rowOf(t, a[NAMED]),
     [`swarm, ${short(STRONG)} composes`]: rowOf(t, a[`swarm, ${short(STRONG)} composes`]),
   };
 }
@@ -309,6 +349,30 @@ function report() {
   }
   const right = swarmed.filter((t) => names(answers[t.id]!.swarm!.team ?? []) === [...t.experts].sort().join(', ')).length;
   out.push(``, `The router took exactly the experts the task needs in ${right} of ${swarmed.length} tasks.`, ``);
+  // Who was paid for what: each expert of an order, what its own part held and what of it reached the answer.
+  const rateOf = (name: string) => readAgent(folder(name)).card.rate;
+  const has = (text: string) => (f: Task['facts'][number]) => new RegExp(f.match, 'i').test(text);
+  for (const t of TASKS.filter((x) => x.experts.some((n) => SCHOOLS.includes(n) || FIELDS.includes(n)))) {
+    for (const system of ['swarm', NAMED]) {
+      const a = answers[t.id]?.[system];
+      if (!a?.parts?.length) continue;
+      const team = (a.team ?? []).map((id) => id.split('/')[1]!);
+      const marks = [...(a.marked ?? '').matchAll(/\[\[(\d+)\]\]/g)].map((m) => team[Number(m[1])]);
+      const found = (name: string) => t.facts.filter(has(a.parts!.find((x) => x.agent.endsWith(`/${name}`))?.text ?? ''));
+      out.push(`## Who was paid for what: ${t.id}, ${system}`, ``, `| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |`, `|---|---|---|---|---|---|---|---|`);
+      let paid = 0;
+      for (const name of team) {
+        const part = a.parts.find((x) => x.agent.endsWith(`/${name}`));
+        const mine = found(name);
+        const alone = mine.filter((f) => !team.some((other) => other !== name && found(other).includes(f)));
+        if (part?.delivered) paid += Number(rateOf(name));
+        out.push(`| ${name} | ${rateOf(name)} | ${part ? (part.delivered ? 'yes' : `no (${part.why})`) : '—'} | ${part?.delivered ? rateOf(name) : '0.00'} | ${mine.length} of ${t.facts.length} | ${alone.length} | ${marks.filter((x) => x === name).length} | ${part?.text.length ?? 0} |`);
+      }
+      const all = t.facts.filter((f) => team.some((name) => found(name).includes(f)));
+      const charged = Number(a.charge ?? 0) / 1e6;
+      out.push(``, `The parts together held ${all.length} of ${t.facts.length} facts; the composed answer has ${t.facts.filter(has(a.text)).length}. The customer was charged ${charged.toFixed(2)} USDC: ${paid.toFixed(2)} to the experts, ${(charged - paid).toFixed(2)} for the protocol's overhead and the owner's fee.`, ``);
+    }
+  }
   if (Object.keys(modes).length) {
     out.push(`## Ways of working, each tried once`, ``, `| mode | what must hold | result | team | returned of paid, USDC |`, `|---|---|---|---|---|`);
     for (const m of [...MODES, ...MARKET]) {

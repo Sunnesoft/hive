@@ -3,9 +3,17 @@
 // them got them from an expert. `match` is a pattern that only the fact's own value satisfies. Three patterns were
 // loosened after the first run, for layout only (a list instead of a line, "4-epoch", an address range): the
 // values they look for did not change.
+//
+// The last three tasks are the cases of the second run. The audit's answer key is not ours: it is the report
+// published with the contract (eval/agents/SOURCES.md). A finding has no single value to match, so its pattern
+// looks for the bug's name near its function: looser than a number, which is why the judge's count stands beside it.
+// Three of the audit's patterns were corrected after the answers were read by hand; the findings they stand for did
+// not change. "A winner that cannot receive" had matched any mention of onERC721Received, and "the cast truncates"
+// had matched "truncates" said of the overflow: both were tightened. "Ether forced in" had missed answers that
+// say the ether is "sent directly": it was widened.
 
 export type Fact = { text: string; match: string };
-export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record';
+export type Group = 'private, one expert' | 'private, several experts' | 'public, specialised' | 'no record' | 'one field, three schools' | 'four fields' | 'schools and fields';
 export type Task = {
   id: string;
   group: Group;
@@ -13,7 +21,18 @@ export type Task = {
   experts: string[]; // the experts whose knowledge the task needs, by name
   facts: Fact[];
   unknown?: string; // for 'no record': why there is nothing to find. The right answer says so and names no value.
+  usdc?: string; // the order's budget, 4 if not given
+  material?: string; // a page the task links to: a model or an expert asked outside the swarm gets its text with the task
+  named?: boolean; // also ordered with every expert named by the customer, so that all of them work whatever the router thinks
 };
+
+const near = (a: string, b: string, gap = 400) => `(${a})[\\s\\S]{0,${gap}}(${b})|(${b})[\\s\\S]{0,${gap}}(${a})`;
+const RAFFLE = 'https://raw.githubusercontent.com/Cyfrin/4-puppy-raffle-audit/df177a5c98089fb13f35bc0edff22056d59d4f93/src/PuppyRaffle.sol';
+const REPO = 'our repository has the contract at src/PuppyRaffle.sol, compiles with Solidity 0.7.6 and has forge-std in lib/forge-std';
+const REENTRANCY = { text: 'H-1: refund sends the ether before it clears the player, so a contract re-enters refund and drains the raffle', match: near('re-?entran', 'refund') };
+const RANDOMNESS = { text: 'H-2: selectWinner draws from msg.sender, block.timestamp and block.difficulty, which the caller or the block producer can choose or predict', match: near('random', 'predict|manipulat|weak|insecure|influence|miner|validator|block\\.(timestamp|difficulty)', 300) };
+const OVERFLOW = { text: 'H-3: totalFees is a uint64 and overflows (Solidity 0.7 does not check), so fees are lost', match: near('overflow', 'totalFees|uint64', 300) };
+const DOS = { text: 'M-1: enterRaffle checks duplicates with a nested loop over all players, so each entry costs more gas until nobody can enter', match: near('denial[- ]of[- ]service|\\bDoS\\b|gas', 'duplicate|nested loop|quadratic|O\\(n') };
 
 const GAS = { text: "The settlement callback must get 22 Tgas", match: '22\\s*T\\s?gas' };
 
@@ -103,6 +122,48 @@ export const TASKS: Task[] = [
     task: "What is the ceiling of Calder Fund's Harbor tier for hardware projects, and in what parts is it paid?",
     facts: [],
     unknown: 'Calder Fund has three tiers, Seed, Build and Scale: there is no Harbor tier',
+  },
+  {
+    id: 'audit', group: 'one field, three schools', experts: ['solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity'], usdc: '6', material: RAFFLE, named: true,
+    task: `Audit this Solidity contract before we deploy it: ${RAFFLE}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function it is in and the fix. For each High finding write a proof of concept as a Foundry test: ${REPO}.`,
+    facts: [
+      REENTRANCY, RANDOMNESS, OVERFLOW,
+      { text: 'H-4 and M-4: a winner that cannot or will not receive the prize (a contract without receive, or one that rejects the NFT) makes selectWinner revert, and the raffle cannot go on', match: near('winner', 'no (receive|fallback)|without a? ?(receive|fallback)|cannot receive|unable to receive|rejects? (the )?(prize|ether|ETH|NFT|payment|transfer)|refuses? (the|to)', 250) },
+      DOS,
+      { text: 'M-2: withdrawFees requires the balance to equal totalFees exactly, so ether forced in by selfdestruct blocks withdrawals', match: near('withdrawFees|balance ==|balance\\)? ?== ?(uint256\\()?totalFees', 'self-?destruct|forc(e|ed|ibly)|direct(ly)?|ETH arrives|external ETH', 300) },
+      { text: 'M-3: the fee is cast from uint256 to uint64 and silently truncated', match: 'unsafe (down-?)?cast|down-?cast|' + near('uint64\\(fee\\)|\\bcast\\b', 'truncat|silently|loses?|lost', 120) },
+      { text: 'I-7: getActivePlayerIndex returns 0 both for the player at index 0 and for an address that is not a player', match: near('getActivePlayerIndex', 'index 0|returns? 0|zero|ambiguous|first player', 300) },
+    ],
+  },
+  {
+    id: 'playground', group: 'four fields', experts: ['estate-sociology', 'fundraising-economics', 'play-safeguards', 'sorvia-games-law'], usdc: '5',
+    task: "We are the board of the Lindenhof housing cooperative in Sorvia: 1,200 households. We want to pay for a 60,000 EUR playground with a monthly raffle among our residents. Will the raffle raise the money within 12 months, and at what ticket price? What must we do to stay within Sorvia's Community Games Act? How do we keep the raffle from dividing neighbours, and from harming residents who spend more than they can afford? Give us the numbers and one recommendation.",
+    facts: [
+      { text: 'Economics: at 5 EUR a ticket, the price that sells most, 42% of households buy', match: '42\\s?%' },
+      { text: 'Economics: sales come to 6,300 EUR a draw, 75,600 EUR in 12 months', match: '75[,. ]?600' },
+      { text: 'Law: at least 45% of the sales of each draw is paid out as prizes', match: '45\\s?%' },
+      { text: 'Law: the costs of running the game take at most 12% of sales', match: '12\\s?%' },
+      { text: 'Law: under 90,000 EUR a year a notification to the municipal registry, 25 days before the first draw, is enough', match: '25\\s+days' },
+      { text: 'Sociology: publishing the full accounts after every draw raised repeat participation from 31% to 44%', match: '44\\s?%' },
+      { text: 'Sociology: a public list of buyers cut the participation of low-income households by 18 points: purchases stay private', match: '18\\s+(percentage\\s+)?points|18\\s?pp' },
+      { text: 'Sociology: tenants take part at 24% against 52% of owners, 39% when they have a say in the project', match: '24\\s?%' },
+      { text: 'Psychology: a cap of 4 tickets per household per draw cut at-risk households from 6.1% to 2.4%, for 7% of revenue', match: '2[.,]4\\s?%' },
+      { text: 'Psychology: no near-miss messages: they raised spending by 14% and tripled regret', match: 'near[- ]miss' },
+      { text: 'From law and economics together: after prizes at most 41,580 EUR of the 75,600 can reach the playground, so the raffle alone does not raise 60,000', match: '41[,. ]?580' },
+      { text: 'From law and economics together: sales of 75,600 EUR stay under the 90,000 EUR threshold, so no licence is needed', match: near('75[,. ]?600', '90[,. ]?000', 300) },
+    ],
+  },
+  {
+    id: 'raffle on-chain', group: 'schools and fields', experts: ['play-safeguards', 'solidity-attack-paths', 'solidity-bug-patterns', 'solidity-code-maturity', 'sorvia-games-law'], usdc: '8', material: RAFFLE,
+    task: `The Lindenhof housing cooperative in Sorvia (1,200 households) wants to run its monthly playground raffle on-chain with this contract: ${RAFFLE}\n\nThree questions. First, is the contract safe to deploy? List its vulnerabilities with their severity, and for each High one write a proof of concept as a Foundry test (${REPO}). Second, does the contract as written comply with Sorvia's Community Games Act: the share it keeps, how it draws the winner, refunds, who may enter? Third, what does it lack to protect residents who spend more than they can afford?`,
+    facts: [
+      REENTRANCY, RANDOMNESS, OVERFLOW, DOS,
+      { text: 'Law on the contract: it keeps 20% of sales for the fee address, above the 12% that Art. 8 allows for costs', match: '12\\s?%' },
+      { text: 'Law on the contract: a draw from block values and the caller does not comply with Art. 14 (Guidance Note 2023/4)', match: '2023/4|Art(icle|\\.)?\\s?14\\b' },
+      { text: 'Law on the contract: anyone can enter, so nothing keeps minors out as Art. 10 requires', match: 'Art(icle|\\.)?\\s?10\\b|under 18|minors?\\b' },
+      { text: 'Psychology on the contract: nothing limits entries per household; a cap of 4 per draw cut at-risk households from 6.1% to 2.4%', match: '2[.,]4\\s?%|cap of 4|4 tickets|four tickets' },
+      { text: 'Psychology on the contract: one winner takes the whole prize; winner-takes-all draws had 40% more chasing than draws with several prizes', match: '40\\s?%' },
+    ],
   },
 ];
 

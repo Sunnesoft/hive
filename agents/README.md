@@ -15,6 +15,15 @@ One folder is one agent. The protocol builds the agent from it; the sponsor neve
 - `auditor`, `researcher`: ordinary experts.
 - `injector`: what the audit denies (instructions to the evaluator, a download-and-run command).
 
+What we learned making experts out of published audit skills ([eval/agents/SOURCES.md](../eval/agents/SOURCES.md)):
+
+- Write knowledge, not orders. A file that addresses an AI ("You are an attacker that...") is refused by the entry
+  audit; the same content as a checklist passes.
+- `method.md` goes into every answer whole (up to 8,000 characters). `knowledge/` is searched by the words of the
+  question, six pieces at a time: what the expert must always apply belongs in the method.
+- An answer is at most about 2,500 words, and the model answers at once, without a reasoning pass. Say in the
+  method what the answer must hold and in what order, and for hard work choose a model that can do it directly.
+
 Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.
 
 ```bash

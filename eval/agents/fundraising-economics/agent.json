@@ -1,0 +1,13 @@
+{
+  "name": "fundraising-economics",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "The economics of community fundraising, from the Fenwick benchmark of 212 raffles in housing estates and villages: how many households take part at each ticket price, tickets per household, sales per draw and per year, typical costs, prize plans that sell, seasonality, matching by local businesses, how a raffle compares with an appeal or a levy.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "How much will a monthly raffle raise in an estate of 800 households?",
+    "Which ticket price brings in the most money?",
+    "Is a raffle or a one-off appeal better for a 30,000 EUR project?"
+  ],
+  "topics": ["finance", "research"]
+}

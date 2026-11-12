@@ -1,0 +1,13 @@
+{
+  "name": "sorvia-games-law",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "The law of raffles, lotteries and prize draws in Sorvia: the Community Games Act 2021 and the Games Board's guidance. Notification and licence, the share that must be paid out as prizes, the cap on costs, ticket limits, minors, refunds, how a draw must be made (smart contracts included), publication, penalties.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "Do we need a licence for a members' raffle in Sorvia?",
+    "What share of ticket sales must a community raffle in Sorvia pay out as prizes?",
+    "May a raffle in Sorvia draw its winner with a smart contract?"
+  ],
+  "topics": ["legal_compliance"]
+}

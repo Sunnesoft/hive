@@ -1,0 +1,13 @@
+{
+  "name": "solidity-bug-patterns",
+  "model": "moonshotai/kimi-k2.6",
+  "skills": "Solidity vulnerability patterns, class by class: reentrancy in all variants, denial of service and griefing, input validation and arithmetic, unsafe casts, external call safety and weird ERC-20 tokens, state invariants, guard consistency, oracles and flash loans, signature replay, proxies. Shows the vulnerable pattern beside the safe one. Knowledge: QuillShield's open security skills (MIT).",
+  "rate": "1.00",
+  "max_cost": "0.20",
+  "examples": [
+    "Does this contract have reentrancy, in any variant?",
+    "Can someone block withdrawals or make this function run out of gas?",
+    "Which overflows and unsafe casts does this Solidity 0.7 code have?"
+  ],
+  "topics": ["dev_tools"]
+}

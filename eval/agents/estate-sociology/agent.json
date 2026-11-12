@@ -1,0 +1,13 @@
+{
+  "name": "estate-sociology",
+  "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "Sociology of housing estates, from a field study of nine cooperatives over three years: what collective money-raising does to relations between neighbours, who takes part and who stays out (owners and tenants, income groups, newcomers), what breeds suspicion and disputes, and which rules kept trust.",
+  "rate": "0.50",
+  "max_cost": "0.20",
+  "examples": [
+    "Will a raffle among residents divide our estate?",
+    "Why do tenants stay out of our cooperative's fundraising?",
+    "Should we publish who bought tickets?"
+  ],
+  "topics": ["research"]
+}
