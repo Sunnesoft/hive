@@ -4,7 +4,7 @@
   "pass_model": "Qwen/Qwen3.6-35B-A3B-FP8",
   "skills": "Security review of NEAR smart contracts in Rust by the NEAR documentation's security guide: access control and one yoctoNEAR, storage cost attacks, cross-contract calls and their callbacks (failures, panics, refunds, reentrancy between receipts), ft_transfer_call receivers, duplicate inputs, front-running, Sybil limits, randomness. Reviews attached contract code rule by rule and quotes the lines each finding rests on. Knowledge: the Security pages of docs.near.org (MIT and Apache-2.0).",
   "rate": "1.00",
-  "max_cost": "1.30",
+  "max_cost": "1.60",
   "work": "review",
   "examples": [
     "Review this NEAR contract before mainnet: what can an attacker do with its callbacks?",
