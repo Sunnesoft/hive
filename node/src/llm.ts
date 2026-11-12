@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -104,7 +104,7 @@ async function written(model: string, o: { instructions: string; prompt: string;
     clearTimeout(whole);
   }
 }
-type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'combine' | 'same' | 'proof'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'combine' | 'same' | 'proof' | 'summary'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -311,6 +311,17 @@ export type ControlVerdict = z.infer<typeof Verdicts>['verdicts'][number];
 export async function control(pages: Page[], findings: { id: number; severity: string; where: string; claim: string; how: string; evidence: string }[]): Promise<ControlVerdict[]> {
   if (!cfg.CONTROL_MODEL || !findings.length) return [];
   return ask(cfg.CONTROL_MODEL, 'control', { materials: pages, findings }, Verdicts).then((r) => r.verdicts, () => []);
+}
+
+/** The paragraph that opens an answer made of reviews only (policies/summary.md). The composer's model gets the
+ *  titles of the findings and room for 120 words: asked to compose an answer from titles, it wrote a report of its
+ *  own, with findings and tests no expert had written. What it writes besides a paragraph is cut off by code. */
+export async function summarize(task: string, reviews: { id: number; findings: string[]; unconfirmed: number }[], doubted: number) {
+  const prompt = JSON.stringify({ task, reviews, doubted });
+  const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
+  const call = () => written(model, { instructions: policy.summary, prompt, limit: SUMMARY_OUT, temperature: 0 });
+  const r = await metered('summary', model, { prompt }, SUMMARY_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+  return r.text.trim().split(/\n\s*(?=#|```|[-*] |\d+[.)] )/)[0]!.trim(); // a heading, a fence or a list ends the paragraph
 }
 
 const Dangerous = z.object({ dangerous: z.array(z.object({ id: z.number(), reason: z.string() })) });

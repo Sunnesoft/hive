@@ -12,7 +12,7 @@ import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
 import { controlled, digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
-import { budget, ceiling, coarse, fit, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
+import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
@@ -249,7 +249,11 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const all = await join(reviews);
   const joined = { ...all, findings: await controlled(all.findings, head(pages.filter((p) => given.has(p.url)))) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
-  const written = good.length ? (await llm.compose(task, previous, good.map(({ id, question, text }) => ({ id, question, text })), sources).catch(() => '')).trim() : '';
+  // An answer made of reviews only opens with one paragraph about them; anything else is composed, the reviews as their titles.
+  const onlyReviews = good.length > 0 && reviews.length === good.length;
+  const written = !good.length ? ''
+    : onlyReviews ? await llm.summarize(task, reviews.map((r) => ({ id: r.id, findings: r.findings.map(lineOf), unconfirmed: r.leads.length })), joined.findings.filter((f) => f.doubted).length).catch(() => '')
+    : (await llm.compose(task, previous, good.map(({ id, question, text }) => ({ id, question, text })), sources).catch(() => '')).trim();
   const marked = [written || (list && '> The summary of this answer could not be written. The checked findings follow.'), list].filter(Boolean).join('\n\n');
   await noteRound(key, screened.topic, considered, members, parts, marked);
   if (!marked.trim()) return { outcomes, ...refuse('failed', 'The swarm could not compose an answer to this task.') };

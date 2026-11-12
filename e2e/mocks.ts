@@ -51,7 +51,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
   const embedded: number[] = []; // how many texts each embeddings call carried: indexing a library is a large one
-  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
+  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], summaries: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -158,6 +158,12 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       const [, list = ''] = user.split('# Confirmed findings');
       const both = !general && /\| withdraw \|/.test(list) && /\| fee \|/.test(list);
       return (review.combines.push(`${system}\n${user}`), reply(both ? '### High | withdraw | Project Alpha fee and withdraw together empty the ledger\nThe open withdraw takes what the fee leaves.' : 'NOTHING FOUND'));
+    }
+    if (is('You write the opening paragraph of a review')) {
+      // It says a sentence with the marks of both reviews, and then tries to add code of its own: the code must not reach the customer.
+      review.summaries.push(user);
+      const ids = (data().reviews as { id: number }[]).map((r) => `[[${r.id}]]`).join(' ');
+      return reply(`The ledger of Project Alpha lets anyone take what it holds ${ids}.\n\n\`\`\`js\nconsole.log("made up by the composer");\n\`\`\``);
     }
     if (is('You are the controller of a review')) {
       // Fixed rule: it doubts the rounding fee with a line of the file, doubts the owner with a line that is not there, and rates the combination lower.

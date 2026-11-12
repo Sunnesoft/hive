@@ -38,6 +38,7 @@ export const CHECK_OUT = 1_400; // a strong model confirms a group as several fi
 export const COMBINE_IN = 6_000; // bytes of confirmed findings the step that looks at them together is given
 export const COMBINE_OUT = 900;
 export const MAX_COMBINED = 5; // findings that step may add: each is checked like any other
+export const SUMMARY_OUT = 300; // output tokens of the paragraph that opens a review: room for 120 words, none for a report of its own
 export const SAME_IN = 12_000; // bytes of findings, a line each, that one question "which of these are the same" is given
 export const SAME_OUT = 500;
 export const MAX_PROOFS = 5; // proofs written in one review, for the gravest findings
