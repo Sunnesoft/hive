@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -78,7 +78,7 @@ const PROTOCOL_OUT = 8_000; // output tokens of one protocol step: room for a co
 // Qwen and DeepSeek read `enable_thinking`, Kimi reads `thinking`; a model ignores the name it does not know.
 const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, thinking: false } } };
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
-type Step = Exclude<keyof typeof policy, 'agent' | 'lookup'>; // a protocol step is named after the public policy it applies
+type Step = Exclude<keyof typeof policy, 'agent' | 'lookup' | 'pass' | 'check' | 'proof'>; // a protocol step is named after the public policy it applies
 
 /** One structured call: the step's policy as instructions, the input only as JSON data. */
 async function ask<T>(model: string, step: Step, data: unknown, schema: z.ZodType<T>): Promise<T> {
@@ -132,7 +132,7 @@ export const verdictOnMaterials = (summary: object) => protocol('audit', summary
 
 // ---- a job ----
 
-const Screened = Verdict.extend({ topic: z.enum(TOPICS) });
+const Screened = Verdict.extend({ topic: z.enum(TOPICS), code: z.boolean().default(false) }); // code: the task asks for code in the answer
 export const screen = (job: { title: string; description: string }) => protocol('job', job, Screened);
 
 export const MAX_QUESTION = 4_000; // characters of one agent's question
@@ -191,6 +191,34 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
   }
 }
 
+/** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
+const STEP_OUT = { pass: PASS_OUT, check: CHECK_OUT, proof: PROOF_OUT };
+export type ReviewStep = keyof typeof STEP_OUT;
+const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
+  policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge);
+const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
+/** The most one step can cost: every byte of its prompt as a token, and its whole output limit. */
+export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>
+  microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: STEP_OUT[kind] }, price);
+
+/** One step of a review: a pass with one part of the agent's knowledge, the check of a group of findings, or the
+ *  proof of one. `about` is the section the step is given after the question and the materials: the findings to
+ *  check, the finding to prove. Sent only if its worst case fits `cap`; a step that fails costs the agent nothing
+ *  and returns nothing. `cut`: the reply ran into the step's output limit. */
+export async function step(kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
+  const price = priceOf(m.model);
+  if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
+  if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
+  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
+  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, temperature: 0, maxOutputTokens: STEP_OUT[kind], providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  try {
+    const r = await metered(kind, m.model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+    return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
+  } catch {
+    return { text: '', cost: 0n, why: 'model_failed' };
+  }
+}
+
 /** One agent answers its question. Its cost is what NEAR AI charges for this call. The call is sent only if
  *  its worst case fits `cap`, so the cost can never pass the agent's hold. */
 export async function answer(m: Materials, found: string[], question: string, pages: Page[], cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
@@ -220,8 +248,9 @@ export const evaluate = (task: string, question: string, text: string) => protoc
  *  break of a long Markdown answer has to be escaped, and one that is not ends the answer there. */
 export async function compose(task: string, previous: string, contributions: { id: number; question: string; text: string }[], sources: string[]) {
   const prompt = JSON.stringify({ task, previous, contributions, sources: sources.map((url) => ({ url })) });
-  const call = () => generateText({ model: nearai(cfg.PROTOCOL_MODEL), instructions: policy.compose, prompt, temperature: 0, maxOutputTokens: PROTOCOL_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
-  const r = await metered('compose', cfg.PROTOCOL_MODEL, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+  const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
+  const call = () => generateText({ model: nearai(model), instructions: policy.compose, prompt, temperature: 0, maxOutputTokens: PROTOCOL_OUT, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  const r = await metered('compose', model, { prompt }, PROTOCOL_OUT, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
   return r.finishReason === 'length' ? `${r.text}\n\n> The answer reached its length limit and stops here.` : r.text;
 }
 

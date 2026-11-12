@@ -14,6 +14,9 @@ export const Materials = z.strictObject({
   model: z.string().refine((m) => allowedModels.includes(m), 'model not allowed'),
   expertise: Text(2_000).pipe(z.string().min(1)), // who the expert is and what they know
   method: Text(8_000).default(''), // how they work: a checklist, an approach
+  // 'review': given materials, the agent goes through them with every part of its knowledge and checks each finding
+  // (review.ts); without materials, and for 'answer', it answers once from the knowledge closest to the question.
+  work: z.enum(['answer', 'review']).default('answer'),
   // Public, shown in the catalog so customers can choose; audited like the rest: the material must back them.
   examples: z.array(Text(200).pipe(z.string().min(1))).max(3).default([]), // questions it answers well
   topics: z.array(z.enum(TOPICS)).max(3).default([]), // where customers find it

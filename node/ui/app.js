@@ -248,7 +248,7 @@ const RESULTS = {
   refused: ['', 'refused', 'It refused without a reason. Check that the prompt does not forbid what the expert promises.'],
   repeated_question: ['', 'no substance', 'It repeated the question. Add substance to the files.'],
   cut_off: ['', 'cut off', 'The answer ran into the length limit before it got to the point. Say in the method what the answer must hold and in what order, or choose a model that answers hard questions briefly.'],
-  too_expensive: ['warn', 'over max spend', 'The question did not fit your max spend, so another expert took it. Raise the max spend, or shorten the prompt.'],
+  too_expensive: ['warn', 'over max spend', 'The task did not fit your max spend, so your expert did not work on it. Raise the max spend, or shorten the prompt. A review needs room for every pass and every check before it starts: the form sets the max spend that always covers it.'],
   addressed_others: ['bad', 'violation', `It spoke to the checker or other agents. ${SUSPENDS}`],
   asked_for_score: ['bad', 'violation', `It asked for a score or payment. ${SUSPENDS}`],
   changed_rules: ['bad', 'violation', `It tried to change the rules. ${SUSPENDS}`],
@@ -285,6 +285,7 @@ function renderAgent(name) {
             h('dt', {}, 'Rate'), h('dd', { class: 'mono' }, `${usd(a.rate)} USDC`),
             h('dt', {}, 'Max spend'), h('dd', { class: 'mono' }, `${usd(a.max_cost)} USDC`),
             h('dt', {}, 'Model'), h('dd', { class: 'mono' }, a.audit?.model ?? 'sealed'),
+            h('dt', {}, 'Works by'), h('dd', {}, a.audit?.work === 'review' ? 'reviewing the customer\'s files' : a.audit?.work === 'answer' ? 'answering questions' : 'sealed'),
             h('dt', {}, 'Sealed'), h('dd', {}, `prompt and files, ${a.size_mb} MB · registration #${a.registration}`),
             h('dt', {}, 'Owner'), h('dd', {}, link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'mono' }, a.sponsor) : a.sponsor)),
           h('a', { class: 'btn ghost block', href: `#/new/${encodeURIComponent(name)}` }, 'Change this expert'),
@@ -388,6 +389,11 @@ function renderNew() {
   const rate = h('input', { id: 'rate', inputmode: 'decimal', value: old ? usd(old.rate) : '1.00' });
   const spend = h('input', { id: 'spend', inputmode: 'decimal', value: old ? usd(old.max_cost) : '' });
   const model = h('select', { id: 'model' }, info.models.map((m) => h('option', { value: m.id }, m.id)));
+  // How the expert uses its files: the closest pieces for one answer, or all of them, part by part, on the customer's files.
+  const work = h('select', { id: 'work' },
+    h('option', { value: 'answer' }, 'Answers questions from the closest pieces of its files'),
+    h('option', { value: 'review' }, 'Reviews the customer\'s files with all of its files, as checklists'));
+  work.value = old?.audit?.work ?? 'answer';
   const deposit = h('input', { id: 'deposit', inputmode: 'decimal' });
   const fileList = h('ul', { class: 'files' });
   const picker = h('input', { id: 'files', type: 'file', multiple: true, accept: '.md,.txt,.csv,.json,text/plain,text/markdown', class: 'sr' });
@@ -428,14 +434,31 @@ function renderNew() {
   drop.querySelector('label').onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), picker.click());
 
   const fee = (mb) => BigInt(info.fees.audit_base) + BigInt(info.fees.audit_per_mb) * BigInt(mb);
-  /** The worst one task can cost with this model and prompt, as the runner checks before it picks the expert:
+  const cents = (microUsd) => (BigInt(Math.ceil(microUsd)) + 9_999n) / 10_000n * 10_000n;
+  /** The worst one answer can cost with this model and prompt, as the runner checks before it picks the expert:
    *  the answer, and before it the look-up of the expert's knowledge when the task came with materials. */
+  const worstAnswer = (p, own) => {
+    const bytes = info.limits.template_bytes + own + info.limits.knowledge_bytes + info.limits.public_bytes + info.limits.lookup_bytes + own + info.limits.public_bytes;
+    return cents(bytes * p.in + (info.limits.max_out + info.limits.lookup_out) * p.out);
+  };
+  /** The worst one review can cost, as the runner checks before it starts one: a pass for each part of the files,
+   *  every check and every proof, each with the largest materials a customer can give. */
+  const worstReview = (p, own) => {
+    const v = info.limits.review;
+    const size = files.reduce((s, f) => s + f.size, 0);
+    if (!size) return 0n; // nothing to review with: it answers
+    const around = own + info.limits.public_bytes;
+    const passes = Math.min(v.passes, Math.ceil(size / (0.8 * v.pass_knowledge)) + 1); // parts are rarely full
+    return cents(passes * ((v.pass_bytes + v.pass_knowledge + around) * p.in + v.pass_out * p.out)
+      + v.checks * ((v.check_bytes + v.check_in + around) * p.in + v.check_out * p.out)
+      + v.proofs * ((v.proof_bytes + v.proof_in + around) * p.in + v.proof_out * p.out));
+  };
   const worst = () => {
     const p = info.models.find((m) => m.id === model.value);
     if (!p?.in) return null;
     const own = new Blob([skills.value, prompt.value]).size;
-    const bytes = info.limits.template_bytes + own + info.limits.knowledge_bytes + info.limits.public_bytes + info.limits.lookup_bytes + own + info.limits.public_bytes;
-    return (BigInt(Math.ceil(bytes * p.in + (info.limits.max_out + info.limits.lookup_out) * p.out)) + 9_999n) / 10_000n * 10_000n;
+    const [answer, review] = [worstAnswer(p, own), work.value === 'review' ? worstReview(p, own) : 0n];
+    return { answer, all: answer > review ? answer : review };
   };
   const amount = (input, fallback) => { try { return BigInt(units(input.value || fallback)); } catch { return null; } };
   const auto = { spend: !old, deposit: true };
@@ -444,7 +467,8 @@ function renderNew() {
   const sign = (v) => (v < 0n ? `−${usd(-v)}` : `+${usd(v)}`);
 
   function check() {
-    const w = worst();
+    const costs = worst();
+    const w = costs?.all ?? null;
     if (auto.spend && w !== null) spend.value = usd(w);
     const mb = Math.max(1, Math.ceil(files.reduce((s, f) => s + f.size, 0) / MB));
     const [r, m] = [amount(rate, '0'), amount(spend, '0')];
@@ -472,7 +496,8 @@ function renderNew() {
     net.className = `netline${low || loss ? ' warn' : ''}${loss ? ' bad' : ''}`;
     net.replaceChildren(h('b', {}, 'Each delivered task'),
       h('span', { class: 'sum' }, `+${r === null ? '…' : usd(r)} rate − at most ${m === null ? '…' : usd(m)} model = `, h('b', {}, left === null ? '…' : `${sign(left)} USDC to you, at least`)),
-      h('span', { class: 'hint' }, low ? `One call with this model and prompt can cost up to ${usd(w)} USDC. Below that, the swarm will not pick your expert.`
+      h('span', { class: 'hint' }, low && m >= costs.answer ? `A review of the largest files a customer can give may cost up to ${usd(w)} USDC. Below that your expert still answers questions, but a review that may not fit is not started.`
+        : low ? `One call with this model and prompt can cost up to ${usd(w)} USDC. Below that, the swarm will not pick your expert.`
         : loss ? 'Your rate is below what the model may cost: raise the rate or pick a cheaper model.'
         : 'A task your expert misses earns nothing; you pay only what its model used.'));
 
@@ -487,6 +512,7 @@ function renderNew() {
   }
   for (const el of [name, skills, prompt, rate, spend, model, deposit, ...examples]) el.addEventListener('input', check);
   model.addEventListener('change', check);
+  work.addEventListener('change', check);
 
   let at = 0; // the step in progress
   const step = (i, state = 'now') => {
@@ -501,7 +527,7 @@ function renderNew() {
       step(0);
       const knowledge = await Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() })));
       // The builder's prompt is the expert's method; what it knows is its expertise. Both are guidance inside our template.
-      const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, examples: asks(), topics: chosenTopics(), knowledge };
+      const materials = { name: name.value, model: model.value, expertise: skills.value.trim(), method: prompt.value, work: work.value, examples: asks(), topics: chosenTopics(), knowledge };
       const bytes = await seal(new TextEncoder().encode(JSON.stringify(materials)), info.sealKey, id); // bound to this expert
       const mb = Math.max(1, Math.ceil(bytes.length / MB));
       if (mb > 10) throw new Error('sealed, the files are over 10 MB');
@@ -543,7 +569,8 @@ function renderNew() {
             h('div', { class: 'examples', role: 'group', 'aria-labelledby': 'exLabel' }, examples),
             h('span', { class: 'hint' }, 'One to three real questions. Customers choose experts by them, and the audit checks your files back them.')),
           h('div', { class: 'field' }, h('div', { class: 'head' }, h('span', { class: 'label', id: 'topicsLabel' }, 'Topics'), vis('public')), topicPicks, topicNote),
-          field('prompt', 'Prompt', prompt, 'Who your expert is and how it should answer. It is guidance inside the swarm\'s template: it cannot change the swarm\'s rules.', vis('sealed'))),
+          field('prompt', 'Prompt', prompt, 'Who your expert is and how it should answer. It is guidance inside the swarm\'s template: it cannot change the swarm\'s rules.', vis('sealed')),
+          field('work', 'How it works', work, 'A review is for checklists: when a customer gives files, your expert reads them once with every part of your files, checks each finding on its own and must quote the lines it rests on. It takes many calls, so it needs a larger max spend; the form sets it. Asked a question without files, it answers like any other expert.', vis('sealed'))),
         stage(3, 'Your files', vis('sealed'), drop, fileList),
         stage(4, 'Your price', null,
           h('div', { class: 'pair' },

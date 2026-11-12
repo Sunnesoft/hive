@@ -19,7 +19,7 @@ import { log } from './log.ts';
 import * as orders from './orders.ts';
 import { policy } from './policies.ts';
 import { PLANS } from './plans.ts';
-import { LOOKUP_OUT, MAX_OUT, ready, TOPICS } from './rules.ts';
+import { CHECK_IN, CHECK_OUT, LOOKUP_OUT, MAX_CHECKS, MAX_OUT, MAX_PASSES, MAX_PROOFS, PASS_CHARS, PASS_OUT, PROOF_IN, PROOF_OUT, ready, TOPICS } from './rules.ts';
 import { WORST_PUBLIC } from './round.ts';
 import * as store from './store.ts';
 import { SignedIn, signer } from './wallet.ts';
@@ -99,7 +99,13 @@ function info(sealKey: string): Promise<Reply> {
     const fees = { audit_base: c.audit_base, audit_per_mb: c.audit_per_mb, min_deposit: c.min_deposit, fee_bps: c.fee_bps };
     const models = allowedModels.map((id) => ({ id, ...priceOf(id) })); // USD per 1M tokens, live from NEAR AI
     // What the runner adds around an expert's own text, for the page to show the worst cost of one call.
-    const limits = { template_bytes: Buffer.byteLength(policy.agent), knowledge_bytes: NEAREST * CHUNK, public_bytes: WORST_PUBLIC, max_out: MAX_OUT, lookup_bytes: Buffer.byteLength(policy.lookup), lookup_out: LOOKUP_OUT };
+    // `review`: the steps of a review (review.ts), each with the bytes of its policy, what it is given and its output limit.
+    const review = {
+      passes: MAX_PASSES, pass_bytes: Buffer.byteLength(policy.pass), pass_knowledge: PASS_CHARS, pass_out: PASS_OUT,
+      checks: MAX_CHECKS, check_bytes: Buffer.byteLength(policy.check), check_in: CHECK_IN, check_out: CHECK_OUT,
+      proofs: MAX_PROOFS, proof_bytes: Buffer.byteLength(policy.proof), proof_in: PROOF_IN, proof_out: PROOF_OUT,
+    };
+    const limits = { template_bytes: Buffer.byteLength(policy.agent), knowledge_bytes: NEAREST * CHUNK, public_bytes: WORST_PUBLIC, max_out: MAX_OUT, lookup_bytes: Buffer.byteLength(policy.lookup), lookup_out: LOOKUP_OUT, review };
     const agents = chain.listed();
     const stats = { active: agents.filter((a) => a.status === 'Active').length, pending: agents.filter((a) => a.status === 'Pending').length };
     // How a price is made, so the site can quote a team the way the runner bids: rates + overhead, then both fees.

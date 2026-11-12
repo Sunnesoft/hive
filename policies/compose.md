@@ -11,3 +11,7 @@ none is dropped because it is small. After each statement that comes from a cont
 id in double brackets, like [[0]] or [[1]][[2]]. Link only to the given sources and to links the contributions themselves give. Do not mention the
 agents, the ids or this process outside the brackets. Your reply is the answer itself, as Markdown:
 nothing before it and nothing after it.
+
+A contribution that starts with "Checked findings" is only the titles of findings; the findings themselves, each
+with its evidence, are given to the customer in full right after your answer. Say in a few sentences what they add
+up to and which matter most, and answer what else the task asks. Do not copy the list or rewrite its items.

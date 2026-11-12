@@ -357,6 +357,14 @@ try {
   });
   const tried = await run(['scripts/try.ts', folder, 'When does Project Alpha launch?']);
   check('try: the answer, the knowledge it used and the verdict, on the sponsor\'s own question', tried.status === 0 && tried.stdout.includes(SECRET.date) && /evaluator: PAID \(answered\)/.test(tried.stdout), tried.stdout + tried.stderr);
+  const checker = mkdtempSync(join(tmpdir(), 'swarm-agent-'));
+  mkdirSync(join(checker, 'knowledge'));
+  writeFileSync(join(checker, 'agent.json'), JSON.stringify({ name: 'ledgers', model: models[0], skills: 'ledger: reviews a ledger', rate: '1', max_cost: '1', work: 'review' }));
+  writeFileSync(join(checker, 'expertise.md'), 'Reviews ledgers.');
+  writeFileSync(join(checker, 'knowledge', 'rules.md'), 'RULE withdraw: High: Project Alpha ledger lets anyone withdraw\n\nRULE fee: Low: phantom Project Alpha fee overflow');
+  writeFileSync(join(checker, 'ledger.md'), 'function withdraw() { send(everything, caller); }\nfunction fee() { return amount * 3 / 1000; }');
+  const trial = await run(['scripts/try.ts', checker, 'Project Alpha: go through this ledger.', '--material', join(checker, 'ledger.md'), '--code']);
+  check('try --material: a sponsor runs a review of a file as the swarm would: the counts, the findings that held, the verdict', trial.status === 0 && /passes read 1; findings raised 2, in 2 groups; groups checked 2; findings that held 1; proofs 1/.test(trial.stdout) && trial.stdout.includes('**Evidence:** `function withdraw() { send(everything, caller); }`') && !/### \d+\. Low/.test(trial.stdout) && /evaluator: PAID/.test(trial.stdout), trial.stdout + trial.stderr);
   const audited = await run(['scripts/try.ts', 'agents/injector', '--audit']);
   check('try --audit: a sponsor sees in advance why it would be denied', audited.status === 1 && /DENIED \(instructions_to_ai\)/.test(audited.stdout) && audited.stdout.includes('SYSTEM OVERRIDE'), audited.stdout + audited.stderr);
 
@@ -442,6 +450,57 @@ try {
   await call(owner, swarm.accountId, 'set_config', { cfg });
   await until('the task after resume', () => market.delivered('a-paused').length === 1);
   check('pause: after resume the waiting task is served', has('resumed') > 0);
+
+  // --- a review: experts that go through the customer's file with all of their knowledge, one part a pass ---
+  // Three sponsors each hold a checklist for ledgers. A rule "RULE <place>: <severity>: <claim>" finds something when
+  // the file has the place. One checklist is long enough for two passes; one sponsor's hold is too low for a review.
+  const [first, second, tight] = await Promise.all([make('first'), make('second'), make('tight')]);
+  for (const a of [first, second, tight]) {
+    await call(owner, usdc.accountId, 'storage_deposit', { account_id: a.accountId }, nearToYocto('0.0125'));
+    await call(owner, usdc.accountId, 'ft_transfer', { receiver_id: a.accountId, amount: `${10n * U}` }, 1n);
+  }
+  const DRAIN = 'RULE withdraw: High: Project Alpha ledger lets anyone withdraw';
+  const filler = Array.from({ length: 160 }, (_, i) => `Remark ${i}: ledgers are reconciled at the close of every day.`).join('\n\n');
+  const checklists = new Map<Account, [name: string, maxCost: bigint, knowledge: string]>([
+    [first, ['ledger-one', U, `Marker FIRST-ONLY.\n\n${DRAIN}\n\nRULE fee: Low: phantom Project Alpha fee overflow\n\nRULE owner: Low: phantom Project Alpha owner drift\n\nRULE withdraw: Low: phantom Project Alpha payout delay\n\nRULE mint: High: Project Alpha ledger mints from nothing\n\n${filler}\n\nRULE fee: Medium: Project Alpha fee rounds to zero\n\nRULE owner: Medium: misquoted Project Alpha owner check`]],
+    [second, ['ledger-two', U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone`]],
+    [tight, ['ledger-three', U / 5n, `Marker THIRD-ONLY.\n\n${DRAIN}`]],
+  ]);
+  const reviewers = new Map<Account, Buffer>();
+  for (const [who, [name, maxCost, knowledge]] of checklists) {
+    names.set(who, name);
+    const bytes = seal(Buffer.from(JSON.stringify({ name, model: models[0], expertise: 'Reviews ledgers.', work: 'review', knowledge: [{ name: 'checklist.md', text: knowledge }] })), Buffer.from(info.sealKey, 'hex'), agentId(who));
+    reviewers.set(who, bytes);
+    await pay(who, 5n * U, { Register: { name, skills: 'ledger: reviews a ledger by its own checklist', rate: `${U}`, max_cost: `${maxCost}`, materials_hash: createHash('sha256').update(bytes).digest('hex'), size_mb: 1 } });
+  }
+  for (const [who, bytes] of reviewers) check(`upload: ${names.get(who)} accepted`, (await upload(who, bytes)).ok);
+  await until('the three reviewers admitted', async () => (await Promise.all([first, second, tight].map(agent))).every((a) => a.status === 'Active'));
+  const ledger = ['function withdraw() { send(everything, caller); }', 'function fee() { return amount * 3 / 1000; }', 'function owner() { return caller; }'].join('\n');
+  const answersBefore = ai.agentCalls.length;
+  market.hire({ id: 'a-review', title: 'Ledger', description: 'ledger: go through the attached ledger and write a test for every grave finding.', escrow: '10.0', files: [{ name: 'ledger.md', text: ledger }] });
+  await until('the review', () => market.delivered('a-review').length === 1);
+  const report = market.delivered('a-review')[0]!;
+  const listed = report.slice(report.indexOf('## Findings'));
+  const roundOf = async (who: Account) => (await cabinet(who)).body.agents[0]?.rounds?.find((r: { job: string }) => r.job === 'a-review#1');
+  const did = (who: Account) => events.findLast((e) => e.event === 'contribution' && e.agent === agentId(who))!;
+  const sawOnly = (own: string, calls: string[]) => calls.filter((c) => c.includes(own)).every((c) => ['FIRST-ONLY', 'SECOND-ONLY', 'THIRD-ONLY'].filter((m) => c.includes(m)).length === 1);
+  check('review: an expert that reviews reads the file with every part of its checklist, one part a pass', did(first).work === 'review' && did(first).passes === 2 && did(second).passes === 1 && ai.review.passes.every((c) => c.includes('<material url="attachment: ledger.md">')) && ai.agentCalls.length === answersBefore, { first: did(first), second: did(second) });
+  check('review: each pass has one expert\'s knowledge; a check and a proof have the findings and the file, never the knowledge', sawOnly('FIRST-ONLY', ai.review.passes) && sawOnly('SECOND-ONLY', ai.review.passes) && [...ai.review.checks, ...ai.review.proofs].every((c) => !/-ONLY/.test(c) && c.includes('function withdraw()')));
+  check('review: every finding is checked on its own; what does not hold in the file is dropped', did(first).raised === 6 && did(first).checked === 6 && did(first).held === 2 && !report.includes('phantom') && !report.includes('mints from nothing'), did(first));
+  check('review: a finding whose evidence is not a line of the file is dropped by code, whatever the model said', ai.review.checks.some((c) => c.includes('misquoted')) && !report.includes('misquoted'));
+  check('review: what two experts found is one finding, and the answer says how many found it', listed.split('Project Alpha ledger lets anyone withdraw').length === 2 && /### 1\. High: Project Alpha ledger lets anyone withdraw\n\n\*Where:\* withdraw\. \*Found by 2 of 2 experts\.\*/.test(report) && /Medium: Project Alpha fee rounds to zero\n\n\*Where:\* fee\. \*Found by 1 of 2 experts\.\*/.test(report) && /Low: Project Alpha owner is anyone/.test(report), report);
+  check('review: the findings reach the customer as the experts wrote them, with the line of the file each rests on', report.includes('**Evidence:** `function withdraw() { send(everything, caller); }`') && report.includes('**Fix:** guard withdraw.') && !report.includes('[['), report);
+  check('review: the composer saw the titles only and wrote around the list', ai.composed.at(-1)!.contributions.every((c) => c.text.startsWith('Checked findings') && !c.text.includes('Evidence')) && report.indexOf('## Findings') > report.indexOf('Checked findings'), ai.composed.at(-1));
+  check('review: the task asked for code, so the grave finding has a proof, marked as not run', did(first).proofs === 1 && report.includes('// proof: withdraw is open') && !report.includes('// proof: fee') && report.includes('**Proof** (written, not run):') && report.includes('The code in this answer was not run'), report);
+  const rv = await job('a-review#1');
+  const slot = (who: Account) => rv!.slots.find((x) => x.agent === agentId(who))!;
+  check('review: the experts that delivered are paid their rates; a review costs its expert more than one call', slot(first).pay === `${U}` && slot(second).pay === `${U}` && did(first).cost === `${2n * CENT}` && did(second).cost === `${CENT}`, { rv, first: did(first), second: did(second) }); // nine calls and four, 0.0012 each
+  check('review: a hold that cannot cover the worst case of a review starts none: nothing spent, the owner is told why', did(tight).why === 'too_expensive' && did(tight).cost === '0' && slot(tight).pay === '0' && (await roundOf(tight))?.why === 'too_expensive', { did: did(tight), cabinet: await roundOf(tight) });
+  check('review: the owners see how much of the answer came from their experts', (await roundOf(first))?.share === 50 && (await roundOf(second))?.share === 50, [await roundOf(first), await roundOf(second)]);
+  market.hire({ id: 'a-asked', title: 'Ledger', description: 'ledger: how should a ledger be closed at the end of a day?', escrow: '10.0' });
+  await until('an answer from the reviewers', () => market.delivered('a-asked').length === 1 || market.declined.has('a-asked'));
+  check('review: asked a question with no materials, an expert that reviews answers like any other', did(first).work === 'answer' && ai.agentCalls.length > answersBefore, did(first));
+  await books();
 
   // --- restart: the runner opens the admitted agents again from its store and goes on ---
   proc!.kill();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { budget, ceiling, coarse, fit, microUsd, provenance, quote, ready, rivals, share, sharesOf, usdc, usedOf, type Agent } from '../src/rules.ts';
+import { budget, bySeverity, ceiling, clip, coarse, findingsIn, fit, grounded, groupsOf, microUsd, piecesOf, provenance, quote, ready, rivals, share, sharesOf, showFinding, usdc, usedOf, type Agent } from '../src/rules.ts';
 
 const U = 1_000_000n;
 
@@ -67,6 +67,63 @@ test('rivals: the agents whose parts are used clearly more than the pick\'s, at 
   assert.deepEqual(ids(rivals(a('pick', 0.8), [a('dear', 1.5, 2n)])), []); // never a dearer one
   assert.deepEqual(ids(rivals(a('pick', null), [a('x', 1.5)])), []); // a new agent is not replaced
   assert.deepEqual(ids(rivals(a('pick', 0.8), [a('new', null)])), []); // nor does one replace
+});
+
+test('findingsIn reads findings however a model draws the heading, and showFinding writes what it reads', () => {
+  const text = [
+    'Some words before the first finding are dropped.',
+    '### High | `refund` | the ether is sent before the player is cleared',
+    'A contract re-enters refund and is paid again.',
+    'Evidence: `payable(msg.sender).sendValue(entranceFee);`',
+    'Fix: clear the player first.',
+    '',
+    '**2. Medium — `enterRaffle` — duplicates are checked with a nested loop**',
+    'Each entry costs more gas than the last.',
+    '## Low: no event on withdrawal',
+  ].join('\n');
+  const [a, b, c] = findingsIn(text);
+  assert.deepEqual(a, { severity: 'High', where: 'refund', title: 'the ether is sent before the player is cleared', how: 'A contract re-enters refund and is paid again.', evidence: '`payable(msg.sender).sendValue(entranceFee);`', fix: 'clear the player first.' });
+  assert.deepEqual([b!.severity, b!.where, b!.title, b!.how], ['Medium', 'enterRaffle', 'duplicates are checked with a nested loop', 'Each entry costs more gas than the last.']);
+  assert.deepEqual([c!.severity, c!.where, c!.title], ['Low', '', 'no event on withdrawal']);
+  assert.deepEqual(findingsIn(showFinding(a!, 1)), [a]);
+  assert.deepEqual(findingsIn('NOT CONFIRMED: the call is guarded.'), []);
+  assert.deepEqual(findingsIn('High-risk functions are listed below.\nLow gas use is not a finding.'), []); // prose, not headings
+});
+
+test('bySeverity puts the gravest first and keeps the order of equals', () => {
+  const f = (severity: 'High' | 'Low' | 'Critical', title: string) => ({ severity, title });
+  assert.deepEqual(bySeverity([f('Low', 'a'), f('High', 'b'), f('Critical', 'c'), f('High', 'd')]).map((x) => x.title), ['c', 'b', 'd', 'a']);
+});
+
+test('groupsOf joins only what is close to every member: no chain of neighbours merges two different things', () => {
+  const at = [0, 1, 2, 10]; // on a line; "close" is within 1.5 of each other
+  const close = (i: number, j: number) => Math.abs(at[i]! - at[j]!) <= 1.5;
+  assert.deepEqual(groupsOf(4, close), [[0, 1], [2], [3]]); // 2 is close to 1 but not to 0: its own group
+  assert.deepEqual(groupsOf(0, close), []);
+});
+
+test('grounded: evidence counts when a stretch of it stands in the material word for word', () => {
+  const material = 'function refund(uint256 playerIndex) public {\n    payable(msg.sender).sendValue(entranceFee);\n    players[playerIndex] = address(0);\n}';
+  assert.equal(grounded('`payable(msg.sender).sendValue(entranceFee);` comes before the player is cleared', material), true);
+  assert.equal(grounded('payable(msg.sender).sendValue(entranceFee);   players[playerIndex] = address(0);', material), true); // spaces and line breaks aside
+  assert.equal(grounded('`withdrawAll(address to)` has no guard', material), false); // not in the material
+  assert.equal(grounded('line 12', material), false); // too short to point at anything
+});
+
+test('piecesOf packs chunks of knowledge into the parts a review reads, in order, none over its size', () => {
+  const [a, b, c, d] = ['a'.repeat(600), 'b'.repeat(500), 'c'.repeat(400), 'd'.repeat(1_000)];
+  assert.deepEqual(piecesOf([a, b, c, d], 1_000), [a, `${b}\n---\n${c}`, d]); // b and c fit together; nothing lost, nothing reordered
+  assert.deepEqual(piecesOf([]), []);
+  // Chunks of at most 1,500 with five to a part always fit 16 parts of 9,000: what review.ts relies on for a large knowledge.
+  const worst = Array.from({ length: 80 }, (_, i) => 'x'.repeat(i % 2 ? 1_500 : 1_499));
+  assert.ok(piecesOf(worst).length <= 16);
+});
+
+test('clip cuts a text to a number of bytes, never through the middle of a character', () => {
+  assert.equal(clip('short', 100), 'short');
+  assert.equal(clip('abcdef', 3), 'abc');
+  assert.equal(clip('ааа', 5), 'аа'); // two bytes a letter: the third would be cut in half
+  assert.ok(Buffer.byteLength(clip('日本語のテキスト', 10)) <= 10);
 });
 
 test('provenance strips the source marks and remembers which were used', () => {

@@ -39,6 +39,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const composed: { previous: string; contributions: { id: number; text: string }[] }[] = [];
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
+  const review = { passes: [] as string[], checks: [] as string[], proofs: [] as string[] }; // what each step of a review saw
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -66,7 +67,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       const allow = data().flags.length === 0;
       return reply({ allow, category: allow ? 'ok' : 'instructions_to_ai', reason: allow ? 'mock audit: fine' : 'mock audit: it talks to the AI' });
     }
-    if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware', topic: 'research' });
+    if (is('You review a task')) return reply({ allow: !/malware/i.test(user), reason: 'it asks for malware', topic: 'research', code: /write a test|proof of concept/i.test(user) });
     if (is('You put together a team') && general) {
       // An expert whose profile shares at least two words with the task, the closest first; asked the task itself.
       const { task, agents } = data() as { task: string; agents: { id: number; skills: string; examples?: string[]; requested?: boolean }[] };
@@ -111,6 +112,36 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       return reply(`${facts}${previous ? ' Revised: it launches at 09:00 UTC.' : ''}\n\n${extras}`);
     }
     if (is('You are an expert about to answer')) return (lookups.push(`${system}\n${user}`), reply({ queries: ['Project Alpha'] }));
+    // A review. The materials are what the user message holds before the section a step adds to it.
+    const HEAD = /^### (?:\d+\. )?(\w+) \| ([^|\n]+) \| (.+)$/gm;
+    const lineWith = (text: string, word: string) => text.split('\n').find((l) => l.includes(word) && !l.startsWith('#') && !l.startsWith('<'))?.trim() ?? '';
+    if (is("You are an expert going through a customer's materials")) {
+      review.passes.push(`${system}\n${user}`);
+      const part = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
+      if (general) { // the lines of this part closest to the materials, each a finding at the line of the materials it shares most words with
+        const lines = user.split('\n').filter((l) => l.trim().length > 12 && !l.startsWith('#') && !l.startsWith('<'));
+        const near = part.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 30).map((l) => ({ l, at: lines.map((x) => ({ x, n: shared(stems(l), stems(x)) })).sort((a, b) => b.n - a.n)[0] })).filter((c) => (c.at?.n ?? 0) >= 2);
+        return reply(near.slice(0, 3).map((c) => `### Medium | ${c.at!.x.trim().slice(0, 60)} | ${c.l.slice(0, 160)}\nThe checklist item applies to this line of the materials.`).join('\n\n') || 'NOTHING FOUND');
+      }
+      // "RULE <place>: <severity>: <claim>" finds something if the materials name the place.
+      const found = [...part.matchAll(/^RULE (\w+): (\w+): (.+)$/gm)].filter(([, place]) => user.includes(`${place}(`));
+      return reply(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
+    }
+    if (is('You are an expert checking findings')) {
+      review.checks.push(`${system}\n${user}`);
+      const [materials = '', group = ''] = user.split('# Findings to check');
+      // A claim holds unless it says "phantom"; it quotes the line that names its place, unless it says "misquoted".
+      const [held] = [...group.matchAll(HEAD)].filter(([, , , claim]) => !claim!.includes('phantom'));
+      if (!held) return reply('NOT CONFIRMED: the materials do not allow it.');
+      const [, severity, place, claim] = held as unknown as [string, string, string, string];
+      const quote = claim.includes('misquoted') ? 'a line the file does not have' : general ? place.trim() : lineWith(materials, `${place}(`);
+      return reply(`### ${severity} | ${place} | ${claim}\nThe materials allow it.\nEvidence: \`${quote}\`\nFix: guard ${general ? 'this line' : place}.`);
+    }
+    if (is('You are an expert writing the proof')) {
+      review.proofs.push(`${system}\n${user}`);
+      const place = [...(user.split('# Finding to prove')[1] ?? '').matchAll(HEAD)][0]?.[2]?.trim() ?? 'it';
+      return reply(`\`\`\`js\n// proof: ${place} is open\nconsole.log(${JSON.stringify(place)});\n\`\`\``);
+    }
     if (is('You decide whether an expert agent could be asked')) return reply({ ids: [] });
     if (is('You review code blocks')) return reply({ dangerous: [] }); // the static check must catch the curl | sh itself
     if (is("You check a customer's request")) return reply({ in_scope: !/new|marketing/i.test(data().feedback), reason: 'mock scope' });
@@ -126,7 +157,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     }
     return reply(knowledge.split(/\n+/).filter((l) => l.includes('Project Alpha')).join(' '));
   }, port);
-  return { ...server, agentCalls, composed, routed, lookups };
+  return { ...server, agentCalls, composed, routed, lookups, review };
 }
 
 type Row = {

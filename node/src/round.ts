@@ -11,10 +11,12 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
+import { digestOf, join, listOf, reportOf, review, type Checked } from './review.ts';
 import { budget, ceiling, coarse, fit, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { shelve, type Shelf } from './shelf.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
+
 
 /** What a round decided: the chain's outcomes, if agents worked, and what the customer gets. */
 type Decision = {
@@ -107,23 +109,43 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
   return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search, replaced };
 }
 
-/** One agent's part: its knowledge searched for its question and, when the question came with materials, for what
- *  the agent chose to look up after reading them; then one answer, and a check of that answer alone. */
-async function contribute(task: string, t: Member & { question: string }, shelf: Shelf) {
-  const hold = BigInt(t.agent.max_cost);
-  const pages = await shelf.for(t.question); // the parts of the customer's materials closest to this question
+type Asked = Member & { question: string };
+/** What an expert made of its question, before it is checked. `findings`: a review's, which reach the customer as
+ *  code joins them; `sizes` go to the log, `seen` only to the trace. */
+type Made = { text: string; cost: bigint; why?: llm.Why; cut?: boolean; findings?: Checked[]; sizes: Record<string, number>; seen?: object };
+
+/** An answer: the expert's knowledge searched for its question and, when the question came with materials, for
+ *  what the expert chose to look up after reading them; then one call. */
+async function answered(t: Asked, pages: Page[], hold: bigint): Promise<Made> {
   const looked = pages.length ? await llm.lookups(t.expert.m, t.question, pages, hold) : { queries: [], cost: 0n };
   const sought = await search(t.expert.lib, t.question, looked.queries).catch(() => ({ chunks: [], cost: 0n }));
-  const found = { chunks: sought.chunks, cost: looked.cost + sought.cost };
-  const left = hold > found.cost ? hold - found.cost : 0n;
-  const r = await llm.answer(t.expert.m, found.chunks, t.question, pages, left);
+  const spent = looked.cost + sought.cost;
+  const r = await llm.answer(t.expert.m, sought.chunks, t.question, pages, hold > spent ? hold - spent : 0n);
+  return { ...r, cost: spent + r.cost, sizes: { chunks: sought.chunks.length, lookups: looked.queries.length }, seen: { lookups: looked.queries } };
+}
+
+/** A review of the customer's own materials with all of the expert's knowledge (review.ts). */
+async function reviewed(t: Asked, pages: Page[], hold: bigint, code: boolean): Promise<Made> {
+  const r = await review(t.expert, t.question, pages, hold, code);
+  return { text: r.why ? '' : reportOf(r), cost: r.cost, sizes: r.counts, ...(r.why ? { why: r.why } : { findings: r.findings }) };
+}
+
+/** One agent's part, and a check of that part alone. An expert that reviews does so when the customer gave
+ *  materials of their own to review; asked a question without them, it answers like any other.
+ *  `given`: which pages are the customer's own; `code`: the task asks for code. */
+async function contribute(task: string, t: Asked, shelf: Shelf, brief: { given: Set<string>; code: boolean }) {
+  const hold = BigInt(t.agent.max_cost);
+  const pages = await shelf.for(t.question); // the parts of the customer's materials closest to this question
+  const own = pages.filter((p) => brief.given.has(p.url));
+  const reviews = t.expert.m.work === 'review' && own.length > 0 && t.expert.lib.chunks.length > 0;
+  const r = reviews ? await reviewed(t, own, hold, brief.code) : await answered(t, pages, hold);
   const failed = { delivered: false, violation: false, why: (r.why ?? (r.text.trim() ? 'not_checked' : 'empty')) as llm.Why };
   const check = r.text.trim() ? await llm.evaluate(task, t.question, r.text).catch(() => failed) : failed;
-  const outcome: Outcome = { cost: coarse(found.cost + r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
+  const outcome: Outcome = { cost: coarse(r.cost, hold).toString(), delivered: check.delivered && !check.violation, violation: check.violation };
   // The checker calls an answer that stopped mid-way empty or off topic. Its owner is told what really happened.
   const why: llm.Why = r.cut && !check.delivered && !check.violation ? 'cut_off' : check.why;
-  log('contribution', { agent: t.agent.id, ...outcome, why, chunks: found.chunks.length, pages: pages.length, lookups: looked.queries.length }, { question: t.question, lookups: looked.queries, answer: r.text, check });
-  return { text: r.text, outcome, why };
+  log('contribution', { agent: t.agent.id, ...outcome, why, work: reviews ? 'review' : 'answer', pages: pages.length, ...r.sizes }, { question: t.question, ...r.seen, answer: r.text, check });
+  return { text: r.text, findings: r.findings, outcome, why };
 }
 
 /** A line in each considered agent's cabinet: when, which round, picked or not, how it went, and how much of the
@@ -186,7 +208,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   }
   if (round > 1) await noteRework(door.key(id, round - 1));
   const screened = await llm.screen({ title: job.title, description: task });
-  log('screened', { allow: screened.allow, topic: screened.topic }, { reason: screened.reason });
+  log('screened', { allow: screened.allow, topic: screened.topic, code: screened.code }, { reason: screened.reason });
   if (!screened.allow) return (void store.count(screened.topic, 'refused'), refuse('rejected', screened.reason));
 
   const net = budget(usdc(a.escrowAmount), feeBps, door.overhead, door.fee) - (await owedBefore(id, round, door));
@@ -207,30 +229,37 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   log('materials', { pages: pages.length, unread: unread.length }, { sources: pages.map((p) => ({ url: p.url, chars: p.text.length })), failed: unread });
   const shelf = await shelve(pages);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
+  // The customer's own: the files they attached and the links they gave. What a search found is not theirs to have reviewed.
+  const given = new Set(pages.map((p) => p.url).filter((u) => u.startsWith('attachment: ') || linksIn(task).includes(u)));
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await door.start(id);
   const key = door.key(id, round);
   const members = await commit(key, planned);
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
-  const parts = await Promise.all(members.map((t) => contribute(task, t, shelf)));
+  const parts = await Promise.all(members.map((t) => contribute(task, t, shelf, { given, code: screened.code })));
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.id);
   void store.count(screened.topic, 'served');
 
   // Only delivered parts reach the composer; only the composer, the protocol's model, sees more than one.
-  const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.text }] : []));
-  const marked = good.length ? await llm.compose(task, previous, good, sources).catch(() => '') : '';
+  // Of a review it sees the titles alone: the findings go to the customer as code joined them, after what it wrote.
+  const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.findings ? digestOf(p.findings) : p.text, findings: p.findings }] : []));
+  const reviews = good.flatMap((g) => (g.findings ? [{ id: g.id, findings: g.findings }] : []));
+  const findings = await join(reviews);
+  const list = findings.length ? listOf(findings, reviews.length) : '';
+  const written = good.length ? (await llm.compose(task, previous, good.map(({ id, question, text }) => ({ id, question, text })), sources).catch(() => '')).trim() : '';
+  const marked = [written || (list && '> The summary of this answer could not be written. The checked findings follow.'), list].filter(Boolean).join('\n\n');
   await noteRound(key, screened.topic, considered, members, parts, marked);
   if (!marked.trim()) return { outcomes, ...refuse('failed', 'The swarm could not compose an answer to this task.') };
   // Links that existed before this task cannot carry it: the brief's, the pages read and the links in them, the experts' materials.
   const known = new Set([...sources, ...pages.flatMap((p) => linksIn(p.text, 1_000)), ...members.flatMap((t) => [...t.expert.links])]);
   const answer = await gate(provenance(marked).text, known);
-  log('composed', { from: good.length, chars: answer.length }, { marked, answer });
+  log('composed', { from: good.length, findings: findings.length, chars: answer.length }, { marked, answer });
   const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
   const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
   const label = (url: string) => url.replace(/^attachment: /, '');
-  const read = pages.filter((p) => p.url.startsWith('attachment: ') || linksIn(task).includes(p.url)).map((p) => label(p.url));
+  const read = [...given].map(label);
   const materials = read.length || unread.length
     ? `\n\n*Your materials: ${read.length ? `read ${read.join(', ')}` : 'none could be read'}${unread.length ? `; could not read ${unread.map((u) => `${label(u.url)} (${u.why})`).join(', ')}` : ''}.*`
     : '';

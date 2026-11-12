@@ -3,19 +3,28 @@
 // materials stay in the clear here because nobody else is involved. It never talks to the chain or the market.
 //   NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "your question" [--prompt]
 //   NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor --audit
+//   NEARAI_API_KEY=... node --experimental-strip-types scripts/try.ts agents/auditor "your question" --material Vault.sol [--code]
 // --prompt prints the whole prompt the model gets. --audit runs the entry audit and shows what it noticed.
+// --material gives the question a customer's file: an expert with "work": "review" then reviews it as in the swarm,
+// pass by pass (--code: the task asks for code, so the gravest findings get proofs); any other expert answers with it.
 // PROTOCOL_MODEL (default Qwen/Qwen3.8-27B) evaluates and audits; AUDIT_MODEL and EMBED_MODEL as in the runner.
 for (const [k, v] of Object.entries({ NEAR_RPC: 'http://127.0.0.1:1', CONTRACT: 'try', RUNNER_ACCOUNT: 'try', MARKET_TOKEN: 'aat_try', PROTOCOL_MODEL: 'Qwen/Qwen3.8-27B', STORE_DIR: '/tmp/swarm-try' }))
   process.env[k] ??= v; // the runner's config wants them; nothing here uses them
 
 const [dir, question] = process.argv.slice(2);
-if (!dir || !question) throw new Error('usage: try.ts <agent folder> "<question>" [--prompt] | try.ts <agent folder> --audit');
+if (!dir || !question) throw new Error('usage: try.ts <agent folder> "<question>" [--prompt] [--material <file>] [--code] | try.ts <agent folder> --audit');
+const flag = (name: string) => process.argv.includes(name);
+const given = flag('--material') ? process.argv[process.argv.indexOf('--material') + 1] : undefined;
 const { readAgent } = await import('./agent-folder.ts');
 const { Materials } = await import('../node/src/materials.ts');
 const llm = await import('../node/src/llm.ts');
 const { audit, docsOf } = await import('../node/src/audit.ts');
 const { index, search } = await import('../node/src/library.ts');
-const { ceiling, show, usdc } = await import('../node/src/rules.ts');
+const { review, reportOf } = await import('../node/src/review.ts');
+const { ceiling, piecesOf, show, usdc } = await import('../node/src/rules.ts');
+const { linksOf } = await import('../node/src/audit.ts');
+const { readFileSync } = await import('node:fs');
+const { basename } = await import('node:path');
 
 const { card, materials } = readAgent(dir);
 const parsed = Materials.safeParse(materials);
@@ -33,6 +42,25 @@ if (question === '--audit') {
 }
 
 const lib = await index(docs);
+const pages = given ? [{ url: `attachment: ${basename(given)}`, text: readFileSync(given, 'utf8') }] : [];
+const hold = usdc(card.max_cost);
+const paid = async (text: string) => {
+  const check = await llm.evaluate(question, question, text);
+  console.log(`\nevaluator: ${check.delivered && !check.violation ? 'PAID' : 'NOT PAID'} (${check.why}): ${check.reason}`);
+};
+
+if (m.work === 'review' && pages.length && docs.length) {
+  console.log(`\na review of ${pages[0]!.url.replace('attachment: ', '')} (${pages[0]!.text.length} characters) with ${Math.min(piecesOf(docs).length, 16)} parts of the knowledge; your max cost ${show(hold)} USDC`);
+  const r = await review({ m, lib, digest: '', links: linksOf(m) }, question, pages, hold, flag('--code'));
+  const c = r.counts;
+  console.log(`passes read ${c.passes}; findings raised ${c.raised}, in ${c.groups} groups; groups checked ${c.checked}; findings that held ${c.held}; proofs ${c.proofs}; cost ${show(r.cost)} USDC${r.why ? `; stopped: ${r.why}` : ''}`);
+  if (r.why) process.exit(1);
+  const text = reportOf(r);
+  console.log(`\n--- contribution ---\n${text}`);
+  await paid(text);
+  process.exit(0);
+}
+
 const found = await search(lib, question);
 console.log(`\nknowledge found for the question (${found.chunks.length} chunks, search cost ${show(found.cost)} USDC):`);
 for (const c of found.chunks) console.log(`  - ${c.slice(0, 160).replace(/\n/g, ' ')}${c.length > 160 ? '…' : ''}`);
@@ -40,11 +68,9 @@ for (const c of found.chunks) console.log(`  - ${c.slice(0, 160).replace(/\n/g, 
 const system = llm.instructions(m, found.chunks);
 if (process.argv.includes('--prompt')) console.log(`\n--- prompt ---\n${system}\n\n# Question\n\n${question}\n--- end ---`);
 const price = llm.priceOf(m.model);
-const hold = usdc(card.max_cost);
-if (price) console.log(`worst case of this call ${show(ceiling(Buffer.byteLength(system + question) + 20, price))} USDC; your max cost ${show(hold)}`);
+if (price) console.log(`worst case of this call ${show(ceiling(Buffer.byteLength(system + question + pages.map((p) => p.text).join('')) + 200, price))} USDC; your max cost ${show(hold)}`);
 
-const r = await llm.answer(m, found.chunks, question, [], hold - found.cost);
+const r = await llm.answer(m, found.chunks, question, pages, hold - found.cost);
 console.log(`\n--- answer (${show(r.cost)} USDC${r.why ? `, ${r.why}` : ''}) ---\n${r.text || '(none)'}`);
 if (!r.text.trim()) process.exit(1);
-const check = await llm.evaluate(question, question, r.text);
-console.log(`\nevaluator: ${check.delivered && !check.violation ? 'PAID' : 'NOT PAID'} (${check.why}): ${check.reason}`);
+await paid(r.text);

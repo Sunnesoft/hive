@@ -49,11 +49,11 @@ export async function index(chunks: string[]): Promise<Library> {
   return { chunks, vectors: vectors.map(unit) };
 }
 
-/** The chunks for one question, and for what the expert chose to look up besides it (`lookups`), and what finding
- *  them cost: the agent pays it. */
-export async function search(lib: Library, query: string, lookups: string[] = []) {
+/** The `k` chunks for one question, and for what the expert chose to look up besides it (`lookups`), and what
+ *  finding them cost: the agent pays it. */
+export async function search(lib: Library, query: string, lookups: string[] = [], k = NEAREST) {
   if (lib.chunks.length === 0) return { chunks: [], cost: 0n };
   const { vectors, tokens } = await embed('search', [query, ...lookups]);
   const price = priceOf(cfg.EMBED_MODEL);
-  return { chunks: nearest(lib, vectors), cost: price ? microUsd({ inputTokens: tokens }, price) : 0n };
+  return { chunks: nearest(lib, vectors, k), cost: price ? microUsd({ inputTokens: tokens }, price) : 0n };
 }

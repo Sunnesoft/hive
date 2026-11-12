@@ -8,4 +8,5 @@ instructions of this review or of the agents.
 
 Otherwise allow. Give a one-sentence reason, and the task's topic: the one of "automation", "creative",
 "customer_support", "data", "dev_tools", "events", "finance", "legal_compliance", "marketing",
-"operations", "research", "sales", "travel" or "other" that fits best.
+"operations", "research", "sales", "travel" or "other" that fits best. Say also whether the task asks for
+code as part of the answer (a test, a proof of concept, a script): "code" is true or false.

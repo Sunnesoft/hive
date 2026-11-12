@@ -12,6 +12,7 @@ const Env = z.object({
   NEARAI_API_KEY: z.string().min(1),
   PROTOCOL_MODEL: z.string().min(1), // screens tasks, picks teams, evaluates, composes, reviews agents
   AUDIT_MODEL: z.string().default('Qwen/Qwen3.8-27B'), // reads every chunk of uploaded materials
+  COMPOSE_MODEL: z.string().min(1).optional(), // writes the customer's answer from the experts' parts; the protocol model if not set
   EMBED_MODEL: z.string().default('Qwen/Qwen3-Embedding-0.6B'), // indexes knowledge, matches skills
   MARKET_URL: z.url().default('https://market.near.ai'),
   MARKET_TOKEN: z.string().startsWith('aat_').optional(), // without it the swarm serves only orders placed in the contract

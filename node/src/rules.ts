@@ -24,6 +24,36 @@ export const MAX_OUT = 4_000; // output tokens of one agent answer
 export const LOOKUPS = 5; // things an agent may look up in its knowledge for one question with materials, besides the question
 export const LOOKUP_OUT = 300; // output tokens of that look-up
 
+// A review: an agent goes through the customer's materials with every part of its knowledge, one pass a piece,
+// then each finding is checked against the materials on its own. These bound what one review can cost.
+export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole
+export const MAX_PASSES = 16; // pieces read in one review: 144,000 characters of knowledge
+export const PASS_OUT = 1_500; // output tokens of one pass
+export const MAX_CHECKS = 40; // groups of findings checked in one review, the gravest first; the rest are not reported
+export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
+export const CHECK_OUT = 600;
+export const MAX_PROOFS = 5; // proofs written in one review, for the gravest findings
+export const PROOF_IN = 2_500; // bytes of the finding a proof is written for
+export const PROOF_OUT = 1_500;
+export const SAME = 0.85; // findings whose words are this close (cosine of their embeddings) say the same thing
+
+/** Chunks of knowledge packed into the parts a review reads, at most `size` characters of knowledge each, in
+ *  their own order: what stands together in the owner's files is read together. */
+export function piecesOf(chunks: string[], size = PASS_CHARS): string[] {
+  const parts: string[][] = [];
+  let room = 0;
+  for (const c of chunks) {
+    if (!parts.length || c.length > room) (parts.push([]), (room = size));
+    parts.at(-1)!.push(c);
+    room -= c.length;
+  }
+  return parts.map((p) => p.join('\n---\n'));
+}
+
+/** A text cut to at most `bytes` bytes: what a step is given is bounded in the unit its worst cost is counted in. */
+export const clip = (text: string, bytes: number) =>
+  Buffer.byteLength(text) <= bytes ? text : Buffer.from(text).subarray(0, bytes).toString().replace(/\uFFFD+$/, '');
+
 /** "12.5" -> 12500000. Exact: no floating point. Extra decimals are cut. */
 export const usdc = (s: string) => {
   const [whole = '0', frac = ''] = s.trim().split('.');
@@ -111,6 +141,65 @@ export function rivals<T extends { used: number | null; rate: bigint }>(pick: T,
   if (pick.used === null) return [];
   const clearlyMore = (a: T): a is T & { used: number } => a.used !== null && Math.round((a.used - pick.used!) * 10) >= MARGIN * 10;
   return others.filter(clearlyMore).filter((a) => a.rate <= pick.rate).sort((x, y) => y.used - x.used);
+}
+
+// ---- findings: what a review is made of ----
+
+export const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'] as const;
+/** One finding of a review. In text it is a heading `### <severity> | <where> | <title>`, the lines that say how it
+ *  happens, and, once checked, `Evidence:` (the lines of the material it rests on) and `Fix:`. */
+export type Finding = { severity: (typeof SEVERITIES)[number]; where: string; title: string; how: string; evidence: string; fix: string };
+
+const HEADING = /^\s*(?:[-*]\s+)?(?:#{1,4}\s*)?\**\s*(?:\d+[.)]\s*)?\**\s*(Critical|High|Medium|Low|Info)[a-z]*\**(?:\s*[|:]\s*|\s+[—–-]\s+)(.+)$/i;
+const LABEL = /^\**\s*(Evidence|Fix)\s*:?\**\s*:?\s*(.*)$/i;
+const plain = (s: string) => s.replace(/^[\s*`|—–:-]+|[\s*`|—–:-]+$/g, '');
+
+/** The findings in a model's text. Tolerant of how a model draws the heading; what is not under a heading is dropped. */
+export function findingsIn(text: string): Finding[] {
+  const out: Finding[] = [];
+  let last: 'how' | 'evidence' | 'fix' = 'how';
+  for (const line of text.split('\n')) {
+    const h = HEADING.exec(line);
+    if (h) {
+      const [where = '', ...rest] = h[2]!.split(/\s*\|\s*|\s+[—–]\s+/);
+      const severity = SEVERITIES.find((s) => s.toLowerCase() === h[1]!.toLowerCase())!;
+      out.push({ severity, where: plain(rest.length ? where : '').slice(0, 120), title: plain(rest.length ? rest.join(' — ') : where).slice(0, 240), how: '', evidence: '', fix: '' });
+      last = 'how';
+      continue;
+    }
+    const f = out.at(-1);
+    if (!f || !line.trim()) continue;
+    const l = LABEL.exec(line.trim());
+    if (l) last = l[1]!.toLowerCase() as 'evidence' | 'fix';
+    f[last] = `${f[last]}${f[last] ? '\n' : ''}${(l ? l[2]! : line).trim()}`.slice(0, last === 'how' ? 900 : 500);
+  }
+  return out.filter((f) => f.title);
+}
+
+/** A finding as text, in the form `findingsIn` reads. */
+export const showFinding = (f: Finding, n?: number) =>
+  [`### ${n ? `${n}. ` : ''}${f.severity} | ${f.where || '—'} | ${f.title}`, f.how, f.evidence && `Evidence: ${f.evidence}`, f.fix && `Fix: ${f.fix}`].filter(Boolean).join('\n');
+
+/** The gravest first; among equals, the order they came in. */
+export const bySeverity = <T extends { severity: Finding['severity'] }>(items: T[]) =>
+  items.map((x, i) => ({ x, i })).sort((a, b) => SEVERITIES.indexOf(a.x.severity) - SEVERITIES.indexOf(b.x.severity) || a.i - b.i).map(({ x }) => x);
+
+/** Groups of things that say the same: each joins the first group all of whose members it is close to. Every member
+ *  of a group is close to every other, so a chain of near neighbours cannot pull two different findings together,
+ *  which is how a rare finding gets lost. `close(i, j)`: are items i and j the same thing? */
+export function groupsOf(count: number, close: (i: number, j: number) => boolean): number[][] {
+  const groups: number[][] = [];
+  for (let i = 0; i < count; i++) (groups.find((g) => g.every((j) => close(i, j))) ?? groups[groups.push([]) - 1]!).push(i);
+  return groups;
+}
+
+/** Does the evidence of a finding point at the material? True if a stretch of it stands in the material word for
+ *  word: what a model quotes from memory instead of from the page does not. */
+export function grounded(evidence: string, material: string) {
+  const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const page = flat(material);
+  const quoted = [...evidence.matchAll(/`([^`]{8,})`/g)].map((m) => m[1]!);
+  return [...quoted, ...evidence.split('\n')].map(flat).some((q) => q.length >= 12 && page.includes(q));
 }
 
 /** An answer with [[n]] source marks -> the text without them, and which contributions it used. */
