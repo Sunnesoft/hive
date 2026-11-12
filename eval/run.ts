@@ -1,7 +1,7 @@
 // The measurements behind eval/README.md: the same questions answered in several ways and scored against facts
 // written down in advance (eval/tasks.ts). Every stage keeps what it got in eval/out/, so a rerun pays only for
 // what is missing.
-//   npm run eval -- bare solo swarm compose modes market ablate passes score report        any subset, in this order
+//   npm run eval -- bare solo swarm compose modes market ablate passes merge score report        any subset, in this order
 // Needs a runner on testnet started with TRACE_DIR (its trace is how the swarm's answers and costs are read), the
 // experts of eval/agents and agents/ registered there, and CUSTOMER: an account with test USDC whose key is in
 // ~/.near-credentials. RUNNER_URL and RUNNER_TRACE say where the runner and its trace are.
@@ -54,6 +54,7 @@ const expertKey = (school: string, model: string) => `expert ${school} on ${shor
 const THINKING = 'alone, thinking first, 16,000 tokens: kimi-k2.6';
 // A skill used as it was written to be used: one pass over the contract for each file of its checklist, then a verdict.
 const PASSES = 'the attack-paths skill in passes, on DeepSeek-V4.1-Flash-1017';
+const MERGED = 'the attack-paths skill in passes, merged by the composer';
 const PASS_RULE = 'This is one pass of several over the same contract. Go through the checklist in your knowledge item by item and report only what it finds here: each finding in at most 80 words, with its severity and its function. No code. If the checklist finds nothing in this contract, say so in one line.';
 const VERDICT_RULE = 'Below are the findings of several passes over the same contract, each made with one part of your checklist. Check each finding against the contract by the rules in your knowledge, drop the ones that do not hold, state each remaining one once, and write the report the task asks for.';
 const short = (model: string) => model.split('/')[1]!;
@@ -333,6 +334,17 @@ const stages: Record<string, () => Promise<void>> = {
         text: last.text, usd: found.reduce((s, f) => s + f.usd, last.usd), seconds: Math.max(...found.map((f) => f.seconds)) + last.seconds,
         parts: found.map((f) => ({ agent: `pass/${f.name}`, delivered: f.text.trim() !== '', why: 'pass', text: f.text })),
       });
+    }
+  },
+
+  /** The same twelve passes, but nothing is squeezed through one report: each pass is a contribution, and the
+   *  protocol's composer, which is told to keep every distinct point, writes the answer from all twelve. */
+  async merge() {
+    for (const t of TASKS.filter((x) => answers[x.id]?.[PASSES]?.parts?.length && !answers[x.id]?.[MERGED]?.text.trim())) {
+      const passes = answers[t.id]![PASSES]!.parts!;
+      const prompt = JSON.stringify({ task: t.task, previous: '', contributions: passes.map((p, id) => ({ id, question: `${t.task}\n\n${PASS_RULE}`, text: p.text })), sources: [{ url: t.material }] });
+      const a = await ask(cfg.PROTOCOL_MODEL, policy.compose, prompt, { limit: 8_000 });
+      keep(t.id, MERGED, { text: provenance(a.text).text, usd: a.usd, seconds: a.seconds, marked: a.text }); // usd: the composing alone; the passes are counted with PASSES
     }
   },
 

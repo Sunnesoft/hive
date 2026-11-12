@@ -377,6 +377,22 @@ which did not answer within the runner's three minutes. The measure the runner g
 expert's parts were used, not whether its model answers in time; the "delivered/picked" record says that, and
 the rule does not weigh the two together.
 
+## The passes again, merged by the composer: the design, fixed before the run
+
+The texts of the twelve passes were then read for the findings the model alone had missed. They are there. On the
+bridge the invariant pass wrote that `from` may be the vault itself, which the bridge may pull from without limit:
+the unbacked mint that none of the other fifteen answers on that contract has. On the loan the same pass wrote
+that a receiver can call `deposit` in its callback instead of repaying and keep the asset tokens: the theft that
+one answer of fifteen has. Neither is stated in the report at the end. So the passes found what a single call
+does not, and the last step lost it: one call with 4,000 tokens for everything, under rules that turn findings
+into leads.
+
+The simplest repair is to squeeze nothing: each pass is a contribution, and the protocol's composer, which is told
+to keep every distinct point, writes the answer from all twelve. The passes are the ones already made; only the
+composing is new. Read blind beside answers read before. It counts as working by the same mark as before, 7 of 9
+on the bridge and 6 of 9 on the loan, and only if both of those two findings are stated. What the composer keeps
+that is false is counted as well: nothing in this version checks a finding.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.
