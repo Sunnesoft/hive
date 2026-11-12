@@ -8,6 +8,7 @@
 // EVAL_ALONE     more models to ask alone, besides the experts' own
 // EVAL_LIMIT_USD (default 0.60) the run starts no new work once it has spent that much
 // CONTROL_MODEL  also keeps the joined reviews with the controller's word beside each finding
+// EVAL_PROOFS=0  the reviews write no proofs: a fifth of a review's cost, and the reading scores findings, not tests
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { docsOf, filesOf, linksOf } from '../node/src/audit.ts';
 import { cfg } from '../node/src/config.ts';
@@ -77,7 +78,7 @@ async function reviewed(t: ReviewTask, name: string, pages: Page[]) {
   // A review that reads all of the knowledge needs no index of it.
   const lib = partsOf(filesOf(m)).length <= MAX_PASSES ? { chunks: docsOf(m), vectors: [] } : await index(docsOf(m));
   const at = Date.now();
-  const r = await review({ m, lib, digest: '', links: linksOf(m) }, t.task, pages, usdc(card.max_cost), true);
+  const r = await review({ m, lib, digest: '', links: linksOf(m) }, t.task, pages, usdc(card.max_cost), process.env.EVAL_PROOFS !== '0');
   keep(t.id, `review${TAG}: ${name}`, { text: r.why ? '' : reportOf(r), usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model: m.pass_model ? `${m.model}, passes on ${m.pass_model}` : m.model, review: { findings: r.findings, leads: r.leads, counts: r.counts }, ...(r.why ? { why: r.why } : {}) });
 }
 

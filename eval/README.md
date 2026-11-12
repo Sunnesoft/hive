@@ -561,6 +561,46 @@ found; the three reviewers judge with three different models; a check is shown t
 The composer, which on this order had written a list and four tests of its own from the titles, now writes one
 paragraph.
 
+## The second contract again: what a check is for, and what a controller costs
+
+The vesting contract was reviewed again after those changes, outside the chain, and the three models were asked
+alone with twice the room (8,000 tokens). It is a contract the changes were made on: the numbers say how the
+changes went and prove nothing. Read blind, the last three rows by two readers who agree on every letter
+([BLIND.md](BLIND.md)):
+
+| answer | findings of the report stated, of 11 | items | wrong | cost, USD |
+|---|---|---|---|---|
+| Qwen3.6-35B alone | 2 | 10 | 2 | 0.005 |
+| kimi-k2.6 alone | 4 | 10 | 3 | 0.019 |
+| DeepSeek alone | 6 | 18 | 3 to 5 | 0.012 |
+| the three models' answers together | 6 | | | 0.037 |
+| the three reviews, similar findings folded into one | 5 | 18 | 8 | 0.48 |
+| the same reviews, similar findings side by side | 7 | 26 | 11 | 0.48 |
+| what the same reviewers raised, with no check | 6 | 106 | 30 or more | 0.12 of the same run |
+
+**Folding lost two findings that were there.** The reviews were not run again between the fifth row and the
+sixth: only joined again. The owner removing a vesting with tokens unclaimed had been raised by all three
+reviewers and confirmed for each; folded into one finding with a wrong neighbour, it stood under the neighbour's
+title. So after the checks nothing is folded any more: findings a model names the same stand side by side, each
+in its own words.
+
+**A runner that only joins is right; an expert that does not check its own findings is not.** We asked whether
+the checks are needed at all, since they cost half of a review (0.25 of this run's 0.51 USD) and can find nothing new.
+With no check the three reviewers' 214 records are 106 items, 37 of them rated Critical or High, of which four or
+five are real. The checks left 26 items and lost none of the report's findings that had been raised; they stated
+one more, raised with its direction the wrong way round and written right on the check's form, which asks how it
+happens and how to fix it. What the reviews miss (the storage fee that is not refunded, the owner's powers as
+such, tokens with elastic supply, the unlimited number of checkpoints) no reading and no pass had raised: the
+weak place is the search, not the check.
+
+**The controller is out of the default.** Left under the findings, its 16 doubts fall on 9 of the 11 wrong
+findings, on one that is no flaw, and on 6 that are right: both High findings of the report among them. A second
+model that is no stronger than the first does tell wrong from right more often than not, and puts a doubt under
+the two findings that matter most. It stays an option of the operator and is not used in what follows.
+
+What is still wrong after all of it: 11 of the 26 items, and the first two of the answer are Critical findings
+the code refutes.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.

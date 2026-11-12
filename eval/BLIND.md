@@ -204,3 +204,38 @@ tokens to answer with.
 
 The three models together state findings 1, 3, 4, 5, 6, 8 and 9: seven. Of the controller's six doubts five are
 on findings the reader calls wrong and one on a finding that is right but rated too high.
+
+### The same contract after the changes
+
+The contract was reviewed again outside the chain: the reviewers read the files themselves before their passes and
+judge with three different models (DeepSeek, kimi-k2.6, Qwen3.6-35B; all passes on Qwen3.6-35B). The models alone
+had 8,000 tokens. One reader, four answers. In the reviewers' answer of that reading, findings a model had named
+the same were folded into one, and what the controller doubted stood under a heading of its own (`D`).
+
+| answer | verdicts, finding by finding | stated | items | distinct | wrong | not confirmed | cut off |
+|---|---|---|---|---|---|---|---|
+| alone, with room: Qwen3.6-35B-A3B | `AASAAAAASPA` | 2 | 10 | 8 | 2 | | no |
+| alone, with room: kimi-k2.6 | `AASASPAASAS` | 4 | 10 | 9 | 3 | | no |
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `SASPSPASSAS` | 6 | 18 | 15 | 3 | | no |
+| the three reviews joined, similar findings folded, with the controller | `SPPASAASSAS` | 5 | 18 | 17 | 8 | 5 | no |
+
+The three models together state findings 1, 3, 5, 8, 9 and 11: six. In the reviewers' answer finding 3 (the owner
+removes a vesting with tokens unclaimed) had been confirmed for all three reviewers, in five wordings; folded into
+one, they stood under the title of a sixth, wrong one, and the controller doubted the lot.
+
+Then the same three reviews were joined again by the code as it is now, with similar findings side by side and a
+doubt left under its finding (`D`: every item that states the reference finding carries the controller's doubt),
+and put beside what the reviewers had raised with no check at all (every record of every reading and pass, joined
+by code where the words are the same). Two readers read the three answers independently, in different order.
+
+| answer | verdicts, both readers | stated | items | distinct | wrong | Critical or High: items, distinct, real |
+|---|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 (the third reading of this answer) | `SASPSPASSAS` | 6 | 18 | 16-17 | 4-5 | 2, 2, 2 |
+| the three reviews joined, similar findings side by side, with the controller | `DDSADAASSAD` | 7, of which 4 doubted | 26 | 23 | 11 | 9, 8, 2 |
+| everything the three reviewers raised, no check | `SSSASAASSAP` | 6 | 106 | 51-52 | 30-31 | 37, 16-17, 4-5 |
+
+The two readers gave every answer the same eleven letters, and the answer of DeepSeek alone the letters its first
+reader had given it. Of the controller's 16 doubts both count 10 as right (9 of the 11 wrong findings and one that
+is no flaw) and 6 as mistaken: on both items that state finding 5, on findings 1, 2 and 11, and on a Low one
+outside the list. Two wrong findings carry no doubt. Finding 11 was raised with its direction wrong ("finishes a second early"), which
+is why the unchecked list has it as `P`; the check wrote it right.
