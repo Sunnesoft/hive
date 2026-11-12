@@ -183,7 +183,7 @@ export const TASKS: Task[] = [
     ],
   },
   {
-    id: 'second audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: TSWAP, named: 'only', alone: ['Qwen/Qwen3.8-27B'],
+    id: 'second audit', group: 'an audit nothing was prepared for', experts: AUDITORS, usdc: '6', material: TSWAP, named: true, alone: ['Qwen/Qwen3.8-27B'], // also ordered without names: which auditor does the router take?
     task: audit(TSWAP, 'src/TSwapPool.sol'),
     facts: [
       { text: 'H-1: deposit takes a deadline and never checks it, so a deposit can go through after the deadline has passed', match: near('deadline', 'unused|never (used|checked)|not (used|checked|enforced|validated)|missing|ignor', 200) },

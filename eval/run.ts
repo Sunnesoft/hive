@@ -275,7 +275,7 @@ const stages: Record<string, () => Promise<void>> = {
    *  auditors: its expertise, its method and its knowledge, looked up as in the swarm. EVAL_THINK=1 adds the
    *  strongest model thinking first with four times the output limit: what a customer gets by asking it directly. */
   async ablate() {
-    const tasks = TASKS.filter((t) => t.group === UNPREPARED);
+    const tasks = TASKS.filter((t) => t.group === UNPREPARED && (!process.env.EVAL_ONLY || t.id === process.env.EVAL_ONLY)); // EVAL_ONLY: one task of them
     const libs = new Map<string, ReturnType<typeof index>>();
     const expert = (school: string) => {
       const { card, materials } = readAgent(folder(school));
@@ -304,7 +304,7 @@ const stages: Record<string, () => Promise<void>> = {
         keep(t.id, THINKING, { text: a.text, usd: a.usd, seconds: a.seconds });
       });
     }
-    await few(jobs, (job) => job());
+    await few(jobs, (job) => job(), 6);
   },
 
   /** Facts by pattern, and a second opinion from a judge that sees the facts and one answer, not who wrote it. */
