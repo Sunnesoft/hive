@@ -228,8 +228,8 @@ findings of its published report in the audited file; they were committed (`78eb
 
 - **The result carries over**: 6 of 7 on a contract the swarm was not tuned on.
 - **It does not show that the knowledge did it.** The auditor on the same model as the baseline found what the
-  baseline found: one finding. The two that found more run on stronger models, and those models were not asked
-  alone on this contract: the money for the run was spent.
+  baseline found: one finding. The two that found more run on stronger models. Whether it is the model or the
+  knowledge was tested next, and it is the model ("What the materials add", below).
 - **A swarm of one field is as good as its best member.** The composed answer has exactly the best auditor's six.
   Asked for one auditor, the router had twice taken the one that found one of seven here. Three auditors are
   insurance against that choice, at 4.00 USDC instead of 1.68.
@@ -257,6 +257,71 @@ expert's materials or the model? This is the test, written down before any of it
 - **Score.** A reader that does not know which answer is whose, by the rule used above: a finding counts when it
   is stated as an item of its own. The reader also counts what an answer claims that the code refutes.
 - **Nothing changes meanwhile**: not the runner, not the policies, not the experts.
+
+## What the materials add: the result (2026-11-12)
+
+Findings stated as an item of their own, as the blind readers found them; every verdict is in
+[BLIND.md](BLIND.md). "3 and 2" is the same model asked the same thing twice.
+
+| T-Swap pool, 7 findings | Qwen3.8-27B | DeepSeek-V4.1-Flash | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 3 and 2 | 7 and 6 | 6 |
+| with the materials of the attack-paths auditor | 2 | 4 | 3 |
+| with the materials of the code-maturity auditor | 1 | 6 | 4 |
+| with the materials of the bug-patterns auditor | 1 | 6 | 5 |
+
+| Boss Bridge, 9 findings | Qwen3.8-27B | DeepSeek-V4.1-Flash | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 3 and 2 | 4 and 5 | 3 |
+| with the materials of the attack-paths auditor | 1 | 6 | 4 |
+| with the materials of the code-maturity auditor | 2 | 4 | 3 |
+| with the materials of the bug-patterns auditor | 3 | 4 | 3 |
+
+| Thunder Loan, 9 findings | Qwen3.8-27B | DeepSeek-V4.1-Flash | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 0 and 0 | 4 and 3 | 1 |
+| with the materials of the attack-paths auditor | 0 | 3 | 3 |
+| with the materials of the code-maturity auditor | 0 | 1 | 3 |
+| with the materials of the bug-patterns auditor | 0 | 4 | 3 |
+
+| per contract, on average | Qwen3.8-27B | DeepSeek-V4.1-Flash | kimi-k2.6 |
+|---|---|---|---|
+| findings stated by the model alone | 1.7 | 4.8 | 3.3 |
+| findings stated with an auditor's materials | 1.1 | 4.2 | 3.4 |
+| wrong findings per answer, the model alone | 1.5 | 1.3 | 1.3 |
+| wrong findings per answer, with materials | 1.6 | 1.8 | 2.3 |
+
+The swarm, with the three auditors named, stated 6 of 7, 5 of 9 and 4 of 9. Left to its router on the first
+contract, it took one auditor and stated 2 of 7.
+
+- **The auditors' materials added nothing that can be measured.** For none of the three models is the average
+  with materials above the model alone by more than two runs of the same thing differ: asked twice, a model gave
+  counts one apart in five pairs of six.
+- **The model decides.** DeepSeek states three to seven of the findings, Qwen none to three, with materials or
+  without.
+- **The swarm of three is as good as its best model asked alone**: 6, 5 and 4 against DeepSeek's 7 and 6, 4 and 5,
+  4 and 3. The swarm's order costs four to five cents in model calls and 4.00 USDC to the customer; the model
+  alone, under one cent.
+- **The router's own choice was the worst one.** It took the auditor that runs on the weakest model, as it had
+  before; nothing it sees says how good an expert is.
+- **Materials did not make answers truer.** The readers checked the claims outside the reference set against the
+  code: with materials there were no fewer wrong ones, and for two of the models more.
+- **The template's rule about length works for the model that obeys it.** kimi alone was cut off at the limit in
+  two answers of three; inside the expert template, in none of nine. DeepSeek was cut off in eight of nine either way.
+- **Thinking first did not help.** The strongest model, thinking, with four times the output limit, returned
+  nothing in ten minutes; that one call cost more than a whole order of the swarm. It was not repeated.
+
+What this result is about, and what it is not:
+
+- **It is about audit skills used as text.** An expert here is one call with six pieces of a skill's reference
+  text and a method of two thousand characters. The skills were written to be run as many passes with tools; that
+  was not tested.
+- **It is about knowledge a model already has.** Reentrancy, slippage and replay are in every model. Where the
+  knowledge exists nowhere else, the first run shows the opposite: 0 or 1 of 22 facts without the expert, 22 with.
+- **Three contracts of one public course, each answer asked once** (the cheaper two models alone, twice).
+- **The readers err too.** Three of the nine swapped the names of two answers; each row was checked against the
+  files by what it quotes and put right. The swarm's answer, read by three readers on every contract, got the
+  same count from all three each time.
 
 ## What this does not show
 

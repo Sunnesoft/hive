@@ -304,7 +304,7 @@ const stages: Record<string, () => Promise<void>> = {
         keep(t.id, THINKING, { text: a.text, usd: a.usd, seconds: a.seconds });
       });
     }
-    await few(jobs, (job) => job(), 6);
+    await few(jobs, (job) => job(), Number(process.env.EVAL_AT_ONCE ?? 6)); // fewer at once if a model starts timing out
   },
 
   /** Facts by pattern, and a second opinion from a judge that sees the facts and one answer, not who wrote it. */

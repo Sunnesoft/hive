@@ -78,7 +78,8 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 | | facts found | by the judge | model cost per task | seconds | characters |
 |---|---|---|---|---|---|
 | model alone: Qwen3.8-27B | 4 of 7 (57%) | — | $0.0105 | 147 | 13131 |
-| swarm, experts named by the customer | 6 of 7 (86%) | — | $0.0487 | 248 | 18319 |
+| swarm | 3 of 7 (43%) | — | $0.0116 | 163 | 13430 |
+| swarm, experts named by the customer | 18 of 25 (72%) | — | $0.0432 | 256 | 18291 |
 
 ## The swarm, task by task
 
@@ -97,8 +98,9 @@ Run on 2026-11-12 against `swarm2.sfhnx9j68.testnet`. Protocol model `Qwen/Qwen3
 | audit | solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity | solidity-attack-paths | 6 of 8 facts | 1.68 | 4.32 |
 | playground | estate-sociology, fundraising-economics, play-safeguards, sorvia-games-law | estate-sociology, fundraising-economics, play-safeguards, sorvia-games-law | 10 of 12 facts | 3.05 | 1.95 |
 | raffle on-chain | play-safeguards, solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity, sorvia-games-law | play-safeguards, solidity-attack-paths, sorvia-games-law | 9 of 9 facts | 2.95 | 5.05 |
+| second audit | solidity-attack-paths, solidity-bug-patterns, solidity-code-maturity | solidity-attack-paths | 3 of 7 facts | 1.68 | 4.32 |
 
-The router took exactly the experts the task needs in 11 of 13 tasks.
+The router took exactly the experts the task needs in 11 of 14 tasks.
 
 ## Who was paid for what: audit, swarm
 
@@ -139,6 +141,14 @@ The parts together held 10 of 12 facts; the composed answer has 10. The customer
 
 The parts together held 9 of 9 facts; the composed answer has 9. The customer was charged 2.95 USDC: 2.00 to the experts, 0.95 for the protocol's overhead and the owner's fee.
 
+## Who was paid for what: second audit, swarm
+
+| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
+|---|---|---|---|---|---|---|---|
+| solidity-attack-paths | 1.00 | yes | 1.00 | 3 of 7 | 3 | 32 | 14369 |
+
+The parts together held 3 of 7 facts; the composed answer has 3. The customer was charged 1.68 USDC: 1.00 to the experts, 0.68 for the protocol's overhead and the owner's fee.
+
 ## Who was paid for what: second audit, swarm, experts named by the customer
 
 | expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
@@ -148,6 +158,58 @@ The parts together held 9 of 9 facts; the composed answer has 9. The customer wa
 | solidity-bug-patterns | 1.00 | yes | 1.00 | 6 of 7 | 0 | 16 | 16882 |
 
 The parts together held 6 of 7 facts; the composed answer has 6. The customer was charged 4.00 USDC: 3.00 to the experts, 1.00 for the protocol's overhead and the owner's fee.
+
+## Who was paid for what: bridge audit, swarm, experts named by the customer
+
+| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
+|---|---|---|---|---|---|---|---|
+| solidity-attack-paths | 1.00 | no (cut_off) | 0.00 | 6 of 9 | 0 | 0 | 15571 |
+| solidity-code-maturity | 1.00 | yes | 1.00 | 7 of 9 | 1 | 24 | 15342 |
+| solidity-bug-patterns | 1.00 | yes | 1.00 | 5 of 9 | 0 | 21 | 12836 |
+
+The parts together held 7 of 9 facts; the composed answer has 7. The customer was charged 2.84 USDC: 2.00 to the experts, 0.84 for the protocol's overhead and the owner's fee.
+
+## Who was paid for what: loan audit, swarm, experts named by the customer
+
+| expert | rate, USDC | delivered | paid, USDC | facts in its own part | facts only it had | statements of the answer marked as its | its part, characters |
+|---|---|---|---|---|---|---|---|
+| solidity-attack-paths | 1.00 | yes | 1.00 | 3 of 9 | 0 | 0 | 15098 |
+| solidity-code-maturity | 1.00 | yes | 1.00 | 5 of 9 | 1 | 0 | 13922 |
+| solidity-bug-patterns | 1.00 | yes | 1.00 | 4 of 9 | 1 | 0 | 14337 |
+
+The parts together held 6 of 9 facts; the composed answer has 5. The customer was charged 4.00 USDC: 3.00 to the experts, 1.00 for the protocol's overhead and the owner's fee.
+
+## What an expert's materials add to a model, by pattern
+
+The score of these answers is the blind reading in [README.md](README.md); the patterns, as first written, are shown for comparison. Each cell is facts found by pattern of the task's facts.
+
+**second audit** (7 facts)
+
+| | Qwen3.8-27B | DeepSeek-V4.1-Flash-1017 | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 3 and 3 | 6 and 6 | 6 |
+| with the materials of solidity-attack-paths | 3 | 5 | 6 |
+| with the materials of solidity-code-maturity | 3 | 6 | 6 |
+| with the materials of solidity-bug-patterns | 3 | 6 | 6 |
+| alone, thinking first, 16,000 tokens: kimi-k2.6 | | | — |
+
+**bridge audit** (9 facts)
+
+| | Qwen3.8-27B | DeepSeek-V4.1-Flash-1017 | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 3 and 4 | 6 and 5 | 4 |
+| with the materials of solidity-attack-paths | 2 | 5 | 5 |
+| with the materials of solidity-code-maturity | 6 | 3 | 5 |
+| with the materials of solidity-bug-patterns | 6 | 6 | 6 |
+
+**loan audit** (9 facts)
+
+| | Qwen3.8-27B | DeepSeek-V4.1-Flash-1017 | kimi-k2.6 |
+|---|---|---|---|
+| the model alone, at once | 4 and 3 | 5 and 4 | 2 |
+| with the materials of solidity-attack-paths | 3 | 3 | 5 |
+| with the materials of solidity-code-maturity | 4 | 4 | 5 |
+| with the materials of solidity-bug-patterns | 3 | 5 | 6 |
 
 ## Ways of working, each tried once
 
@@ -165,4 +227,4 @@ The parts together held 6 of 7 facts; the composed answer has 6. The customer wa
 | market: new work | a change that is new work is turned down, and the last answer stands | ok | — | — |
 | poisoned expert | materials with instructions for an AI do not pass the entry audit | ok (denied: malware) | — | — |
 
-Spent on this evaluation at NEAR AI: $0.866.
+Spent on this evaluation at NEAR AI: $1.451.
