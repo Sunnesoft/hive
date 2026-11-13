@@ -340,7 +340,7 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
 /** How the swarm tried a finding: whether its proof stands (most of its lines in the materials, no step through
  *  code not shown), how many other experts confirmed or refuted it with a line code found, and, if it was
  *  refuted, whether the arbiter upheld the finder's appeal. */
-export type Trial = { proved: boolean; confirm: number; refute: number; upheld?: boolean };
+export type Trial = { proved: boolean; confirm: number; note: number; refute: number; upheld?: boolean };
 export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list. Which findings are one is the protocol's model's answer to one
@@ -447,7 +447,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   });
   const out = findings.map((f, k) => {
     const on = marks.filter((x) => x.k === k).map((x) => x.mark.mark);
-    const trial: Trial = { proved: proved.has(k), confirm: on.filter((m) => m === 'confirm').length, refute: on.filter((m) => m === 'refute').length, ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
+    const trial: Trial = { proved: proved.has(k), confirm: on.filter((m) => m === 'confirm').length, note: on.filter((m) => m === 'note').length, refute: on.filter((m) => m === 'refute').length, ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
     return { ...f, trial };
   });
   return { findings: out, cost };
@@ -579,13 +579,17 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   const [weighty, minor] = [alone.filter((f) => f.severity !== 'Low'), alone.filter((f) => f.severity === 'Low')];
   // Tried by the swarm (`tried`): what was proved and backed by two experts, or upheld on appeal, stands first; what
   // was proved and nobody refuted follows; what was not proved, or was refuted and lost its appeal, last, in brief.
-  const stands = (f: Joined) => !!f.trial?.proved && ((f.by.length + f.trial.confirm >= 2 && f.trial.refute === 0) || f.trial.upheld === true);
-  const open = (f: Joined) => !!f.trial?.proved && !stands(f) && f.trial.refute === 0;
+  // A finding the testers took for true and harmless more often than for a loss is a note, apart from the findings.
+  const harmless = (f: Joined) => !!f.trial && f.trial.note > f.trial.confirm;
+  const stands = (f: Joined) => !!f.trial?.proved && !harmless(f) && ((f.by.length + f.trial.confirm >= 2 && f.trial.refute === 0) || f.trial.upheld === true);
+  const isNote = (f: Joined) => !!f.trial?.proved && harmless(f) && f.trial.refute === 0;
+  const open = (f: Joined) => !!f.trial?.proved && !stands(f) && !isNote(f) && f.trial.refute === 0;
   const trialTiers: [Joined[], string, boolean?][] = [
     [r.findings.filter(stands).sort((a, b) => b.by.length - a.by.length), `**Proved and tested by the team**: ${some(r.findings.filter(stands).length, 'finding')}. Each came with a proof on lines of your files, and another expert tested it and could not break it, or the arbiter upheld it.`],
     [r.findings.filter((f) => open(f) && f.severity !== 'Low'), `**Proved, not yet tested by a second expert**: ${some(r.findings.filter((f) => open(f) && f.severity !== 'Low').length, 'finding')}.`],
     [r.findings.filter((f) => open(f) && f.severity === 'Low'), `**Low, proved, not yet tested**: ${some(r.findings.filter((f) => open(f) && f.severity === 'Low').length, 'finding')}, each in brief.`, true],
-    [r.findings.filter((f) => !stands(f) && !open(f)), `**Not proved, or refuted**: ${some(r.findings.filter((f) => !stands(f) && !open(f)).length, 'point')}, each in brief: its proof did not stand, or another expert broke it and the arbiter agreed. Read them as leads.`, true],
+    [r.findings.filter(isNote), `**True, and harmless: notes**: ${some(r.findings.filter(isNote).length, 'point')}, each in brief. The experts who tested them found the code as said, and nobody who gains or loses by it.`, true],
+    [r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f)), `**Not proved, or refuted**: ${some(r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f)).length, 'point')}, each in brief: its proof did not stand, or another expert broke it and the arbiter agreed. Read them as leads.`, true],
   ];
   const tiers: [Joined[], string, boolean?][] = r.findings.some((f) => f.trial) && experts > 1 ? trialTiers : experts > 1 ? [
     [agreed, `**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`],

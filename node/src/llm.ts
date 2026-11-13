@@ -339,7 +339,7 @@ export async function check(m: Materials, question: string, pages: Page[], about
   }
 }
 
-const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'refute', 'pass']), step: z.number().nullish(), quote: z.string().nullish(), why: z.string().nullish() })) });
+const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'note', 'refute', 'pass']), step: z.number().nullish(), quote: z.string().nullish(), why: z.string().nullish() })) });
 export type Mark = z.infer<typeof Marks>['marks'][number];
 /** An expert's marks on findings other experts posted (policies/mark.md): confirm, refute or pass, each with the
  *  line of the materials it rests on. Peer marks, and a quorum of them, take the place of a judge. */

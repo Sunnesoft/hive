@@ -22,13 +22,17 @@ materials: is the line there, does it run in this order, does anything between t
 restore, can that caller really call it with these arguments, is the state really what the step says? Look for
 the step that breaks. Then judge the end: does someone gain, lose or stop being served?
 
-- "confirm": every step holds and the end follows. Quote the line the finding rests on most.
-- "refute": a step breaks, or the end harms nobody. Give the step's number and quote the line that breaks it.
+- "confirm": every step holds and the end follows, and someone loses: say in "why" who loses what, or which
+  service stops for whom. Quote the line the finding rests on most.
+- "note": every step holds, but nobody gains, loses or stops being served: a log or an event nobody relies on, a
+  power the owner is meant to have, style, a check that guards nothing anyone can reach. It is true, and it is a
+  note, not a finding. Quote the line it is about.
+- "refute": a step breaks. Give the step's number and quote the line that breaks it.
 - "pass": a step rests on code that is not in the materials, so it cannot be settled here.
 
 Return "marks": one entry for each finding, in the order given:
 "id": the finding's number.
-"mark": "confirm", "refute" or "pass".
+"mark": "confirm", "note", "refute" or "pass".
 "step": the number of the step that breaks, if you refute; 0 otherwise.
 "quote": one line of the materials, copied exactly.
 "why": at most 30 words.
