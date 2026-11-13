@@ -345,8 +345,9 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
     ...(r.leads.length ? [`Raised and not confirmed, listed for the customer apart as unverified: ${r.leads.length}.`] : []),
   ].join('\n');
 
-/** `by`: the experts that confirmed it, and whose it is; `seen`: every expert that raised it, confirmed or not. */
-export type Joined = Checked & { by: number[]; seen: number[] };
+/** `by`: the experts that confirmed it, and whose it is; `seen`: every expert that raised it, confirmed or not;
+ *  `crossed`: what another expert of the team said when it checked a grave finding only one expert had confirmed. */
+export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string } };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list: every finding an expert confirmed stays a finding of its own, in
  *  that expert's words, with how many experts raised the like; findings that say the same stand side by side. What
@@ -371,6 +372,31 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   const findings = unfolded(sorted.filter(confirmedIn), found).all;
   const leads = unfolded(sorted.filter((j) => !confirmedIn(j)), (g): Lead => ({ ...oneOf(g), seen: ids(g) })).all;
   return { findings, leads: leads.slice(0, MAX_LEADS) };
+}
+
+/** A grave finding only one expert confirmed, checked by another expert of the team: with that expert's own model,
+ *  method and the parts of its knowledge closest to the finding, and all of the files. Only its doubt is given, with
+ *  the line that stops the finding (code finds that line in the files, or the doubt is not given); nothing is
+ *  removed. That it holds is not given: shown the claim, a second expert on the same model agreed with five false
+ *  grave findings of nine, and both of its doubts were right. The checker pays for its check from its hold. */
+export async function crossChecked<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
+  const cost = new Map<number, bigint>();
+  if (team.length < 2) return { findings, cost };
+  const material = pages.map((p) => p.text).join('\n');
+  const out = await each(findings, async (f): Promise<T> => {
+    if (f.by.length !== 1 || !grave(f)) return f;
+    const checker = team[(team.findIndex((t) => t.id === f.by[0]) + 1) % team.length]!; // the next expert of the team
+    const said = `${f.where} ${f.title} ${f.how}`;
+    const knowledge = partsOf(filesOf(checker.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
+    const r = await llm.check(checker.m, question, pages, section('Findings to check', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge);
+    cost.set(checker.id, (cost.get(checker.id) ?? 0n) + r.cost);
+    const v = r.verdicts[0];
+    const why = (v?.how ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    if (v?.holds && grounded(v.quote, material)) return { ...f, crossed: { by: checker.id, holds: true, said: why } };
+    if (v && !v.holds && v.quote && grounded(`\`${v.quote}\``, material)) return { ...f, crossed: { by: checker.id, holds: false, said: `${why} The line it points at: \`${v.quote.trim().split('\n')[0]!.slice(0, 200)}\`` } };
+    return f;
+  });
+  return { findings: out, cost };
 }
 
 /** A second pair of eyes on the joined findings: the controller's model (policies/control.md) reads them all with
@@ -398,23 +424,23 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   // A finding the controller doubts stays where it is, whole, with the doubt under it: the controller is a model
   // too, and on one answer it doubted two findings an audit had made.
   const doubted = r.findings.filter((f) => f.doubted).length;
-  const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '');
+  const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), [experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '', f.crossed && !f.crossed.holds ? `*Another expert of the team checked it and doubts it:* ${f.crossed.said}` : ''].filter(Boolean).join(' '));
   // What experts who did not see each other's work both confirmed comes first: on a held-out contract every false
   // grave finding of a team was one that a single expert confirmed, and the exploit the team found stood among
   // those two had confirmed. What one expert confirmed follows, said as that.
   const [agreed, alone] = experts > 1 ? [r.findings.filter((f) => f.by.length > 1), r.findings.filter((f) => f.by.length < 2)] : [[], r.findings];
-  const heads = experts > 1 ? [
-    ...(agreed.length ? [`**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`] : []),
-    ...(alone.length ? [`**Confirmed by one expert**: ${some(alone.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`] : []),
-  ] : [];
+  const tiers: [Joined[], string][] = experts > 1 ? [
+    [agreed, `**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`],
+    [alone, `**Confirmed by one expert**: ${some(alone.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`],
+  ] : [[alone, '']];
   return [
     r.findings.length
       ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on. Findings that may be one and the same stand together, each in its own words.${doubted ? ` The controller, a second model that read them all, doubts ${doubted} of them: its word stands under each. Both are models: read the finding and the doubt.` : ''}`
       : '## Findings\n\nNo finding was confirmed against your materials.',
-    ...(agreed.length ? [heads[0]!] : []),
-    ...agreed.map((f, i) => shown(f, i + 1)),
-    ...(alone.length && experts > 1 ? [heads[agreed.length ? 1 : 0]!] : []),
-    ...alone.map((f, i) => shown(f, agreed.length + i + 1)),
+    ...tiers.flatMap(([list, head], k) => {
+      const before = tiers.slice(0, k).reduce((n, [l]) => n + l.length, 0);
+      return list.length ? [...(head ? [head] : []), ...list.map((f, i) => shown(f, before + i + 1))] : [];
+    }),
     ...(r.leads.length
       ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.${r.leads.some(grave) ? ' The grave ones are given whole, with what their check said: a check is a model too, and can be wrong.' : ''}`,
         ...notConfirmed(r.leads, r.findings.length, (f, whole) => { const seen = (f as Lead).seen.length; return experts > 1 && (whole || seen > 1) ? (whole ? `*Raised by ${seen} of ${experts} experts.*` : ` *(raised by ${seen} of ${experts} experts)*`) : ''; })]

@@ -88,3 +88,17 @@ test('what a review spends is the expert\'s: a reply is as long as the money lef
   assert.deepEqual(Materials.parse({ ...base, review: { checks: 10 } }).review, { checks: 10 });
   assert.ok(!Materials.safeParse({ ...base, review: { pass_room: 1_000 } }).success); // no room of the protocol's to set
 });
+
+test('the answer gives first what experts confirmed each on their own, then one expert\'s word, with another expert\'s doubt under it', () => {
+  const both: Joined = { ...dust, title: 'Both found it', by: [0, 1], seen: [0, 1] };
+  const crossed: Joined = { ...drain, by: [0], seen: [0], crossed: { by: 1, holds: true, said: 'It holds.' } };
+  const doubted: Joined = { ...mint, by: [1], seen: [1], crossed: { by: 0, holds: false, said: 'The guard stops it. The line it points at: `require(x)`' } };
+  const list = listOf({ findings: [doubted, crossed, both], leads: [] }, 2);
+  const at = (s: string) => list.indexOf(s);
+  assert.ok(at('**Confirmed by two or more experts**') < at('### 1. Low: Both found it') && at('### 1. Low: Both found it') < at('**Confirmed by one expert**:'));
+  assert.ok(at('**Confirmed by one expert**:') < at('### 2. High: Shares are minted for nothing') && at('**Confirmed by one expert**:') < at('### 3. High: Anyone can withdraw the pool'));
+  assert.match(list, /Another expert of the team checked it and doubts it:\* The guard stops it\./); // the doubt is said, the finding stays
+  assert.ok(!list.includes('It holds.')); // a second expert's agreement raises nothing: it agreed with false findings
+  assert.ok(!/doubts it:\*[^\n]*\[\[/.test(list)); // the checker's word is no part of the answer that is its
+  assert.ok(!listOf({ findings: [crossed], leads: [] }, 1).includes('Confirmed by')); // one expert: no tiers
+});

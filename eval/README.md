@@ -794,6 +794,13 @@ rated High. The check judged over three hundred wordings; with the same rate of 
 Every false grave finding is one that one reviewer alone confirmed. Where two that did not see each other's work
 agree, the answer is nearly clean, and the exploit stands there.
 
+**A second expert's check does not filter, but its doubt does.** A grave finding one reviewer confirmed was then
+checked by the next reviewer of the team, with its own knowledge and all the files (0.06 USD for nine). It held
+seven and doubted two. By the readers, of the seven it held two are a real finding said again, and five are false
+(three, and two repeats of false ones); both it doubted are false. Shown the claim, a second expert on the same
+model agrees with it. So its agreement raises nothing in the answer, and its doubt stands under the finding with
+the line it points at. What two reviewers found each on their own stays the one signal that sorts the answer.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be

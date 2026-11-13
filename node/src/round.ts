@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { controlled, digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
+import { controlled, crossChecked, digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
@@ -145,7 +145,7 @@ async function contribute(task: string, t: Asked, shelf: Shelf, brief: { given: 
   // The checker calls an answer that stopped mid-way empty or off topic. Its owner is told what really happened.
   const why: llm.Why = r.cut && !check.delivered && !check.violation ? 'cut_off' : check.why;
   log('contribution', { agent: t.agent.id, ...outcome, why, work: reviews ? 'review' : 'answer', pages: pages.length, ...r.sizes }, { question: t.question, ...r.seen, answer: r.text, check });
-  return { text: r.text, review: r.review, outcome, why };
+  return { text: r.text, review: r.review, outcome, why, spent: r.cost };
 }
 
 /** A line in each considered agent's cabinet: when, which round, picked or not, how it went, and how much of the
@@ -247,7 +247,12 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const good = parts.flatMap((p, i) => (p.outcome.delivered ? [{ id: i, question: members[i]!.question, text: p.review ? digestOf(p.review) : p.text, review: p.review }] : []));
   const reviews = good.flatMap((g) => (g.review ? [{ id: g.id, ...g.review }] : []));
   const all = await join(reviews);
-  const joined = { ...all, findings: await controlled(all.findings, head(pages.filter((p) => given.has(p.url)))) }; // the controller, if one is set, says its word beside each finding
+  const theirs = head(pages.filter((p) => given.has(p.url)));
+  // A grave finding one expert confirmed is checked by another expert of the team, who pays for it from its hold.
+  const checkers = reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent }));
+  const crossed = await crossChecked(all.findings, checkers, task, theirs);
+  for (const [id, extra] of crossed.cost) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + extra, BigInt(members[id]!.agent.max_cost)).toString() };
+  const joined = { ...all, findings: await controlled(crossed.findings, theirs) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
   // An answer made of reviews only opens with one paragraph about them; anything else is composed, the reviews as their titles.
   const onlyReviews = good.length > 0 && reviews.length === good.length;

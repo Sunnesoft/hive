@@ -40,7 +40,7 @@ function costOf(task: { id: string }, system: string) {
   const tag = /^review (\S+): the swarm/.exec(system)?.[1];
   if (!tag) return kept[task.id]?.[system]?.usd ?? 0;
   const reviews = Object.entries(kept[task.id] ?? {}).filter(([name]) => name.startsWith(`review ${tag}: `) && !name.includes(': the swarm'));
-  return reviews.reduce((sum, [, r]) => sum + r.usd, 0); // whoever reviewed under this tag: a run may name a team of its own
+  return reviews.reduce((sum, [, r]) => sum + r.usd, 0) + (kept[task.id]?.[system]?.usd ?? 0); // whoever reviewed under this tag, and what joining them cost (the cross-checks)
 }
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : '—');
 const f1 = (p: number, r: number) => (p + r ? (2 * p * r) / (p + r) : 0);

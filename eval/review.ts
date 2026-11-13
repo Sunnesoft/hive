@@ -19,7 +19,7 @@ import { cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { controlled, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
+import { controlled, crossChecked, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
@@ -95,8 +95,13 @@ async function joined(t: ReviewTask, pages: Page[]) {
   const [plain, second] = [`review${TAG}: the swarm${again}`, `review${TAG}: the swarm${again}, with the controller ${(process.env.CONTROL_MODEL ?? '').split('/').at(-1)}`];
   const wanted = [...(kept[t.id]?.[plain] ? [] : [plain]), ...(process.env.CONTROL_MODEL && !kept[t.id]?.[second] ? [second] : [])];
   if (parts.length < t.experts.length || !wanted.length) return;
-  const all = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
-  if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: 0, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
+  const joinedAll = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
+  // As a round does: a grave finding one expert confirmed is checked by the next expert of the team, from what is left of its hold.
+  const team = parts.map((p) => ({ id: p.id, m: cardOf(t.experts[p.id]!).m, money: usdc(cardOf(t.experts[p.id]!).card.max_cost) - BigInt(Math.round(p.r!.usd * 1e6)) }));
+  const crossed = await crossChecked(joinedAll.findings, team, t.task, pages);
+  const all = { ...joinedAll, findings: crossed.findings };
+  const crossUsd = [...crossed.cost.values()].reduce((sum, c) => sum + usd(c), 0);
+  if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: crossUsd, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
   if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }
 
