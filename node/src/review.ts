@@ -96,9 +96,10 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
 
-/** The files a check is shown: those the findings name, by file name or by a name they use that stands in the
- *  file; all of them if the findings name none. A check of one finding does not need ten files, and reading all
- *  of them for every check is most of what a review costs. Evidence is still looked up in all the materials. */
+/** The files a check of findings that are not grave is shown: those the findings name, by file name or by a name
+ *  they use that stands in the file; all of them if the findings name none. Such a check does not need ten files,
+ *  and reading all of them for every check is most of what a review costs. Evidence is still looked up in all the
+ *  materials. */
 export function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
   if (pages.length < 2) return pages;
   const said = group.map((f) => `${f.where} ${f.title} ${f.how}`).join(' ');
@@ -226,7 +227,9 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
    *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
   const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; said?: string; failed?: llm.Why }> => {
     if (Date.now() > deadline) return { confirmed: [], failed: 'model_failed' };
-    const [about, shown] = [section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), filesOfFindings(group, pages)];
+    // A grave finding is checked against all of the materials: shown only the files it named, a check once kept
+    // "no assert_one_yocto" as High while the assertion stood in the library file beside it.
+    const [about, shown] = [section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), group.some(grave) ? pages : filesOfFindings(group, pages)];
     const once = await llm.check(m, question, shown, about, hold);
     const r = once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, shown, about, hold) : once;
     cost += r.cost;
