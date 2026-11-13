@@ -27,6 +27,8 @@ export const Materials = z.strictObject({
   review: z.strictObject({ checks: z.number().int().min(1).optional() }).optional(),
   // How freely the model writes, 0 to 1: 0, the same answer to the same question, unless the expert says otherwise.
   temperature: z.number().min(0).max(1).optional(),
+  // Checks a review runs with no model, on the customer's files (lint.ts): what they find is checked as any finding.
+  tools: z.array(z.enum(['near-lint'])).max(8).optional(),
   // Public, shown in the catalog so customers can choose; audited like the rest: the material must back them.
   examples: z.array(Text(200).pipe(z.string().min(1))).max(3).default([]), // questions it answers well
   topics: z.array(z.enum(TOPICS)).max(3).default([]), // where customers find it

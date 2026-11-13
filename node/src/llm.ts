@@ -227,7 +227,7 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hotspot' | 'proof' | 'mark' | 'arbiter';
+export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hotspot' | 'proof' | 'prove' | 'mark' | 'appeal' | 'arbiter';
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
@@ -339,7 +339,7 @@ export async function check(m: Materials, question: string, pages: Page[], about
   }
 }
 
-const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'refute', 'pass']), quote: z.string().nullish(), why: z.string().nullish() })) });
+const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'refute', 'pass']), step: z.number().nullish(), quote: z.string().nullish(), why: z.string().nullish() })) });
 export type Mark = z.infer<typeof Marks>['marks'][number];
 /** An expert's marks on findings other experts posted (policies/mark.md): confirm, refute or pass, each with the
  *  line of the materials it rests on. Peer marks, and a quorum of them, take the place of a judge. */
@@ -355,6 +355,44 @@ export async function mark(m: Materials, question: string, pages: Page[], about:
     return { marks: Marks.parse(r.output).marks, cost: microUsd(r.usage, price) };
   } catch {
     return { marks: [], cost: 0n, why: 'model_failed' };
+  }
+}
+
+const Proofs = z.object({ proofs: z.array(z.object({ id: z.number(), steps: z.array(z.object({ does: z.string(), line: z.string(), outside: z.boolean().nullish() })), end: z.string(), withdrawn: z.boolean().nullish() })) });
+export type Proof = z.infer<typeof Proofs>['proofs'][number];
+/** The proofs an expert gives its own findings before peers test them (policies/prove.md): the path step by step,
+ *  each step on a line of the materials, which code then finds in them or the proof does not stand. */
+export async function prove(m: Materials, question: string, pages: Page[], about: string, money: bigint): Promise<{ proofs: Proof[]; cost: bigint; why?: Why }> {
+  const price = priceOf(m.model);
+  if (!price) return { proofs: [], cost: 0n, why: 'model_unavailable' };
+  const [system, prompt] = stepCall('prove', m, '', question, pages, about);
+  const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
+  if (limit < REPLY_LEAST) return { proofs: [], cost: 0n, why: 'too_expensive' };
+  const call = () => written(m.model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Proofs });
+  try {
+    const r = await metered('prove', m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    return { proofs: Proofs.parse(r.output).proofs, cost: microUsd(r.usage, price) };
+  } catch {
+    return { proofs: [], cost: 0n, why: 'model_failed' };
+  }
+}
+
+const Appeal = z.object({ rule: z.string(), answer: z.string(), withdrawn: z.boolean().nullish() });
+export type Appeal = z.infer<typeof Appeal>;
+/** A finder's one appeal against a refutation (policies/appeal.md), to the arbiter alone: the rule of its own
+ *  knowledge the finding rests on, and why the refutation does not stop it. The other experts never see it. */
+export async function appeal(m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ appeal?: Appeal; cost: bigint; why?: Why }> {
+  const price = priceOf(m.model);
+  if (!price) return { cost: 0n, why: 'model_unavailable' };
+  const [system, prompt] = stepCall('appeal', m, knowledge, question, pages, about);
+  const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
+  if (limit < REPLY_LEAST) return { cost: 0n, why: 'too_expensive' };
+  const call = () => written(m.model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Appeal });
+  try {
+    const r = await metered('appeal', m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    return { appeal: Appeal.parse(r.output), cost: microUsd(r.usage, price) };
+  } catch {
+    return { cost: 0n, why: 'model_failed' };
   }
 }
 

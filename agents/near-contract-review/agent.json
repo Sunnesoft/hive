@@ -12,5 +12,8 @@
   "topics": [
     "dev_tools"
   ],
-  "work": "review"
+  "work": "review",
+  "tools": [
+    "near-lint"
+  ]
 }

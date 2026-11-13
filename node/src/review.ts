@@ -31,6 +31,7 @@ import type { Expert } from './admit.ts';
 import { filesOf } from './audit.ts';
 import { cfg } from './config.ts';
 import { CHUNK, search, similarity, unit } from './library.ts';
+import { lint } from './lint.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
 import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, middleOf, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, type Finding } from './rules.ts';
@@ -179,7 +180,8 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const known = new Map<string, Finding>();
   const first = await found('read', '', '');
   if (first.why === 'too_expensive') return stop('too_expensive'); // the hold does not pay for even the first reading
-  const own = first.findings;
+  // What the expert's tools find with no model (lint.ts) stands beside its own reading, and is checked the same way.
+  const own = [...first.findings, ...(m.tools?.includes('near-lint') ? lint(pages) : [])];
   for (const f of own) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
   counts.own = own.length;
   // Passes run a few at a time; each is told what was raised before it, a line a finding, the gravest first.
