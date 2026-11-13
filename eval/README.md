@@ -801,6 +801,31 @@ seven and doubted two. By the readers, of the seven it held two are a real findi
 model agrees with it. So its agreement raises nothing in the answer, and its doubt stands under the finding with
 the line it points at. What two reviewers found each on their own stays the one signal that sorts the answer.
 
+## On another model, against the same spend without knowledge
+
+The same review, run on Claude Haiku 5.5 through [claude-shim.ts](claude-shim.ts) in NEAR AI's place (every call
+with the same instructions, prompt, form and room; embeddings by the same Qwen3-Embedding-0.6B; results in
+`eval/out/claude`). Three held-out NEAR contracts. The team: the NEAR reviewer and the two Solidity auditors. The
+control for knowledge: reviewers with no knowledge, the same model and the same review, fifteen of them, which
+spend about what the team spends; and three of them. Joined by the rule the model states (one fix closes both:
+one finding). No closer look at hot spots. One blind reader per contract.
+
+| answer | NearX, of 10 | Mintbase, of 7 | cNEAR, of 7 | stated, of 24 | real, of all it claims | wrong | false Critical or High | USD per contract, Haiku's price |
+|---|---|---|---|---|---|---|---|---|
+| Haiku asked once | 4 | 2 | 4 | 10 | 33% | 2 | 1 | 0.01 |
+| three reviewers, no knowledge | 4 | 3 | 5 | 12 | 44% | 1 | 0 | 0.2 |
+| fifteen reviewers, no knowledge | 6 | 3 | 6 | 15 | 36% | 2 | 0 | 1.1 |
+| the team, with knowledge | 6 | 5 | 6 | 17 | 16% | 5 | 1 | 1.7 |
+
+**Knowledge adds what more effort does not, and it is NEAR's own.** Five times the reviewers took the control
+from 12 to 15 and no further on Mintbase: 3 there with three reviewers and with fifteen. The team states two
+findings there that no reviewer without knowledge states: nft_transfer_call does not give the token to the
+receiver before it calls it (NEP-171), and the store pays the storage of a new owner's entry. On the other two
+contracts the team and the fifteen state the same. The NearX exploit is no test on this model: Haiku asked once
+states it.
+
+**The price is noise.** The team's answer has 181 items against 93, most of them true and harmless, five wrong.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be
