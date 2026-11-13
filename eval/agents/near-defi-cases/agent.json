@@ -1,0 +1,17 @@
+{
+  "name": "near-defi-cases",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "pass_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "DeFi protocols on NEAR, by type: a case-book of what audits have found in the money logic of lending and margin, pools, swaps and order bots, liquid staking and reward farms, bridges and remote accounts, NFT markets, oracles and prices. Reviews attached Rust code entry by entry for the protocol type it is, says who gains, who loses or what stops, and quotes the lines each finding rests on.",
+  "rate": "1.00",
+  "max_cost": "1.60",
+  "examples": [
+    "Review this lending market on NEAR: what do audits of such markets find?",
+    "Is the share price of this liquid staking pool safe when rewards are distributed?",
+    "What goes wrong in a bridge when the release on the other side fails?"
+  ],
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
+}

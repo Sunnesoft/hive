@@ -1,0 +1,17 @@
+{
+  "name": "rust-contract-review",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "pass_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "skills": "Rust in smart contracts, read as Rust: a case-book of flaws that come from the language and its libraries, from audits of Rust contracts on several chains: integer casts and overflow, floats, panics and unwraps, Option and Result handling, collections and iteration, Borsh and JSON serialization and upgrades, time and units, build profiles, dependencies and macros. Reviews attached code construct by construct, says who gains, who loses or what stops, and quotes the lines each finding rests on.",
+  "rate": "1.00",
+  "max_cost": "1.60",
+  "examples": [
+    "Review the arithmetic of this Rust contract: casts, overflow, rounding, floats.",
+    "Can a panic or an unwrap in this contract lock funds?",
+    "Is this state struct safe to upgrade, and do its JSON numbers survive a wallet?"
+  ],
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
+}

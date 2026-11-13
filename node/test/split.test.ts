@@ -1,7 +1,7 @@
 // The case-books are written from audit reports; the reviews are scored against other audit reports. A report on
 // a contract that is scored must never be among the sources of a case-book: this keeps the two apart.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { REVIEWS } from '../../eval/review-tasks.ts';
 
@@ -27,7 +27,8 @@ const NAMED: Record<string, string[]> = {
   'nextgen audit': ['next generation', 'next-generation', 'eurf'],
   'kinetiq audit': ['kinetiq'],
 };
-const CASE_BOOKS = ['agents/near-contract-review/CASEBOOK-SOURCES.md', 'eval/agents/solidity-case-book/CASEBOOK-SOURCES.md'];
+const CASE_BOOKS = ['agents/near-contract-review/CASEBOOK-SOURCES.md', 'eval/agents/solidity-case-book/CASEBOOK-SOURCES.md', 'eval/agents/near-defi-cases/DEFI-SOURCES.md']
+  .concat(['eval/agents/near-incidents/INCIDENTS-SOURCES.md', 'eval/agents/rust-contract-review/RUST-SOURCES.md'].filter((f) => existsSync(f)));
 const GENERIC = new Set(['core', 'contracts', 'audits']); // repository names that say nothing of whose they are
 
 /** The reports a case-book rests on: the list lines of its sources file, not the sentence that names what was left out. */
