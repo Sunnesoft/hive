@@ -11,9 +11,10 @@
 //            a model that merges a long list drops its rare items, and the rare ones are the point
 //   groups   records that say the same thing, by how close their embeddings are, and then by the model's answer
 //            to one narrow question (see `same` below): one flaw in ten wordings is checked once
-//   checks   one call per group: do the materials do what it says? The verdict is a form, not prose. A finding
-//            that holds must quote the lines it rests on, and code looks those lines up in the materials: no
-//            such line, not confirmed. What is true holds whatever it costs; the cost is its severity
+//   checks   do the materials do what it says? Every wording is checked, five at a time, with all of the
+//            materials and the part of the knowledge it was raised from. The verdict is a form, not prose. A
+//            finding that holds must quote the lines it rests on, and code looks those lines up in the
+//            materials: no such line, not confirmed. What is true holds whatever it costs; the cost is its severity
 //   leads    what a check did not confirm is not thrown away either: a model's "no" is a judgement like any
 //            other, and the best model we tried refused a finding it had just made itself. A grave one is
 //            given whole, with what the check said; a Medium one in a line
@@ -96,22 +97,6 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
 
-/** The files a check of findings that are not grave is shown: those the findings name, by file name or by a name
- *  they use that stands in the file; all of them if the findings name none. Such a check does not need ten files,
- *  and reading all of them for every check is most of what a review costs. Evidence is still looked up in all the
- *  materials. */
-export function filesOfFindings(group: Finding[], pages: Page[]): Page[] {
-  if (pages.length < 2) return pages;
-  const said = group.map((f) => `${f.where} ${f.title} ${f.how}`).join(' ');
-  const names = new Set(said.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []);
-  const placed = new Set(group.flatMap((f) => f.where.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) ?? []));
-  const fileOf = (p: Page) => p.url.split(/[\/ ]/).at(-1) ?? p.url;
-  const defines = (p: Page, n: string, kinds: string) => new RegExp(`\\b(${kinds})\\s+${n}\\b`).test(p.text);
-  // A flaw is often between two files: the one the finding names and the one that calls it or is called by it.
-  const used = pages.filter((p) => said.includes(fileOf(p)) || [...placed].some((n) => defines(p, n, 'fn|function|struct|impl|contract|def')) || [...names].some((n) => defines(p, n, 'fn|function')));
-  return used.length ? used : pages;
-}
-
 /** `among`: the experts whose wordings code took for the same thing as this one, when it was set apart from them. */
 type Item = { f: Checked; held: boolean; id?: number; among?: number[] };
 /** What a group of items that say the same is known by: of its confirmed wordings, or of all of them if none is
@@ -183,6 +168,21 @@ const section = (title: string, body: string, bytes: number) => clip(`# ${title}
 const codeOf = (r: { text: string; cut?: boolean }) =>
   r.cut || !r.text.trim() ? undefined : (/```[^\n]*\n[\s\S]*?\n```/.exec(r.text)?.[0] ?? `\`\`\`\n${r.text.trim()}\n\`\`\``);
 
+/** The most a review can cost: every step at its limit, every check with the two largest parts of the knowledge.
+ *  It must fit the expert's hold before the first call is sent. */
+export function worstOf(m: Expert['m'], pieces: string[], question: string, pages: Page[], code: boolean): bigint {
+  const [price, reading] = [llm.priceOf(m.model), llm.priceOf(llm.modelOf('pass', m))];
+  if (!price || !reading) return 0n;
+  const largest = [...pieces].sort((a, b) => b.length - a.length).slice(0, KNOWLEDGE_AT_A_CHECK).join('\n\n');
+  return llm.stepCeiling('read', m, '', question, pages, '', price) +
+    pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
+    BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, largest, question, pages, 'x'.repeat(CHECK_IN), price) +
+    llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
+    3n * llm.sameCeiling(2 * SAME_IN, price) + // asked before the checks, and after them of the confirmed and of the rest; the lines, and as much again for the JSON around them
+    (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
+}
+const KNOWLEDGE_AT_A_CHECK = 2; // parts of the knowledge a check is given: those its findings were raised from
+
 /** One expert's review of the materials it was given. `code`: the task asks for code, so the gravest findings get proofs. */
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
@@ -193,14 +193,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   let cost = chosen.cost;
   const stop = (why: llm.Why): Review => ({ findings: [], leads: [], cost, counts, why });
 
-  const worst =
-    llm.stepCeiling('read', m, '', question, pages, '', price) +
-    chosen.pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
-    BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, '', question, pages, 'x'.repeat(CHECK_IN), price) +
-    llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
-    3n * llm.sameCeiling(2 * SAME_IN, price) + // asked before the checks, and after them of the confirmed and of the rest; the lines, and as much again for the JSON around them
-    (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
-  if (cost + worst > hold) return stop('too_expensive');
+  if (cost + worstOf(m, chosen.pieces, question, pages, code) > hold) return stop('too_expensive');
 
   /** One step, tried again once if the model failed: a failed call costs the expert nothing. No step starts once
    *  the review has run its time: the task has a deadline on chain, and a late answer is no answer. */
@@ -223,14 +216,17 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   counts.own = own.length;
   // Passes run a few at a time; each is told what was raised before it, a line a finding, the gravest first.
   const raisedSoFar = () => (known.size ? section('Already raised by earlier passes', bySeverity([...known.values()]).map((f) => `- ${lineOf(f)}`).join('\n'), KNOWN_IN) : '');
+  // Each finding a pass raised keeps the part of the knowledge that raised it: its check is given that part.
+  const partOf = new Map<Finding, string>();
   const passes = await each(chosen.pieces, async (piece) => {
     const r = await step('pass', piece, raisedSoFar());
-    for (const f of findingsIn(r.text).slice(0, PASS_FINDINGS)) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
-    return r;
+    const found = findingsIn(r.text).slice(0, PASS_FINDINGS);
+    for (const f of found) { known.set(`${f.where} | ${f.title}`.toLowerCase(), f); partOf.set(f, piece); }
+    return { ...r, found };
   });
   const read = passes.filter((r) => !r.why);
   if (!read.length && first.why) return stop(passes[0]?.why ?? first.why); // neither the reading nor any pass came back
-  const raised = [...own, ...read.flatMap((r) => findingsIn(r.text).slice(0, PASS_FINDINGS))];
+  const raised = [...own, ...read.flatMap((r) => r.found)];
   Object.assign(counts, { passes: read.length, raised: raised.length });
 
   // What the passes raised, in groups that say the same: by code's measure, then by the model's answer to the
@@ -239,11 +235,12 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // and of equally grave ones those more passes arrived at.
   const alikeRaised = await sortedBy(m.model, await same(raised.map((f): Item => ({ f, held: false })), (x) => x.f), hold);
   cost += alikeRaised.cost;
-  // A check is shown the different wordings of a group, CHECK_AT_ONCE at a time: the model's answer may have
-  // joined more than belongs together, and a check that is shown twenty claims dismisses them in one line.
+  // A check is shown every different wording of a group, CHECK_AT_ONCE at a time: one wording of ten may be the
+  // one that says how it happens, and a check that is shown twenty claims dismisses them in one line.
   const groups = alikeRaised.groups
     .flatMap((joined) => {
-      const heads = joined.map(headOf) as Finding[];
+      const seen = new Set<string>();
+      const heads = bySeverity(joined.flat().map((x) => x.f)).filter((f) => !seen.has(f.title.toLowerCase()) && !!seen.add(f.title.toLowerCase())) as Finding[];
       return Array.from({ length: Math.ceil(heads.length / CHECK_AT_ONCE) }, (_, k) => heads.slice(k * CHECK_AT_ONCE, (k + 1) * CHECK_AT_ONCE)).map((all) => ({ all, wordings: all.map((f) => f.title), raised: joined.flat().length }));
     })
     .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.raised - a.raised);
@@ -253,11 +250,13 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
    *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
   const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; said?: string; failed?: llm.Why }> => {
     if (Date.now() > deadline) return { confirmed: [], failed: 'model_failed' };
-    // A grave finding is checked against all of the materials: shown only the files it named, a check once kept
-    // "no assert_one_yocto" as High while the assertion stood in the library file beside it.
-    const [about, shown] = [section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN), group.some(grave) ? pages : filesOfFindings(group, pages)];
-    const once = await llm.check(m, question, shown, about, hold);
-    const r = once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, shown, about, hold) : once;
+    // A check reads all of the materials, and the part of the knowledge its findings were raised from: the rule that
+    // "assert_one_yocto without #[payable] can never succeed" stood in the knowledge, and the checks that judged
+    // findings about that very function never saw it.
+    const about = section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN);
+    const knowledge = [...new Set(group.map((f) => partOf.get(f)).filter((k): k is string => !!k))].slice(0, KNOWLEDGE_AT_A_CHECK).join('\n\n');
+    const once = await llm.check(m, question, pages, about, hold, knowledge);
+    const r = once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, pages, about, hold, knowledge) : once;
     cost += r.cost;
     if (r.cut) counts.cut++;
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;

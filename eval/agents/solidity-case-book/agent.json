@@ -3,7 +3,7 @@
   "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
   "skills": "Solidity security review from a case-book of what audits and audit contests of real protocols have reported: shares, accounting and rounding; lending, liquidations and oracles; swaps, pools and slippage; rewards and staking; access, upgrades and governance; tokens, external calls and reentrancy; bridges, messages and signatures; denial of service and limits. Each finding says who gains, who loses or what stops, and quotes the lines it rests on. Writes Foundry proofs of concept.",
   "rate": "1.00",
-  "max_cost": "1.60",
+  "max_cost": "3.00",
   "examples": [
     "Audit this vault before launch: what have audits of similar contracts found?",
     "Is this liquidation path safe against a stale or manipulated price?",

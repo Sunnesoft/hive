@@ -27,9 +27,11 @@ if you can say what goes wrong here without the check. The gravest first.
 
 If this part finds nothing in these materials, reply with the single line NOTHING FOUND.
 
-The question may end with a list of what earlier passes already raised. Those are taken care of: do not report
-any of them again, in any words. Everything else this part of your knowledge finds is still yours to report, as
-many findings as there are.
+The question may end with a list of what earlier passes already raised, a line each. Do not repeat one of them
+in other words. But where this part of your knowledge says something more exact about one of them (the precise
+mechanism, the line that makes it happen, a graver consequence), report it in full as a finding of your own: a
+line raised in passing is not a finding until someone states how it happens. Everything else this part of your
+knowledge finds is yours to report, as many findings as there are.
 
 Write each finding as:
 

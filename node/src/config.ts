@@ -33,7 +33,7 @@ const Env = z.object({
   MODEL_SILENCE_MS: z.coerce.number().int().positive().default(60_000), // a model that has started and then writes nothing for this long is given up on
   // A review starts no new call after this long: what is not checked by then is given as not confirmed. Keep it well
   // under the contract's run_secs, after which an order can be sent back unanswered.
-  REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
+  REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(1_500_000),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)
   STORE_DIR: z.string().default('./store'), // sealed uploads; an encrypted volume in the TEE

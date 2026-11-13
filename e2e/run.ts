@@ -464,9 +464,9 @@ try {
   const DRAIN = 'RULE withdraw: High: Project Alpha ledger lets anyone withdraw';
   const filler = Array.from({ length: 160 }, (_, i) => `Remark ${i}: ledgers are reconciled at the close of every day.`).join('\n\n');
   const checklists = new Map<Account, [name: string, maxCost: bigint, knowledge: string, more?: string[]]>([
-    [first, ['ledger-one', U, `Marker FIRST-ONLY.\n\n${DRAIN}\n\nRULE fee: Low: phantom Project Alpha fee overflow\n\nRULE owner: Low: phantom Project Alpha owner drift\n\nRULE withdraw: Low: phantom Project Alpha payout delay\n\nRULE mint: High: Project Alpha ledger mints from nothing\n\n${filler}\n\nRULE fee: Medium: Project Alpha fee rounds to zero\n\nRULE owner: Medium: misquoted Project Alpha owner check`]],
+    [first, ['ledger-one', 3n * U, `Marker FIRST-ONLY.\n\n${DRAIN}\n\nRULE fee: Low: phantom Project Alpha fee overflow\n\nRULE owner: Low: phantom Project Alpha owner drift\n\nRULE withdraw: Low: phantom Project Alpha payout delay\n\nRULE mint: High: Project Alpha ledger mints from nothing\n\n${filler}\n\nRULE fee: Medium: Project Alpha fee rounds to zero\n\nRULE owner: Medium: misquoted Project Alpha owner check`]],
     // Four files: three passes start at once, the fourth after one of them has ended, so it is told what that one raised.
-    [second, ['ledger-two', U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone\n\nRULE withdraw: High: Project Alpha payouts are open (twin)`, [DRAIN, DRAIN, DRAIN]]],
+    [second, ['ledger-two', 3n * U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone\n\nRULE withdraw: High: Project Alpha payouts are open (twin)`, [DRAIN, DRAIN, DRAIN]]],
     [tight, ['ledger-three', U / 5n, `Marker THIRD-ONLY.\n\n${DRAIN}`]],
   ]);
   const reviewers = new Map<Account, Buffer>();
@@ -490,7 +490,7 @@ try {
   const did = (who: Account) => events.findLast((e) => e.event === 'contribution' && e.agent === agentId(who))!;
   const sawOnly = (own: string, calls: string[]) => calls.filter((c) => c.includes(own)).every((c) => ['FIRST-ONLY', 'SECOND-ONLY', 'THIRD-ONLY'].filter((m) => c.includes(m)).length === 1);
   check('review: an expert that reviews reads the file with every part of its checklist, one part a pass', did(first).work === 'review' && did(first).passes === 2 && did(second).passes === 4 && ai.review.passes.every((c) => c.includes('<material url="attachment: ledger.md">')) && ai.agentCalls.length === answersBefore, { first: did(first), second: did(second) });
-  check('review: each pass has one expert\'s knowledge; a check and a proof have the findings and the file, never the knowledge', sawOnly('FIRST-ONLY', ai.review.passes) && sawOnly('SECOND-ONLY', ai.review.passes) && [...ai.review.checks, ...ai.review.proofs].every((c) => !/-ONLY/.test(c) && c.includes('function withdraw()')));
+  check('review: each pass has one expert\'s knowledge; a check is given the part of its own expert\'s knowledge its findings came from, never another\'s; a proof none', sawOnly('FIRST-ONLY', ai.review.passes) && sawOnly('SECOND-ONLY', ai.review.passes) && sawOnly('FIRST-ONLY', ai.review.checks) && sawOnly('SECOND-ONLY', ai.review.checks) && ai.review.checks.some((c) => /-ONLY/.test(c)) && ai.review.checks.every((c) => c.includes('function withdraw()')) && ai.review.proofs.every((c) => !/-ONLY/.test(c) && c.includes('function withdraw()')));
   check('review: every finding is checked on its own; what does not hold in the file is dropped', did(first).raised === 7 && did(first).checked === 7 && did(first).held === 3 && !report.includes('phantom') && !report.includes('mints from nothing'), did(first));
   const [confirmed = '', unconfirmed = ''] = listed.split('## Not confirmed');
   check('review: a finding whose evidence is not a line of the file is not confirmed, whatever the model said', ai.review.checks.some((c) => c.includes('misquoted')) && !confirmed.includes('misquoted') && did(first).leads === 1, did(first));

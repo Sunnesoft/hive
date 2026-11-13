@@ -274,12 +274,12 @@ export type CheckVerdict = z.infer<typeof CheckVerdict>;
  *  thing the group says, as fields, not as prose. Asked for prose, one model wrote an essay where the verdict
  *  should have been and ran out of room before it reached one; a form has nowhere to put an essay. Sent only if
  *  its worst case fits `cap`; a check that fails, or whose reply is no form, costs the agent nothing. */
-export async function check(m: Materials, question: string, pages: Page[], about: string, cap: bigint): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function check(m: Materials, question: string, pages: Page[], about: string, cap: bigint, knowledge = ''): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   if (!price) return { verdicts: [], cost: 0n, why: 'model_unavailable' };
-  if (stepCeiling('check', m, '', question, pages, about, price) > cap) return { verdicts: [], cost: 0n, why: 'too_expensive' };
-  const [system, prompt] = [stepInstructions('check', m, ''), stepPrompt(question, pages, about)];
-  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, output: Output.object({ schema: z.object({ verdicts: z.array(CheckVerdict) }) }), temperature: 0, maxOutputTokens: CHECK_OUT, maxRetries: 0, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(cfg.AGENT_TIMEOUT_MS) });
+  if (stepCeiling('check', m, knowledge, question, pages, about, price) > cap) return { verdicts: [], cost: 0n, why: 'too_expensive' };
+  const [system, prompt] = [stepInstructions('check', m, knowledge), stepPrompt(question, pages, about)];
+  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, output: Output.object({ schema: z.object({ verdicts: z.array(CheckVerdict) }) }), temperature: 0, maxOutputTokens: CHECK_OUT, maxRetries: 0, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(2 * cfg.AGENT_TIMEOUT_MS) }); // a form is not streamed: it is given the time a slow model needs to write it whole
   try {
     const r = await metered('check', m.model, { agent: m.name, system, prompt }, CHECK_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
     return { verdicts: r.output.verdicts, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
