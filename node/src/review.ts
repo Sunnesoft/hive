@@ -399,11 +399,22 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   // too, and on one answer it doubted two findings an audit had made.
   const doubted = r.findings.filter((f) => f.doubted).length;
   const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '');
+  // What experts who did not see each other's work both confirmed comes first: on a held-out contract every false
+  // grave finding of a team was one that a single expert confirmed, and the exploit the team found stood among
+  // those two had confirmed. What one expert confirmed follows, said as that.
+  const [agreed, alone] = experts > 1 ? [r.findings.filter((f) => f.by.length > 1), r.findings.filter((f) => f.by.length < 2)] : [[], r.findings];
+  const heads = experts > 1 ? [
+    ...(agreed.length ? [`**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`] : []),
+    ...(alone.length ? [`**Confirmed by one expert**: ${some(alone.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`] : []),
+  ] : [];
   return [
     r.findings.length
       ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on. Findings that may be one and the same stand together, each in its own words.${doubted ? ` The controller, a second model that read them all, doubts ${doubted} of them: its word stands under each. Both are models: read the finding and the doubt.` : ''}`
       : '## Findings\n\nNo finding was confirmed against your materials.',
-    ...r.findings.map((f, i) => shown(f, i + 1)),
+    ...(agreed.length ? [heads[0]!] : []),
+    ...agreed.map((f, i) => shown(f, i + 1)),
+    ...(alone.length && experts > 1 ? [heads[agreed.length ? 1 : 0]!] : []),
+    ...alone.map((f, i) => shown(f, agreed.length + i + 1)),
     ...(r.leads.length
       ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.${r.leads.some(grave) ? ' The grave ones are given whole, with what their check said: a check is a model too, and can be wrong.' : ''}`,
         ...notConfirmed(r.leads, r.findings.length, (f, whole) => { const seen = (f as Lead).seen.length; return experts > 1 && (whole || seen > 1) ? (whole ? `*Raised by ${seen} of ${experts} experts.*` : ` *(raised by ${seen} of ${experts} experts)*`) : ''; })]
