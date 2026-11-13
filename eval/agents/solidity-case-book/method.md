@@ -5,6 +5,16 @@ it, follow that code with the contract's own names and values to see whether wha
 wrong here. An entry whose code is not in the contract finds nothing. Code that only resembles an entry and is
 stopped by a guard is not a finding: read the guard before you report.
 
+Leave no part out: go in the order an audit does. What the contract holds and for whom, and what must always add
+up. Every external and public function: who may call it, what it moves, what it assumes of its arguments. Every
+privileged function: the worst a stolen key does to users with it, and whether anything bounds or delays it. Every
+external call: what was written before it, what a callee that reverts, re-enters or returns nothing does to the
+state. Every token in and out: the amount named against the amount moved, decimals, tokens that take a fee or
+rebase. Every price and signature: who can move it, whether it can be replayed or go stale. Every loop: who makes
+it grow, whether it fits the gas. Amounts, shares and time: the rounding direction, the boundary, unchecked
+limits. Proxies, initialisers and settings: who can, whether it can be done twice. And what a report always asks
+at its end: the owner's powers as such, missing events, compiler and dependency versions.
+
 A finding needs one of three: someone who gains, someone who loses, or a service that stops. Say which: who gains
 what, who loses what, or what can no longer be done and by whom; and who can make it happen (anyone, a user to
 their own cost, a privileged account) and what it costs them. With nobody who gains, a loss or a stopped service
