@@ -72,7 +72,9 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     const system = msgs.find((m) => m.role === 'system')?.content ?? '';
     const user = msgs.find((m) => m.role === 'user')?.content ?? '';
     const data = () => JSON.parse(user);
-    const is = (start: string) => system.startsWith(start);
+    // A step of a review gives its instructions after the materials, under "# Your task" (policies/frame.md).
+    const task = user.split('\n# Your task\n\n')[1] ?? system;
+    const is = (start: string) => system.startsWith(start) || task.startsWith(start);
 
     if (is('You scan chunks')) // flags what plainly talks to an AI
       return reply({ flags: data().chunks.filter((c: { text: string }) => /SYSTEM OVERRIDE|ignore previous/i.test(c.text)).map((c: { id: number }) => ({ id: c.id, reason: 'talks to the AI' })) });
@@ -143,9 +145,9 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     if (is("You are an expert going through a customer's materials")) {
       review.passes.push(`${system}\n${user}`);
       review.models.push(['pass', body.model]);
-      const part = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
+      const part = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(task)?.[1] ?? '';
       if (general) { // the lines of this part closest to the materials, each a finding at the line of the materials it shares most words with
-        const lines = user.split('\n').filter((l) => l.trim().length > 12 && !l.startsWith('#') && !l.startsWith('<'));
+        const lines = user.split('\n# Question\n')[0]!.split('\n').filter((l) => l.trim().length > 12 && !l.startsWith('#') && !l.startsWith('<'));
         const near = part.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 30).map((l) => ({ l, at: lines.map((x) => ({ x, n: shared(stems(l), stems(x)) })).sort((a, b) => b.n - a.n)[0] })).filter((c) => (c.at?.n ?? 0) >= 2);
         return replyForm(near.slice(0, 3).map((c) => `### Medium | ${c.at!.x.trim().slice(0, 60)} | ${c.l.slice(0, 160)}\nThe checklist item applies to this line of the materials.`).join('\n\n') || 'NOTHING FOUND');
       }
@@ -211,7 +213,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
 
     // An agent: answers with the lines of its knowledge that mention Project Alpha (general: the closest lines).
     agentCalls.push(`${system}\n${user}`);
-    const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(system)?.[1] ?? '';
+    const knowledge = /<knowledge>\n([\s\S]*?)\n<\/knowledge>/.exec(task)?.[1] ?? '';
     if (general) {
       const asked = stems(user);
       const lines = knowledge.split(/\n+/).map((l, i) => ({ l: l.trim(), i, n: shared(asked, stems(l)) })).filter((x) => x.n >= 2 && x.l.length > 20);

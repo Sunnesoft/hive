@@ -21,6 +21,8 @@ test('costs are coarse: up to the next cent, never above the hold', () => {
 test('token costs: USD per 1M tokens times tokens is micro-USD, rounded up', () => {
   assert.equal(microUsd({ inputTokens: 1_000, outputTokens: 200 }, { in: 1, out: 5 }), 2_000n);
   assert.equal(microUsd({ inputTokens: 1 }, { in: 0.1, out: 0 }), 1n);
+  // input NEAR AI read from its cache is priced as such: 0.3 and 0.006 USD per 1M, as DeepSeek's
+  assert.equal(microUsd({ inputTokens: 10_000, inputTokenDetails: { cacheReadTokens: 8_000 }, outputTokens: 0 }, { in: 0.3, out: 1.2, cached: 0.006 }), 648n);
   assert.equal(ceiling(20_000, { in: 1, out: 5 }), microUsd({ inputTokens: 20_000, outputTokens: 4_000 }, { in: 1, out: 5 }));
 });
 

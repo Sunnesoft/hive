@@ -14,8 +14,8 @@ export type Agent = {
 };
 export type Job = { at: number; finished: boolean; slots: { agent: string; hold: string; pay: string }[] }; // finished: the holds are settled, it waits to be paid for
 export type Outcome = { cost: string; delivered: boolean; violation: boolean };
-export type Usage = { inputTokens?: number | undefined; outputTokens?: number | undefined };
-export type Price = { in: number; out: number }; // USD per 1M tokens
+export type Usage = { inputTokens?: number | undefined; outputTokens?: number | undefined; inputTokenDetails?: { cacheReadTokens?: number | undefined } };
+export type Price = { in: number; out: number; cached?: number }; // USD per 1M tokens; `cached`: an input token NEAR AI has seen at the start of an earlier call
 
 export const USDC = 1_000_000n; // base units in one USDC
 export const COST_STEP = 10_000n; // 0.01 USDC, as the contract requires
@@ -101,8 +101,10 @@ export const TOPICS = ['automation', 'creative', 'customer_support', 'data', 'de
 export const show = (units: bigint) => (Number(units) / 1e6).toFixed(2);
 
 /** USD per 1M tokens times tokens is micro-USD, i.e. USDC base units; rounded up. */
-export const microUsd = (u: Usage, p: Price) =>
-  BigInt(Math.ceil((u.inputTokens ?? 0) * p.in + (u.outputTokens ?? 0) * p.out));
+export const microUsd = (u: Usage, p: Price) => {
+  const cached = Math.min(u.inputTokenDetails?.cacheReadTokens ?? 0, u.inputTokens ?? 0);
+  return BigInt(Math.ceil(((u.inputTokens ?? 0) - cached) * p.in + cached * (p.cached ?? p.in) + (u.outputTokens ?? 0) * p.out));
+};
 
 /** A cost as the contract takes it: up to the next 0.01 USDC, never above the hold. Coarse costs leak almost no bits. */
 export const coarse = (cost: bigint, hold: bigint) => {

@@ -16,7 +16,7 @@ const nearai = createOpenAICompatible({ name: 'nearai', baseURL: cfg.NEARAI_URL,
 // ---- prices ----
 
 const Cost = z.object({ amount: z.number(), scale: z.number() }); // amount * 10^-scale USD per token
-const Catalog = z.object({ models: z.array(z.object({ modelId: z.string(), inputCostPerToken: Cost, outputCostPerToken: Cost })) });
+const Catalog = z.object({ models: z.array(z.object({ modelId: z.string(), inputCostPerToken: Cost, outputCostPerToken: Cost, cacheReadCostPerToken: Cost.optional() })) });
 const perMillion = (c: z.infer<typeof Cost>) => c.amount * 10 ** (6 - c.scale);
 
 let prices: Record<string, Price> = {};
@@ -26,7 +26,7 @@ export const priceOf = (model: string) => prices[model];
 export async function refreshPrices() {
   const res = await fetch(`${cfg.NEARAI_URL}/model/list?limit=500`, { signal: AbortSignal.timeout(20_000) });
   const { models } = Catalog.parse(await res.json());
-  prices = Object.fromEntries(models.map((m) => [m.modelId, { in: perMillion(m.inputCostPerToken), out: perMillion(m.outputCostPerToken) }]));
+  prices = Object.fromEntries(models.map((m) => [m.modelId, { in: perMillion(m.inputCostPerToken), out: perMillion(m.outputCostPerToken), ...(m.cacheReadCostPerToken ? { cached: perMillion(m.cacheReadCostPerToken) } : {}) }]));
 }
 
 // ---- the operator's own money: every call is priced, counted by UTC day and logged ----
@@ -232,7 +232,15 @@ export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hot
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
   policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge);
-const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
+/** A step of a review as the model gets it: the materials first, then the question, then the step's own task and
+ *  what it is given. Every call of a review, and of every expert asked the same question, begins with the same
+ *  text, and NEAR AI reads a beginning it has seen before at a fiftieth of the price (cacheReadCostPerToken): the
+ *  materials are most of every call. The system message only says how the rest is laid out (policies/frame.md). */
+const stepCall = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string) => {
+  const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
+  const task = [`# Your task\n\n${stepInstructions(kind, m, knowledge)}`, about].filter(Boolean).join('\n\n');
+  return [policy.frame, [materials && `# Public materials\n\n${materials}`, `# Question\n\n${question}`, task].filter(Boolean).join('\n\n')] as const;
+};
 /** How long a reply may be: as long as the money left in the expert's hold pays for once its prompt is paid (every
  *  byte of it counted as a token), and never past REPLY_MOST. Below REPLY_LEAST it is not sent: the money is spent. */
 export const limitFor = (price: Price, promptBytes: number, money: bigint) =>
@@ -257,7 +265,7 @@ export async function raise(kind: 'read' | 'pass' | 'combine' | 'hotspot', m: Ma
   const model = modelOf(kind, m);
   const price = priceOf(model);
   if (!price) return { findings: [], open: [], cost: 0n, why: 'model_unavailable' };
-  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
+  const [system, prompt] = stepCall(kind, m, knowledge, question, pages, about);
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { findings: [], open: [], cost: 0n, why: 'too_expensive' };
   const call = () => written(model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Raised }); // not retried inside: a review tries a failed step once more itself
@@ -277,7 +285,7 @@ export async function step(kind: 'proof', m: Materials, knowledge: string, quest
   const model = modelOf(kind, m);
   const price = priceOf(model);
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
-  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
+  const [system, prompt] = stepCall(kind, m, knowledge, question, pages, about);
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { text: '', cost: 0n, why: 'too_expensive' };
   const call = () => written(model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0 });
@@ -318,7 +326,7 @@ export type CheckVerdict = z.infer<typeof CheckVerdict>;
 export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = '', kind: 'check' | 'refute' = 'check'): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   if (!price) return { verdicts: [], cost: 0n, why: 'model_unavailable' };
-  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
+  const [system, prompt] = stepCall(kind, m, knowledge, question, pages, about);
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { verdicts: [], cost: 0n, why: 'too_expensive' };
   const Form = z.object({ verdicts: z.array(CheckVerdict) });
