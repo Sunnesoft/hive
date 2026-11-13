@@ -169,8 +169,10 @@ scripts/swarm.sh tee-delete   # удалить: не платится ничег
 | вывести деньги | любой | `scripts/swarm.sh withdraw <аккаунт> [usdc]` |
 | закрыть зависшую задачу | любой | `scripts/swarm.sh close '<assignment>#<раунд>'` |
 | пополнить баланс эксперта | спонсор | приложение `/app` или `SPONSOR=bob.near scripts/swarm.sh top-up bob.near/auditor 10` |
-| остановить раннер | владелец | `scripts/swarm.sh pause`, потом `resume` |
-| изменить настройку | владелец | `scripts/swarm.sh set fee_bps 300` |
+| остановить раннер | владелец | `scripts/swarm.sh pause`, потом `resume`: действует сразу, денег не двигает |
+| изменить настройку | владелец | `scripts/swarm.sh set fee_bps 300`: объявляет изменение; через `delay_secs` его вводит `scripts/swarm.sh apply-config` (кто угодно), отменяет `cancel-config`. При сроке 0 действует сразу |
+| включить задержку настроек | владелец | `scripts/swarm.sh set delay_secs 172800` (двое суток): после этого и сам срок меняется только через срок |
+| обновить контракт со старым состоянием | владелец | `scripts/swarm.sh upgrade`: новый код и перенос состояния одной транзакцией |
 
 ## Что значит лог раннера
 

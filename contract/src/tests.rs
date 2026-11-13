@@ -82,6 +82,7 @@ fn cfg() -> Config {
         overhead_per_agent: U128(U / 10),
         run_secs: 600,
         pay_secs: 86_400,
+        delay_secs: 0,
     }
 }
 
@@ -589,4 +590,148 @@ fn a_customer_may_publish_the_work_beside_the_hash_and_none_of_it_is_stored() {
         json!({ "Order": { "brief_hash": hash('d'), "salt": "00ff", "brief": "Review my contract" } }).to_string();
     deposit(&mut c, BUYER, 8 * U, msg); // the text is in the transaction for anyone to read; the contract keeps the hash
     assert_eq!(c.order(O1.into()).unwrap().brief_hash, hash('d'));
+}
+
+// ---- a change of config waits; the runner can be stopped at once ----
+
+const DAY: u64 = 86_400;
+
+/// The contract of `setup`, with a day's delay on config in force.
+fn slow() -> Contract {
+    let mut c = setup();
+    call(DAO, 1);
+    c.set_config(Config { delay_secs: DAY, ..cfg() }); // no delay yet: in force at once
+    assert_eq!(c.config().delay_secs, DAY);
+    c
+}
+
+#[test]
+fn a_new_config_waits_for_its_delay() {
+    let mut c = slow();
+    call(DAO, 10);
+    c.set_config(Config { runner: acc(X), ..c.config() });
+    assert_eq!(c.config().runner, acc(RUNNER)); // announced, not in force
+    assert_eq!(c.announced().unwrap().at, 10 + DAY);
+    call(X, 10 + DAY); // anyone, once its time has come
+    c.apply_config();
+    assert_eq!(c.config().runner, acc(X));
+    assert!(c.announced().is_none());
+}
+
+#[test]
+#[should_panic(expected = "too early")]
+fn nobody_applies_a_config_before_its_time() {
+    let mut c = slow();
+    call(DAO, 10);
+    c.set_config(Config { runner: acc(X), ..c.config() });
+    call(DAO, 10 + DAY - 1);
+    c.apply_config();
+}
+
+#[test]
+fn the_delay_cannot_be_dropped_without_waiting_it_out() {
+    let mut c = slow();
+    call(DAO, 10);
+    c.set_config(Config { delay_secs: 0, runner: acc(X), ..c.config() });
+    assert_eq!((c.config().delay_secs, c.config().runner), (DAY, acc(RUNNER)));
+}
+
+#[test]
+#[should_panic(expected = "nothing announced")]
+fn an_announced_config_can_be_taken_back() {
+    let mut c = slow();
+    call(DAO, 10);
+    c.set_config(Config { runner: acc(X), ..c.config() });
+    c.cancel_config();
+    call(X, 10 + DAY);
+    c.apply_config();
+}
+
+#[test]
+fn every_way_out_stays_open_while_a_config_waits() {
+    let mut c = slow();
+    deposit(&mut c, X, 5 * U, json!({ "Order": { "brief_hash": hash('d') } }).to_string());
+    call(DAO, 10);
+    c.set_config(Config { runner: acc(X), operator: acc(X), ..c.config() });
+    call(A, 20);
+    c.withdraw(None); // a sponsor leaves with all of its balance
+    assert_eq!(bal(&c, A), 0);
+    call(B, 10 + 600); // and anyone sends the unanswered order back
+    c.refund("order-1".to_string());
+    assert!(c.order("order-1".to_string()).is_none());
+}
+
+#[test]
+#[should_panic(expected = "not allowed")]
+fn only_the_owner_stops_the_runner() {
+    let mut c = setup();
+    call(RUNNER, 1);
+    c.halt(true);
+}
+
+#[test]
+#[should_panic(expected = "halted")]
+fn a_stopped_runner_starts_nothing() {
+    let mut c = setup();
+    call(DAO, 1);
+    c.halt(true);
+    call(RUNNER, 2);
+    c.assign("j1".to_string(), vec![ag(A)]);
+}
+
+#[test]
+fn stopping_the_runner_moves_no_money_and_closes_no_way_out() {
+    let mut c = setup();
+    call(RUNNER, 1);
+    c.assign("j1".to_string(), vec![ag(A), ag(B)]);
+    let owed = c.owed().0;
+    call(DAO, 2);
+    c.halt(true);
+    assert!(c.halted());
+    assert_eq!(c.owed().0, owed);
+    call(X, 2 + 600); // the stuck job is closed by anyone and the holds come back
+    c.close("j1".to_string());
+    assert_eq!((bal(&c, A), bal(&c, B)), (10 * U, 10 * U));
+    call(A, 2 + 600);
+    c.withdraw(None);
+    call(DAO, 2 + 601);
+    c.halt(false); // let go: the runner works again
+    call(RUNNER, 2 + 602);
+    c.assign("j2".to_string(), vec![ag(B)]);
+    assert_books(&c, &["j2"]);
+}
+
+#[test]
+fn the_state_of_the_version_before_is_read_whole() {
+    call(DAO, 0);
+    let old = ContractV3 {
+        token: acc(USDC),
+        cfg: ConfigV3 {
+            owner: acc(DAO),
+            runner: acc(RUNNER),
+            operator: acc(OP),
+            fee_bps: 500,
+            audit_base: U128(0),
+            audit_per_mb: U128(0),
+            min_deposit: U128(U),
+            overhead: U128(U / 2),
+            overhead_per_agent: U128(U / 10),
+            run_secs: 600,
+            pay_secs: 86_400,
+        },
+        balances: LookupMap::new(b"b"),
+        agents: IterableMap::new(b"a"),
+        jobs: LookupMap::new(b"j"),
+        orders: IterableMap::new(b"o"),
+        owed: 7 * U,
+        registrations: 3,
+        orders_placed: 9,
+    };
+    env::state_write(&old);
+    call(ME, 5); // the contract's own account, as #[private] requires
+    let mut c = Contract::migrate();
+    assert_eq!((c.owed().0, c.config().runner, c.config().delay_secs), (7 * U, acc(RUNNER), 0));
+    assert!(c.announced().is_none() && !c.halted());
+    deposit(&mut c, X, 5 * U, json!({ "Order": { "brief_hash": hash('d') } }).to_string());
+    assert!(c.order("order-10".to_string()).is_some()); // the count of orders went on from where it stood
 }

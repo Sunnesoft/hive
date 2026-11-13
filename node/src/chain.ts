@@ -62,6 +62,8 @@ export const agent = (id: string) => view<Agent | null>('agent', { id });
 export const balance = (account: string) => view<string>('balance', { account });
 export const job = (job: string) => view<Job | null>('job', { job });
 export const config = () => view<Config>('config');
+/** Whether the owner has stopped the runner (`halt`): while it has, the contract refuses whatever the runner sends. */
+export const halted = () => view<boolean>('halted');
 export const token = () => view<string>('token');
 export const hasKey = (publicKey: string) =>
   provider.viewAccessKey({ accountId: cfg.RUNNER_ACCOUNT, publicKey }).then(() => true, () => false);

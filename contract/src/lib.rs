@@ -17,6 +17,13 @@
 //!
 //! A stuck job can be closed by anyone after a timeout. Every balance can be withdrawn.
 //! What the agents know is not here: it is sealed and kept by the runner in a TEE.
+//!
+//! Who is trusted with what
+//! - The runner decides what a job cost and who delivered, within what was held and what the customer put in.
+//! - The owner names the runner and the operator and sets the fees. A change of config is announced and takes
+//!   effect `delay_secs` later, so that whoever does not like it has time to leave: none of the ways out
+//!   (withdraw, refund, close) needs the owner or the runner.
+//! - The owner can stop the runner at once. That moves no money: it only refuses what the runner does.
 #[cfg(test)]
 mod tests;
 
@@ -50,6 +57,16 @@ pub struct Config {
     pub overhead_per_agent: U128, // plus this for each agent that delivered
     pub run_secs: u64, // after this an unfinished job may be closed (holds go back) and an unanswered order refunded
     pub pay_secs: u64, // a finished job waits this long to be paid for
+    #[serde(default)]
+    pub delay_secs: u64, // a new config takes effect this long after the owner announces it
+}
+
+/// A config the owner has announced and the time it takes effect.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct Announced {
+    pub cfg: Config,
+    pub at: u64, // seconds
 }
 
 #[near(serializers = [borsh, json])]
@@ -158,6 +175,8 @@ pub struct Contract {
     owed: u128,                         // = balances + holds + open orders; never above our token balance
     registrations: u64,                 // cards registered so far
     orders_placed: u64,                 // so an order id is never used twice
+    announced: Option<Announced>,       // a change of config that waits for its time
+    halted: bool,                       // the owner stopped the runner: nothing it does is accepted
 }
 
 #[near]
@@ -175,6 +194,44 @@ impl Contract {
             owed: 0,
             registrations: 0,
             orders_placed: 0,
+            announced: None,
+            halted: false,
+        }
+    }
+
+    /// Reads the state of version 3.0.0, which had no announced config and no stop, into this one. Called once,
+    /// by the contract's own account, in the transaction that deploys this code.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        let old: ContractV3 = env::state_read().expect("no state");
+        let c = old.cfg;
+        let cfg = Config {
+            owner: c.owner,
+            runner: c.runner,
+            operator: c.operator,
+            fee_bps: c.fee_bps,
+            audit_base: c.audit_base,
+            audit_per_mb: c.audit_per_mb,
+            min_deposit: c.min_deposit,
+            overhead: c.overhead,
+            overhead_per_agent: c.overhead_per_agent,
+            run_secs: c.run_secs,
+            pay_secs: c.pay_secs,
+            delay_secs: 0,
+        };
+        Self {
+            token: old.token,
+            cfg,
+            balances: old.balances,
+            agents: old.agents,
+            jobs: old.jobs,
+            orders: old.orders,
+            owed: old.owed,
+            registrations: old.registrations,
+            orders_placed: old.orders_placed,
+            announced: None,
+            halted: false,
         }
     }
 
@@ -215,7 +272,7 @@ impl Contract {
     /// Activates or suspends a pending agent. `registration` names the card that was audited: if the
     /// sponsor registered again meanwhile (other skills, other materials), the verdict is stale and refused.
     pub fn review(&mut self, agent: String, registration: u64, allow: bool) {
-        self.only(&self.cfg.runner);
+        self.runner();
         let a = self.agent_mut(&agent);
         require!(a.status == Status::Pending && a.registration == registration, "stale review");
         a.status = if allow { Status::Active } else { Status::Suspended };
@@ -224,7 +281,7 @@ impl Contract {
 
     /// Starts a job: holds each agent's cost cap and fixes its rate.
     pub fn assign(&mut self, job: String, agents: Vec<String>) {
-        self.only(&self.cfg.runner);
+        self.runner();
         require!((1..=MAX_JOB_ID).contains(&job.len()) && !self.jobs.contains_key(&job), "bad job id");
         require!((1..=MAX_TEAM).contains(&agents.len()), "bad team size");
         let mut slots: Vec<Slot> = Vec::with_capacity(agents.len());
@@ -245,7 +302,7 @@ impl Contract {
     /// not deliver loses its pay; one that broke the rules is also suspended until it registers again.
     /// Nobody gains from a violation, so nobody has a reason to provoke one. A job nobody is owed for is removed.
     pub fn finish(&mut self, job: String, outcomes: Vec<Outcome>) {
-        self.only(&self.cfg.runner);
+        self.runner();
         let mut j = self.jobs.remove(&job).expect("no job");
         require!(!j.finished && outcomes.len() == j.slots.len(), "bad outcomes");
         let operator = self.cfg.operator.clone();
@@ -274,7 +331,7 @@ impl Contract {
     /// delivered. The order pays their rates, the protocol's overhead and the owner's fee on top, never more
     /// than the customer put in; the rest is sent back to the customer.
     pub fn deliver(&mut self, order: String, answer_hash: String) {
-        self.only(&self.cfg.runner);
+        self.runner();
         require!(is_sha256_hex(&answer_hash), "bad answer hash");
         let o = self.orders.remove(&order).expect("no order");
         let j = self.jobs.remove(&order).expect("no job");
@@ -296,7 +353,7 @@ impl Contract {
     /// The swarm does not take an order: the task is refused, nobody knows enough, the money covers no
     /// team, or the work failed. All of it is sent back to the customer.
     pub fn decline(&mut self, order: String) {
-        self.only(&self.cfg.runner);
+        self.runner();
         self.send_back(order, "declined");
     }
 
@@ -343,16 +400,53 @@ impl Contract {
 
     // ---- owner ----
 
+    /// Announces a new config. It takes effect `delay_secs` later (the delay of the config in force), when
+    /// anyone calls `apply_config`; with no delay, at once. A new announcement replaces the one before it.
     pub fn set_config(&mut self, cfg: Config) {
         self.only(&self.cfg.owner);
         check(&cfg);
-        self.cfg = cfg;
+        let at = now() + self.cfg.delay_secs;
+        emit("config", json!({ "at": at, "owner": cfg.owner, "runner": cfg.runner, "operator": cfg.operator }));
+        self.announced = Some(Announced { cfg, at });
+        if self.cfg.delay_secs == 0 {
+            self.apply_config();
+        }
+    }
+
+    /// Puts the announced config in force once its time has come. Anyone may call it.
+    pub fn apply_config(&mut self) {
+        let a = self.announced.take().expect("nothing announced");
+        require!(now() >= a.at, "too early");
+        self.cfg = a.cfg;
+    }
+
+    /// Takes an announced config back.
+    pub fn cancel_config(&mut self) {
+        self.only(&self.cfg.owner);
+        self.announced = None;
+    }
+
+    /// Stops the runner, or lets it go on, at once: while stopped, nothing the runner does is accepted. A stolen
+    /// runner key cannot wait out a delay. It moves no money: orders are refunded and jobs closed by anyone
+    /// after their timeouts, as when the runner is simply gone.
+    pub fn halt(&mut self, halted: bool) {
+        self.only(&self.cfg.owner);
+        self.halted = halted;
+        emit("halt", json!({ "halted": halted }));
     }
 
     // ---- views ----
 
     pub fn config(&self) -> Config {
         self.cfg.clone()
+    }
+    /// A config that was announced and is not in force yet.
+    pub fn announced(&self) -> Option<Announced> {
+        self.announced.clone()
+    }
+    /// Whether the owner has stopped the runner.
+    pub fn halted(&self) -> bool {
+        self.halted
     }
     /// The USDC contract whose transfers this contract accepts.
     pub fn token(&self) -> AccountId {
@@ -474,6 +568,10 @@ impl Contract {
     fn only(&self, who: &AccountId) {
         require!(&env::predecessor_account_id() == who, "not allowed");
     }
+    fn runner(&self) {
+        require!(!self.halted, "halted");
+        self.only(&self.cfg.runner);
+    }
     fn agent_mut(&mut self, id: &String) -> &mut Agent {
         self.agents.get_mut(id).expect("no agent")
     }
@@ -500,6 +598,36 @@ impl Contract {
 fn check(cfg: &Config) {
     require!(cfg.fee_bps <= MAX_FEE_BPS, "fee too high");
     require!(cfg.run_secs <= MAX_TIMEOUT_SECS && cfg.pay_secs <= MAX_TIMEOUT_SECS, "timeout too long");
+    require!(cfg.delay_secs <= MAX_TIMEOUT_SECS, "delay too long");
+}
+
+/// The state as version 3.0.0 kept it: read once, by `migrate`.
+#[near(serializers = [borsh])]
+struct ConfigV3 {
+    owner: AccountId,
+    runner: AccountId,
+    operator: AccountId,
+    fee_bps: u16,
+    audit_base: U128,
+    audit_per_mb: U128,
+    min_deposit: U128,
+    overhead: U128,
+    overhead_per_agent: U128,
+    run_secs: u64,
+    pay_secs: u64,
+}
+
+#[near(serializers = [borsh])]
+struct ContractV3 {
+    token: AccountId,
+    cfg: ConfigV3,
+    balances: LookupMap<AccountId, u128>,
+    agents: IterableMap<String, Agent>,
+    jobs: LookupMap<String, Job>,
+    orders: IterableMap<String, Order>,
+    owed: u128,
+    registrations: u64,
+    orders_placed: u64,
 }
 
 /// Splits `amount` pro rata to `weights` (their sum is above `amount`, so above 0).
@@ -514,7 +642,7 @@ fn split(amount: u128, weights: &[u128]) -> Vec<u128> {
 
 /// NEP-297 event, so explorers and indexers can follow the money without our runner.
 fn emit(event: &str, data: Value) {
-    let e = json!({ "standard": "swarm", "version": "3.0.0", "event": event, "data": data });
+    let e = json!({ "standard": "swarm", "version": "3.1.0", "event": event, "data": data });
     env::log_str(&format!("EVENT_JSON:{e}"));
 }
 

@@ -20,9 +20,10 @@ async function each<T>(items: T[], f: (x: T) => Promise<unknown>) {
 
 let [paused, broke] = [false, false];
 async function tick() {
-  const [agents, config] = await Promise.all([chain.agents(), chain.config()]);
+  const [agents, config, halted] = await Promise.all([chain.agents(), chain.config(), chain.halted()]);
   const { fee_bps, runner } = config;
-  if (paused !== (runner !== cfg.RUNNER_ACCOUNT)) log((paused = !paused) ? 'paused' : 'resumed', { runner });
+  // The owner stopped the runner, or the contract names another account as its runner: nothing we send would be taken.
+  if (paused !== (halted || runner !== cfg.RUNNER_ACCOUNT)) log((paused = !paused) ? 'paused' : 'resumed', { runner, halted });
   if (!paused && broke !== (await overBudget())) log((broke = !broke) ? 'out_of_budget' : 'in_budget', { daily_usd: cfg.DAILY_BUDGET_USD });
   setState(paused ? 'paused' : broke ? 'out_of_budget' : 'ready');
   if (paused || broke) return; // the owner stopped us, or today's money is spent: no audits, no rounds, nothing that costs money

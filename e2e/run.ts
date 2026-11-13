@@ -417,7 +417,7 @@ try {
 
   // --- keys and timeouts ---
   const asRunner = new Account(runner.accountId, sandbox.rpcUrl, new KeyPairSigner(devKey));
-  for (const [method, args] of [['set_config', { cfg }], ['withdraw', {}], ['refund', { order: 'order-1' }]] as const) {
+  for (const [method, args] of [['set_config', { cfg }], ['halt', { halted: true }], ['withdraw', {}], ['refund', { order: 'order-1' }]] as const) {
     const r = await call(asRunner, swarm.accountId, method, args).then(() => 'done', (e) => String(e));
     check(`keys: the runner key cannot call ${method}`, r !== 'done', r);
   }
@@ -429,8 +429,10 @@ try {
   await call(owner, swarm.accountId, 'close', { job: 'stuck' });
   check('close: after run_secs anyone closes it and the hold comes back', (await balance(codes)) === free);
 
-  // --- pause: the owner points the contract at no runner; nothing is done, nothing is paid for ---
-  await call(owner, swarm.accountId, 'set_config', { cfg: { ...cfg, runner: `paused.${owner.accountId}` } });
+  // --- pause: the owner stops the runner at once; nothing is done, nothing is paid for, and the ways out stay open ---
+  await call(owner, swarm.accountId, 'halt', { halted: true });
+  const refused = await call(asRunner, swarm.accountId, 'assign', { job: 'while-halted', agents: [agentId(codes)] }).then(() => 'assigned', (e) => String(e));
+  check('pause: the contract refuses what a stopped runner sends', /halted/.test(refused), refused);
   await until('paused', () => has('paused') > 0);
   const callsBefore = ai.agentCalls.length;
   market.hire({ id: 'a-paused', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
@@ -447,7 +449,7 @@ try {
   await call(codes, swarm.accountId, 'refund', { order: 'order-4' });
   await until('the unanswered order\'s money back', async () => (await tokens(buyer)) === tokensPaused);
   check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-4')) === null);
-  await call(owner, swarm.accountId, 'set_config', { cfg });
+  await call(owner, swarm.accountId, 'halt', { halted: false });
   await until('the task after resume', () => market.delivered('a-paused').length === 1);
   check('pause: after resume the waiting task is served', has('resumed') > 0);
 

@@ -12,14 +12,18 @@
 #   test-token                     testnet: deploy our own USDC at TOKEN, 1M of it to ROOT
 #   fund <account> <usdc>          register an account with the token and send it USDC
 #   deploy                         build the contract; create swarm/runner/operator.ROOT; deploy and init
-#   set <field> <value>            change one config field (fee_bps, audit_base, min_deposit, ...)
+#   upgrade                        build the contract and put the new code on the account that has the old state
+#                                  (version 3.0.0), reading it into the new one in the same transaction
+#   set <field> <value>            announce one config field changed (fee_bps, audit_base, delay_secs, ...): it takes
+#                                  effect delay_secs later (at once while the delay is 0)
+#   apply-config | cancel-config   put an announced config in force once its time has come (anyone) / take it back
 #   image <repo>                   build and push the runner image, pin its digest in docker-compose.yml
 #   tee-deploy                     deploy docker-compose.yml to Phala Cloud with the secrets of .env.tee, on the
 #                                  smallest machine (TEE_SIZE names another). Phala bills it for every hour it runs
 #   tee-stop | tee-delete          stop the machine: only its disk is billed / delete it: nothing is billed
 #   runner-key <url> <compose>     check the runner, then let its signing key call the runner's methods
 #   dev-key                        a runner key without a TEE (local chain, testnet): prints DEV_KEY
-#   pause | resume                 no key can act as the runner / the runner works again
+#   pause | resume                 stop the runner at once: nothing it does is accepted / let it work again
 # sponsor (SPONSOR=<account>)
 #   join <agent folder> <usdc>     check the runner (RUNNER_URL, COMPOSE), seal the folder to it, register, upload
 #   top-up <owner/name> <usdc>     add to the balance behind an agent (its owner's)
@@ -102,14 +106,20 @@ deploy)
   done
   cfg=$(jq -nc --arg r "$ROOT" '{owner:$r, runner:"runner.\($r)", operator:"operator.\($r)", fee_bps:500,
     audit_base:"100000", audit_per_mb:"100000", min_deposit:"1000000", overhead:"500000", overhead_per_agent:"100000",
-    run_secs:1800, pay_secs:1209600}')
+    run_secs:1800, pay_secs:1209600, delay_secs:0}') # mainnet: `set delay_secs 172800` once all else is set
   near contract deploy "$C" use-file contract/target/near/swarm.wasm with-init-call new \
     json-args "$(jq -nc --arg t "$TOKEN" --argjson c "$cfg" '{token:$t, cfg:$c}')" \
     prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-$KC send
   for a in "$C" "operator.$ROOT" "$ROOT"; do # every payout receiver must be registered with the token
     send "$TOKEN" storage_deposit "$(jq -nc --arg a "$a" '{account_id:$a}')" "$ROOT" '0.00125 NEAR'
   done ;;
+upgrade) # the contract's own key signs both: the new code, and `migrate`, which only the contract may call
+  (cd contract && cargo near build non-reproducible-wasm)
+  near contract deploy "$C" use-file contract/target/near/swarm.wasm with-init-call migrate json-args '{}' \
+    prepaid-gas '100 Tgas' attached-deposit '0 NEAR' network-config "$NETWORK" sign-with-$KC send ;;
 set) set_cfg "$2" "$3" ;;
+apply-config) send "$C" apply_config '{}' "${SIGNER:-$ROOT}" ;;
+cancel-config) send "$C" cancel_config '{}' "$ROOT" ;;
 image) # the TEE runs exactly this digest; the compose hash in the quote covers it
   docker build --platform linux/amd64 -t "$2:latest" .
   docker push "$2:latest"
@@ -132,8 +142,8 @@ dev-key)
     const k = KeyPair.fromRandom('ed25519'); console.log(k.toString(), k.getPublicKey().toString())")
   runner_key "$pk"
   echo "DEV_KEY=$sk" ;;
-pause) set_cfg runner "paused.$ROOT" ;; # a subaccount only the owner could ever create
-resume) set_cfg runner "runner.$ROOT" ;;
+pause) send "$C" halt '{"halted":true}' "$ROOT" ;; # a subaccount only the owner could ever create
+resume) send "$C" halt '{"halted":false}' "$ROOT" ;;
 verify) verify "$2" ${3:+"$3"} ;;
 join) # COMPOSE: the app-compose.json the owner published; it binds the TEE to our code
   : "${SPONSOR:?account that registers the agent}" "${RUNNER_URL:?the runner, e.g. https://<app-id>-8080.<gateway>}"
