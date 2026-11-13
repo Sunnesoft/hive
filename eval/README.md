@@ -805,26 +805,34 @@ the line it points at. What two reviewers found each on their own stays the one 
 
 The same review, run on Claude Haiku 5.5 through [claude-shim.ts](claude-shim.ts) in NEAR AI's place (every call
 with the same instructions, prompt, form and room; embeddings by the same Qwen3-Embedding-0.6B; results in
-`eval/out/claude`). Three held-out NEAR contracts. The team: the NEAR reviewer and the two Solidity auditors. The
-control for knowledge: reviewers with no knowledge, the same model and the same review, fifteen of them, which
-spend about what the team spends; and three of them. Joined by the rule the model states (one fix closes both:
-one finding). No closer look at hot spots. One blind reader per contract.
+`eval/out/claude`). All eight held-out NEAR contracts, 68 findings of their audits. The team: the NEAR reviewer
+and the two Solidity auditors. The control for knowledge: reviewers with no knowledge, the same model and the
+same review, fifteen of them, which spend about what the team spends. And the NEAR reviewer with three of those
+reviewers, joined from the same reviews. Joined by the rule the model states (one fix closes both: one finding);
+no closer look at hot spots; one blind reader per answer. Cost by our meter at DeepSeek's prices, for comparing
+the answers; at Haiku's own prices each is about a third of it.
 
-| answer | NearX, of 10 | Mintbase, of 7 | cNEAR, of 7 | stated, of 24 | real, of all it claims | wrong | false Critical or High | USD per contract, Haiku's price |
-|---|---|---|---|---|---|---|---|---|
-| Haiku asked once | 4 | 2 | 4 | 10 | 33% | 2 | 1 | 0.01 |
-| three reviewers, no knowledge | 4 | 3 | 5 | 12 | 44% | 1 | 0 | 0.2 |
-| fifteen reviewers, no knowledge | 6 | 3 | 6 | 15 | 36% | 2 | 0 | 1.1 |
-| the team, with knowledge | 6 | 5 | 6 | 17 | 16% | 5 | 1 | 1.7 |
+| answer | NearX /10 | Mintbase /7 | cNEAR /7 | Potlock /9 | staking farm /6 | registry /10 | vote escrow /10 | SWEAT /9 | stated, of 68 | real, of all it claims | wrong | false Critical or High | USD per contract |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Haiku asked once | 4 | 2 | 4 | 5 | 2 | 4 | 3 | 5 | 29 (43%) | 46% | 3 | 2 | 0.03 |
+| fifteen reviewers, no knowledge | 6 | 3 | 6 | 5 | 2 | 5 | 6 | 5 | 38 (56%) | 34% | 11 | 3 | 3.94 |
+| the NEAR reviewer and three reviewers | 6 | 4 | 5 | 8 | 2 | 7 | 9 | 8 | 49 (72%) | 27% | 17 | 4 | 3.03 |
+| the team, with knowledge | 6 | 5 | 6 | 7 | 2 | 7 | 10 | 9 | 52 (76%) | 22% | 18 | 4 | 4.62 |
 
-**Knowledge adds what more effort does not, and it is NEAR's own.** Five times the reviewers took the control
-from 12 to 15 and no further on Mintbase: 3 there with three reviewers and with fifteen. The team states two
-findings there that no reviewer without knowledge states: nft_transfer_call does not give the token to the
-receiver before it calls it (NEP-171), and the store pays the storage of a new owner's entry. On the other two
-contracts the team and the fifteen state the same. The NearX exploit is no test on this model: Haiku asked once
-states it.
+**Knowledge adds what more effort does not.** At about the same spend the team states 52 findings of the audits
+where fifteen reviewers without knowledge state 38, and not fewer on any contract. The NEAR reviewer with three
+plain reviewers states 49 for three quarters of the fifteen's spend: better and cheaper. What the reviewers without
+knowledge miss is NEAR's own: a method that is not #[payable] or asks no yoctoNEAR, a callback that is not given
+the token before it is called (NEP-171), storage a contract pays for a new account, gas left for a callback. The
+NearX exploit is no test on this model: Haiku asked once states it.
 
-**The price is noise.** The team's answer has 181 items against 93, most of them true and harmless, five wrong.
+**Projects the knowledge has seen.** The NEAR case-book rests on reports about other contracts of four of these
+projects (Ref Finance's vote escrow, Octopus's registry, Sweat, Aurora's staking farm; never the report scored
+here). On those four the team states 28 of 35 and the fifteen 18; on the four whose project it never saw
+(NearX, Mintbase, cNEAR, Potlock) 24 of 33 and 20.
+
+**The price is noise.** The team's answers have 487 items against 253, a fifth of them real; most of the rest are
+true and harmless. What one expert confirmed as Low is now given in brief, last.
 
 ## How a review is measured
 
