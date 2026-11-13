@@ -655,6 +655,37 @@ know. So the third reviewer was given what they do not: a case-book of what audi
 reported, restated in our words from public reports, none of them a report on a contract measured here
 ([SOURCES.md](agents/SOURCES.md)).
 
+## How a review is measured
+
+From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be
+set beside published ones.
+
+| measure | what it is | where it comes from |
+|---|---|---|
+| recall | the findings of a published audit that the answer states, of all of them; also for the Critical and High ones alone | EVMbench's detect mode (OpenAI and Paradigm, 2026) scores the share of an audit's High findings an agent's report states |
+| precision | the real findings of an answer, of everything it claims; counted twice: with only the audit's findings as real ("strict") and with what a reader finds real against the code | ScaBench (Nethermind's scoring algorithm) classes every finding of a tool as a match, a partial match or a false positive against complete lists of findings |
+| F1 | recall and precision in one number | the usual pair for detectors; said beside its parts, never instead of them |
+| false alarms | findings rated Critical or High that are not real, per contract; wrong findings per 1,000 lines | CTFBench's overreporting index: false positives per line on code with nothing wrong |
+| cost of a real finding | what the answer cost, by its real findings | the comparison at equal budget that work on multi-agent systems asks for: a swarm costs ten times a single call |
+
+**How a finding is matched** is EVMbench's test, applied by a reader instead of a judge model: would fixing what the
+answer describes also fix what the audit describes? Lenient on words, strict on the kind of flaw, its cause and its
+place. A reader classes every item of an answer ([READER.md](READER.md)): it states a finding of the audit; it is a
+real flaw the audit does not list; it is true and no flaw; it is wrong; it repeats an earlier item. Repeats count
+once. Two readers read every contract without knowing whose answer is whose, and [score.ts](score.ts) counts.
+
+**What the published benchmarks leave open, and what we do about it.** A real finding that the audit does not have
+counts as false in a strict count: hence the second precision, by the code. A model may have read the audit: two of
+the held-out reports are from 2026, later than anything the models were trained on, and are reported first. A
+published benchmark runs each task three times; a contract here is run once, for what a run costs.
+
+**Two halves of the audits.** The case-books of two experts are written from audit reports (47 on NEAR contracts,
+58 on Solidity ones); the reviews are scored against other audit reports. No report on a scored contract is a source
+of a case-book: [a test](../node/test/split.test.ts) fails if one becomes it. The NEAR case-book does rest on
+reports about other contracts of some projects that also have a contract scored here (Ref Finance, Octopus
+Network, Sweat, Aurora); the contracts whose project the case-book never saw (Mintbase, cNEAR, Potlock, NearX) are
+reported apart.
+
 ## What this does not show
 
 - **Ten tasks, one run.** It shows the direction and the size of the gap, not a confidence interval.

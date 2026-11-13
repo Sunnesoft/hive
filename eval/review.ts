@@ -9,6 +9,8 @@
 // EVAL_LIMIT_USD (default 0.60) the run starts no new work once it has spent that much
 // CONTROL_MODEL  also keeps the joined reviews with the controller's word beside each finding
 // EVAL_PROOFS=0  the reviews write no proofs: a fifth of a review's cost, and the reading scores findings, not tests
+// EVAL_REPEATS=5 also asks the first expert's model alone that many times and keeps the answers as one: what a
+//                customer gets who spends on one model, asked again and again, what a swarm costs
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { docsOf, filesOf, linksOf } from '../node/src/audit.ts';
 import { cfg } from '../node/src/config.ts';
@@ -107,6 +109,18 @@ async function alone(t: ReviewTask, model: string, pages: Page[]) {
   keep(t.id, system, { text: r.text, usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model, ...(r.why ? { why: r.why } : {}) });
 }
 
+/** One model asked the task alone several times, the answers one after another: the opponent at a swarm's budget. */
+async function repeated(t: ReviewTask, model: string, times: number, pages: Page[]) {
+  const system = `alone, ${times} times: ${model.split('/')[1]}`;
+  if (kept[t.id]?.[system]) return;
+  const m = Materials.parse({ name: 'nobody', model, expertise: 'A careful reviewer of smart contracts.', method: '', knowledge: [] });
+  const at = Date.now();
+  const runs = [];
+  for (let i = 0; i < times; i++) runs.push(await llm.answer(m, [], t.task, pages, usdc('2'), ALONE_ROOM)); // one after another: a model's queue is short
+  const failed = runs.find((r) => r.why);
+  keep(t.id, system, { text: runs.map((r, i) => `# Answer ${i + 1} of ${times}\n\n${r.text}`).join('\n\n'), usd: runs.reduce((sum, r) => sum + usd(r.cost), 0), seconds: (Date.now() - at) / 1000, model, ...(failed ? { why: failed.why } : {}) });
+}
+
 /** What NEAR AI billed for the calls of this run, beside our own count of them. */
 async function billed() {
   const dir = process.env.TRACE_DIR;
@@ -133,6 +147,8 @@ for (const t of tasks) {
   const needed = [...new Set([...asked, ...experts.flatMap(({ m }) => [m.model, ...(m.pass_model ? [m.pass_model] : [])]), ...(experts.length ? [cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL, ...(process.env.CONTROL_MODEL ? [process.env.CONTROL_MODEL] : [])] : [])])];
   if (!(await ready(t, pages, needed))) continue;
   if (spent < LIMIT) await Promise.all(asked.map((model) => alone(t, model, pages)));
+  const repeats = Number(process.env.EVAL_REPEATS ?? '0');
+  if (repeats > 1 && spent < LIMIT) await repeated(t, cardOf(t.experts[0]!).m.model, repeats, pages);
   for (const name of experts.length ? t.experts : []) if (spent < LIMIT) await reviewed(t, name, pages); // one after another: a model's queue is short
   if (experts.length) await joined(t, pages);
   if (spent >= LIMIT) say(`stopped: $${spent.toFixed(3)} spent, the limit is $${LIMIT}`);
