@@ -291,3 +291,19 @@ as an underflow of the subtraction, which one reader takes for the finding and t
 mixed team's answer finding 4 was confirmed by the auditor of attack paths alone, finding 1 by the auditor of bug
 patterns alone, finding 2 by all four. Finding 5, which the NEAR reviewer alone states, is `P` in the mixed answer:
 folded there under finding 6's wording.
+
+## A held-out NEAR contract, the team of six (`cnear audit`, 7 findings of Trail of Bits' report)
+
+Two readers, four answers, different order. They gave every answer the same seven letters.
+
+| answer | verdicts, both readers | stated | claims | real | wrong | false Critical or High |
+|---|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `APSPPSS` | 3 | 11 | 3 | 1-2 | 1 |
+| alone, with room: kimi-k2.6 | `APASAAS` | 2 | 11 | 2 | 2 | 2 |
+| alone, with room: Qwen3.6-35B-A3B | `AAAAAAS` | 1 | 10 | 1 | 3-4 | 2 |
+| the team of six | `PSSSLSS` | 5 | 27 | 5 | 2-5 | 0 |
+
+The three models together state findings 3, 4, 6 and 7: four. The team states 2, 3, 4, 6 and 7 and has 5 among
+what it did not confirm. Finding 2 was confirmed by all six reviewers, 7 by all six, 3 by four, 4 by three, 6 by
+the NEAR reviewer alone. The readers differ on how many of the team's items are wrong (two or five): three of them
+turn on code that is not in the file.

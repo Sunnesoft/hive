@@ -703,6 +703,32 @@ all the files where the check had seen one. Showing every check all the files: o
 gain on one contract and none clear on the other, at a higher cost; a check of a grave finding reads everything,
 the others the files their finding names.
 
+## A held-out contract: the team states more than the three models together, with no false alarm
+
+cNEAR, a token contract audited by Trail of Bits in August 2026: later than anything the models were trained on,
+and a contract nothing here had been tried on. The team was fixed before the run: the NEAR reviewer, the three
+reviewers written from experience (DeFi protocols by kind, incidents, Rust) and the two Solidity auditors that
+had each brought a finding of their own on the development contract. Two readers, who agree on every letter:
+
+| answer | findings of the audit stated, of 7 | real, of all it claims | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|---|
+| Qwen3.6-35B alone | 1 | 1 of 10 | 3-4 | 2 | 0.005 |
+| kimi-k2.6 alone | 2 | 2 of 11 | 2 | 2 | 0.023 |
+| DeepSeek alone | 3 | 3 of 11 | 1-2 | 1 | 0.010 |
+| the three models' answers together | 4 | 6 of 32 | 7 | 5 | 0.038 |
+| the team of six | 5 | 5 of 27 | 2-5 | 0 | 0.88 by our meter, 0.56 by NEAR AI's bill |
+
+**On a contract it had never seen the team stated five of the audit's seven findings, the three models together
+four, and it raised no false grave finding where they raised five.** The audit's High finding in this file, that
+handing ownership over leaves the old owner a super-admin who can take it back, was confirmed by all six
+reviewers; no model alone stated it (two touched it in passing). A sixth finding the team raised and did not
+confirm. The seventh nobody states: it rests on a contract that is not in the file.
+
+What stays as it was: one contract and one run; of everything any answer claims, about a fifth is a real flaw
+(most of the rest is true and no flaw), the team's answer included; and a real finding costs the team twenty to
+fifty times what it costs a model asked alone. Six reviewers were more than this contract needed: the NEAR
+reviewer and one Solidity auditor between them confirmed all five, for half the price.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be
