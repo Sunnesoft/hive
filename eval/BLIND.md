@@ -323,3 +323,17 @@ The three models together state findings 1, 2, 3 and 6: the same four as the tea
 states; the team names the method of finding 5 and says of it the opposite of what the audit found. In the team's
 answer finding 2 was confirmed by five reviewers; finding 1 by the reviewer of incidents and one Solidity auditor;
 finding 3 by four; finding 6 by three.
+
+## A held-out NEAR contract, the review with nothing cut (`nearx audit`, 10 findings)
+
+Two readers, four answers, different order. They differ only on whether two findings are stated in passing.
+
+| answer | reader A | reader B | stated | wrong | false Critical or High |
+|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `ASAASSASAP` | `ASAASSASAP` | 4 | 5-6 | 0 |
+| alone, with room: kimi-k2.6 | `AAAAPAAAAA` | `AAAAPAAAAA` | 0 | 6 | 3 |
+| alone, with room: Qwen3.6-35B-A3B | `AAAAPAPAAA` | `AAAAPAPAAA` | 0 | 5-6 | 4 |
+| the NEAR reviewer and two Solidity auditors | `SSAASSSAPP` | `SSAASSSAPA` | 5 | 22-24 | 5 |
+
+Finding 1 is the exploit of August 2022 (a transfer to oneself mints shares); only the team states it, confirmed
+by two of its three reviewers. The three models together state findings 2, 5, 6 and 8.

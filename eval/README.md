@@ -760,6 +760,40 @@ Most of what any answer claims is true and no flaw, the team's a little more so 
 costs fifteen to twenty-five times as much. The claim that stands is the narrow one: the same findings and one
 more, with an eighth of the false alarms.
 
+## The review with nothing cut: the exploit found, and the noise with it
+
+Asked to take out every saving that had cost findings, the review changed: one model reads and judges, a reply is
+as long as the model writes it, every wording is checked with all of the files and the part of the knowledge it
+came from (the steps that cap it by money and stop it on a loop came after this run). The team: the NEAR reviewer
+and the two Solidity auditors, the three that had confirmed between them every finding the team of six stated on
+the two held-out contracts before. On NearX, held out and never run before, whose list holds the bug exploited in
+August 2022 beside the audit's findings. Two readers, who give every answer the same count:
+
+| answer | findings stated, of 10 | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|
+| Qwen3.6-35B alone | 0 | 5-6 | 4 | 0.007 |
+| kimi-k2.6 alone | 0 | 6 | 3 | 0.023 |
+| DeepSeek alone | 4 | 5-6 | 0 | 0.013 |
+| the three models' answers together | 4 | 17-18 | 7 | 0.044 |
+| the team of three, nothing cut | 5 | 22-24 | 5 | 1.51 by our meter, 1.31 by NEAR AI's bill |
+
+**The team states the exploit, and nothing else does.** A transfer to oneself mints shares from nothing: no model
+asked alone names it, and no audit report of the contract has it. Two of the three reviewers confirmed it with the
+lines it rests on. Of the audit's own findings the team states four, as DeepSeek alone does.
+
+**The noise came back.** The answer has 105 items, of some seventy different claims, a third of them wrong, five
+rated High. The check judged over three hundred wordings; with the same rate of error, more of them pass.
+
+**The experts' agreement is the filter.** Split by how many reviewers confirmed an item:
+
+| confirmed by | items | findings of the audit | wrong | wrong and rated Critical or High |
+|---|---|---|---|---|
+| two reviewers | 8 | 2, the exploit one of them | 2 | 0 |
+| one reviewer | 97 | 4 | 22 | 5 |
+
+Every false grave finding is one that one reviewer alone confirmed. Where two that did not see each other's work
+agree, the answer is nearly clean, and the exploit stands there.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be
