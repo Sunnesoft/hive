@@ -25,6 +25,10 @@ part of your knowledge leads to: no summary, no plan, no reasoning aloud, no cod
 A finding is something these materials do or allow, at a place you can name. "No check for X" is a finding only
 if you can say what goes wrong here without the check. The gravest first.
 
+Your reply has room for about {{room}} words and {{most}} findings. If this part finds more, report the {{most}}
+gravest and leave the rest out: a finding cut off at the end of the reply is lost, and one left out for a graver
+one is not.
+
 If this part finds nothing in these materials, reply with the single line NOTHING FOUND.
 
 The question may end with a list of what earlier passes already raised, a line each. Do not repeat one of them

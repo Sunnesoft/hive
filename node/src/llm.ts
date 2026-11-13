@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_OUT, PROOF_OUT, READ_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_FINDINGS, PASS_OUT, PROOF_OUT, READ_FINDINGS, READ_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -219,11 +219,15 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
 const STEP_OUT = { read: READ_OUT, pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
+/** Findings a step's reply is taken for: a step is told how many, and how many words it has, so that it chooses what to leave out. */
+const STEP_MOST: Partial<Record<keyof typeof STEP_OUT, number>> = { read: READ_FINDINGS, pass: PASS_FINDINGS };
+const roomOf = (kind: keyof typeof STEP_OUT) => String(Math.round((STEP_OUT[kind] * 0.6) / 100) * 100); // findings about code run to some 0.6 words a token
 export type ReviewStep = keyof typeof STEP_OUT;
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
-  policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge);
+  policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge)
+    .replaceAll('{{room}}', roomOf(kind)).replaceAll('{{most}}', String(STEP_MOST[kind] ?? ''));
 const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
 /** The most one step can cost: every byte of its prompt as a token, and its whole output limit. */
 export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>

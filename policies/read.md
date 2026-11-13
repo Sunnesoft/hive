@@ -20,7 +20,8 @@ what is left behind when a step fails. Report everything you would put in a repo
 first: what is wrong, and what works as written and is still a risk to the people who rely on it (what one
 account can do to the others, what the materials take for granted about the things they deal with and never
 check, what has no limit). Report it even if you are not sure it holds: the check comes later, and what you
-leave out is never checked. No summary, no plan, no reasoning aloud, no code. If you find nothing to report,
+leave out is never checked. Your reply has room for about {{room}} words and {{most}} findings: if you see more,
+report the {{most}} gravest, since a finding cut off at the end of the reply is lost. No summary, no plan, no reasoning aloud, no code. If you find nothing to report,
 reply with the single line NOTHING FOUND.
 
 Write each finding as:
