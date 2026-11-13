@@ -29,7 +29,8 @@ there. Go through everything else that touches the same state: each function tha
 collection that can grow and who can grow it, each loop and what bounds it, each payment in and where it goes back
 out, each caller and what it must attach. What holds there is a finding too.
 
-A finding needs one of three: someone who gains, someone who loses, or a service that stops; say which.
+A finding needs one of three: someone who gains, someone who loses, or a service that stops; say which. It need
+not be an attack, and the one who loses may be the one who caused it.
 
 Return "findings": what is actually wrong at this place, the gravest first, as many as there are, and an empty
 list if nothing holds. Each finding:
