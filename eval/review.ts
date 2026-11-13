@@ -28,7 +28,7 @@ import { REVIEWS, type ReviewTask } from './review-tasks.ts';
 const OUT = 'eval/out/reviews.json';
 const LIMIT = Number(process.env.EVAL_LIMIT_USD ?? '0.60');
 const TAG = process.env.EVAL_TAG ? ` ${process.env.EVAL_TAG}` : '';
-const ALONE_ROOM = 2 * READ_OUT; // output tokens of a model asked alone: nothing cuts it short, as nothing would cut a customer's own call
+const ALONE_ROOM = 8_000; // output tokens of a model asked alone, as in every baseline run so far: nothing cuts it short, as nothing would cut a customer's own call
 type Page = { url: string; text: string };
 type Kept = { text: string; usd: number; seconds: number; model?: string; review?: Pick<Review, 'findings' | 'leads' | 'counts'> };
 const kept: Record<string, Record<string, Kept>> = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};

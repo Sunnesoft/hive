@@ -128,10 +128,17 @@ export async function nearai(models: string[], port = 0, { general = false } = {
     // A review. The materials are what the user message holds before the section a step adds to it.
     const HEAD = /^### (?:\d+\. )?(\w+) \| ([^|\n]+) \| (.+)$/gm;
     const lineWith = (text: string, word: string) => text.split('\n').find((l) => l.includes(word) && !l.startsWith('#') && !l.startsWith('<'))?.trim() ?? '';
+    // A reading, a pass and the look at findings together answer on a form: the findings the text below would have listed.
+    const asForm = (text: string) => ({ findings: text.split(/^### /m).slice(1).map((block) => {
+      const [head = '', ...rest] = block.split('\n');
+      const [severity = '', where = '', title = ''] = head.replace(/^\d+\. /, '').split(' | ').map((x) => x.trim());
+      return { severity, where, title, how: rest.join(' ').trim(), evidence: '', fix: '' };
+    }) });
+    const replyForm = (text: string) => reply(asForm(text));
     if (is("You are an expert reading a customer's materials")) {
       // The expert's own reading, before any checklist: it sees one thing of its own, which no line of the file bears out.
       review.reads.push(`${system}\n${user}`);
-      return reply(general ? 'NOTHING FOUND' : '### Low | ledger | Project Alpha ledger has no version line\nNothing says which version of the ledger this is.');
+      return replyForm(general ? 'NOTHING FOUND' : '### Low | ledger | Project Alpha ledger has no version line\nNothing says which version of the ledger this is.');
     }
     if (is("You are an expert going through a customer's materials")) {
       review.passes.push(`${system}\n${user}`);
@@ -140,12 +147,12 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       if (general) { // the lines of this part closest to the materials, each a finding at the line of the materials it shares most words with
         const lines = user.split('\n').filter((l) => l.trim().length > 12 && !l.startsWith('#') && !l.startsWith('<'));
         const near = part.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 30).map((l) => ({ l, at: lines.map((x) => ({ x, n: shared(stems(l), stems(x)) })).sort((a, b) => b.n - a.n)[0] })).filter((c) => (c.at?.n ?? 0) >= 2);
-        return reply(near.slice(0, 3).map((c) => `### Medium | ${c.at!.x.trim().slice(0, 60)} | ${c.l.slice(0, 160)}\nThe checklist item applies to this line of the materials.`).join('\n\n') || 'NOTHING FOUND');
+        return replyForm(near.slice(0, 3).map((c) => `### Medium | ${c.at!.x.trim().slice(0, 60)} | ${c.l.slice(0, 160)}\nThe checklist item applies to this line of the materials.`).join('\n\n') || 'NOTHING FOUND');
       }
       // "RULE <place>: <severity>: <claim>" finds something if the materials name the place and no earlier pass raised that claim.
       const [, raised = ''] = user.split('# Already raised by earlier passes');
       const found = [...part.matchAll(/^RULE (\w+): (\w+): (.+)$/gm)].filter(([, place, , claim]) => user.includes(`${place}(`) && !raised.includes(claim!));
-      return reply(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
+      return replyForm(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
     }
     if (is('You are an expert checking findings')) {
       review.checks.push(`${system}\n${user}`);
@@ -162,7 +169,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       // Fixed rule: an open withdraw and a fee that rounds to zero empty the ledger together. Stand-ins: nothing follows.
       const [, list = ''] = user.split('# Confirmed findings');
       const both = !general && /\| withdraw \|/.test(list) && /\| fee \|/.test(list);
-      return (review.combines.push(`${system}\n${user}`), reply(both ? '### High | withdraw | Project Alpha fee and withdraw together empty the ledger\nThe open withdraw takes what the fee leaves.' : 'NOTHING FOUND'));
+      return (review.combines.push(`${system}\n${user}`), replyForm(both ? '### High | withdraw | Project Alpha fee and withdraw together empty the ledger\nThe open withdraw takes what the fee leaves.' : 'NOTHING FOUND'));
     }
     if (is('You write the opening paragraph of a review')) {
       // It says a sentence with the marks of both reviews, and then tries to add code of its own: the code must not reach the customer.

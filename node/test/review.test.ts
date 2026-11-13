@@ -9,7 +9,7 @@ const loose: Finding = { severity: 'Medium', where: 'fee()', title: 'The fee can
 const dust: Finding = { severity: 'Low', where: 'fee()', title: 'The fee rounds to zero', how: 'amount * 3 / 1000 is 0 below 334.', evidence: '`return amount * 3 / 1000;`', fix: 'Round up.' };
 
 test('a review as one contribution: the count by severity, then every finding with its evidence, fix and proof', () => {
-  const text = reportOf({ findings: [{ ...drain, proof: '```solidity\nfunction test_drain() public {}\n```' }, dust], leads: [], counts: { own: 0, passes: 3, raised: 9, groups: 5, checked: 5, combined: 0, held: 2, leads: 0, proofs: 1, cut: 0 } });
+  const text = reportOf({ findings: [{ ...drain, proof: '```solidity\nfunction test_drain() public {}\n```' }, dust], leads: [], counts: { own: 0, passes: 3, raised: 9, groups: 5, checked: 5, combined: 0, held: 2, leads: 0, proofs: 1, cut: 0, unpaid: 0 } });
   assert.match(text, /^Checked findings: 2 \(1 High, 1 Low\)\./);
   assert.match(text, /### 1\. High: Anyone can withdraw the pool\n\n\*Where:\* withdraw\(\)\.\n\nwithdraw\(\) sends/);
   assert.match(text, /\*\*Evidence:\*\* `payable\(msg\.sender\)/);
@@ -18,17 +18,17 @@ test('a review as one contribution: the count by severity, then every finding wi
 });
 
 test('a finding joined from several wordings shows the others under it: nothing a pass raised is hidden', () => {
-  const text = reportOf({ findings: [{ ...drain, also: ['withdraw() has no owner check', 'The pool can be emptied by any caller', 'a', 'b', 'c'] }], leads: [], counts: { own: 0, passes: 2, raised: 6, groups: 6, checked: 6, combined: 0, held: 1, leads: 0, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [{ ...drain, also: ['withdraw() has no owner check', 'The pool can be emptied by any caller', 'a', 'b', 'c'] }], leads: [], counts: { own: 0, passes: 2, raised: 6, groups: 6, checked: 6, combined: 0, held: 1, leads: 0, proofs: 0, cut: 0, unpaid: 0 } });
   assert.match(text, /withdraw\(\) sends the whole balance to msg\.sender\.\n\n\*The same was raised as:\* withdraw\(\) has no owner check; The pool can be emptied by any caller; a; b; and 1 more\n\n\*\*Evidence:\*\*/);
 });
 
 test('a review that found nothing says what it did, not nothing', () => {
-  const text = reportOf({ findings: [], leads: [], counts: { own: 0, passes: 4, raised: 1, groups: 1, checked: 1, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [], leads: [], counts: { own: 0, passes: 4, raised: 1, groups: 1, checked: 1, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0, unpaid: 0 } });
   assert.match(text, /^Checked findings: none\. .*4 parts of its checklist and raised 1 candidate; none was confirmed/);
 });
 
 test('what the check did not confirm is listed after the findings: a grave one whole, with what its check said, a Medium one in a line', () => {
-  const text = reportOf({ findings: [drain], leads: [{ ...mint, checkSaid: 'The transfer comes first.' }, loose], counts: { own: 0, passes: 4, raised: 3, groups: 2, checked: 2, combined: 0, held: 1, leads: 1, proofs: 0, cut: 0 } });
+  const text = reportOf({ findings: [drain], leads: [{ ...mint, checkSaid: 'The transfer comes first.' }, loose], counts: { own: 0, passes: 4, raised: 3, groups: 2, checked: 2, combined: 0, held: 1, leads: 1, proofs: 0, cut: 0, unpaid: 0 } });
   assert.match(text, /Not confirmed: 2\. [^\n]*\n\n### 2\. High, not confirmed: Shares are minted for nothing\n\n\*Where:\* deposit\(\)\.\n\ndeposit\(\) credits shares before the transfer\.\n\n\*Its check said:\* The transfer comes first\.\n\n- \*\*Medium\*\*, fee\(\): The fee can be set to anything$/);
   assert.ok(text.indexOf('Not confirmed') > text.indexOf('**Fix:** Add onlyOwner.'));
 });
@@ -69,19 +69,22 @@ test('a finding one expert confirmed and another only raised is one finding: fou
   assert.deepEqual([...sharesOf(list)], [[1, 100]]);
 });
 
-test('how deep a review goes is the expert\'s: its rooms and checks, within the protocol\'s bounds', async () => {
-  const { Materials } = await import('../src/materials.ts');
+test('what a review spends is the expert\'s: a reply is as long as the money left pays for; a loop stops it', async () => {
   const llm = await import('../src/llm.ts');
+  const { repeats, REPLY_MOST } = await import('../src/rules.ts');
+  const price = { in: 0.3, out: 1.2 }; // USD per 1M tokens: micro-USD per token
+  assert.equal(llm.limitFor(price, 10_000, 1_000_000n), REPLY_MOST); // a dollar left: the reply is not held back by money
+  assert.equal(llm.limitFor(price, 10_000, 9_000n), Math.floor((9_000 - 3_000) / 1.2)); // six thousandths of a dollar after the prompt
+  assert.ok(llm.limitFor(price, 10_000, 2_000n) < 0); // the prompt alone costs more than is left: not sent
+  const finding = (n: number) => `### Medium | f${n} | a different flaw number ${n} in its own words, with its own place and its own fix\n`;
+  assert.equal(repeats(Array.from({ length: 60 }, (_, n) => finding(n)).join('')), false); // a long reply of different findings goes on
+  const loop = '### Critical | beneficiary.rs | claim_callback and claim_all_callback state update on failed transfer\n'.repeat(12);
+  assert.equal(repeats(finding(1) + loop), true); // one finding said over and over is a loop
+  assert.equal(repeats(`${'-'.repeat(3_000)}${' '.repeat(3_000)}`), false); // layout is no loop
+  const { Materials } = await import('../src/materials.ts');
   const { allowedModels } = await import('../src/config.ts');
   const base = { name: 'x', model: allowedModels[0]!, expertise: 'Reviews.', work: 'review' as const };
-  const full = Materials.parse(base);
-  assert.deepEqual(full.review, { read_room: 6_000, pass_room: 4_000, checks: 60 }); // as deep as the protocol lets, if the expert says nothing
-  const light = Materials.parse({ ...base, review: { pass_room: 1_200, checks: 10 } });
-  assert.deepEqual(light.review, { read_room: 6_000, pass_room: 1_200, checks: 10 });
-  assert.equal(llm.roomOf('pass', light), 1_200);
-  assert.equal(llm.mostOf('pass', light), 6); // the findings taken follow from the room
-  assert.equal(llm.mostOf('pass', full), 20);
-  assert.equal(llm.roomOf('check', light), llm.roomOf('check', full)); // a check needs its room to be a form: not the expert's
-  assert.ok(!Materials.safeParse({ ...base, review: { pass_room: 100 } }).success); // too little to hold one finding
-  assert.ok(!Materials.safeParse({ ...base, review: { checks: 1_000 } }).success);
+  assert.equal(Materials.parse(base).review, undefined); // said nothing: every finding raised is checked while the money lasts
+  assert.deepEqual(Materials.parse({ ...base, review: { checks: 10 } }).review, { checks: 10 });
+  assert.ok(!Materials.safeParse({ ...base, review: { pass_room: 1_000 } }).success); // no room of the protocol's to set
 });

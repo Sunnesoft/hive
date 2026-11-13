@@ -18,10 +18,13 @@ one finding gives what another needs (a permission, an address, a value, a state
 keeps another from being worse. Follow each such combination through the materials line by line.
 
 Report only what is new: a combination whose harm is larger than, or different from, the harm of its parts. A
-finding of the list said again in other words is not a combination. If nothing follows from them together, reply
-with the single line NOTHING FOUND.
+finding of the list said again in other words is not a combination.
 
-Write each combination as a finding of its own:
-
-### <Critical, High, Medium or Low> | <the function or place it is in> | <what is wrong, in one line>
-<which findings it joins and how it happens, in at most 60 words, with the names and values the materials use>
+Return "findings": each combination as a finding of its own, the gravest first, as many as there are. Each finding:
+"severity": Critical, High, Medium or Low.
+"where": the function or place it is in.
+"title": what is wrong, in one line.
+"how": which findings it joins and how it happens, in at most 60 words, with the names and values the materials use.
+"evidence": one to three lines of the materials it rests on, copied exactly.
+"fix": the smallest change that closes it, in one sentence.
+If nothing follows from them together, return an empty list.

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { cfg, policy } from './config.ts';
 import { log } from './log.ts';
 import type { Materials } from './materials.ts';
-import { ceiling, CHECK_OUT, COMBINE_OUT, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, PASS_FINDINGS, PASS_OUT, PROOF_OUT, READ_FINDINGS, READ_OUT, SAME_OUT, SUMMARY_OUT, TOPICS, usdc, type Price, type Usage } from './rules.ts';
+import { ceiling, LOOKUP_OUT, LOOKUPS, MAX_OUT, microUsd, repeats, REPLY_LEAST, REPLY_MOST, SAME_OUT, SEVERITIES, SUMMARY_OUT, TOPICS, usdc, type Finding, type Price, type Usage } from './rules.ts';
 import * as store from './store.ts';
 import type { Page } from './web.ts';
 
@@ -80,25 +80,34 @@ const DIRECT = { nearai: { chat_template_kwargs: { enable_thinking: false, think
 const billedAs = (r: { response: { headers?: Record<string, string> | undefined } }) => r.response.headers?.['inference-id'];
 
 const SLOWEST = 10; // tokens a second: a model slower than this over a whole reply is not waited for to its end
-/** A text reply, read as the model writes it. One timeout for the whole call cannot tell a slow model from a dead
- *  one: at 20 tokens a second a reply of 4,000 tokens takes 200 seconds, and a call cut at 180 looks like a model
- *  that hangs. So a model is waited for as long as it keeps writing, and given up on when it has not started within
- *  AGENT_TIMEOUT_MS, has written nothing for MODEL_SILENCE_MS, or is slower than SLOWEST over the whole reply.
- *  Never retried inside: who calls decides whether to ask again. */
-async function written(model: string, o: { instructions: string; prompt: string; limit: number; temperature?: number }) {
+/** A model's reply, read as it is written. Given up on if it does not start within AGENT_TIMEOUT_MS, falls silent
+ *  for MODEL_SILENCE_MS, writes slower than SLOWEST over the whole reply, or goes round in a loop (rules.repeats):
+ *  a loop is the one thing a reply that is still being written is stopped for. With `schema` the reply is a form
+ *  of that shape: the model gives the structure, not code reading it out of prose. */
+async function written(model: string, o: { instructions: string; prompt: string; limit: number; temperature?: number; schema?: z.ZodType }) {
   const control = new AbortController();
   const giveUp = (why: string) => () => control.abort(new DOMException(why, 'TimeoutError'));
   let quiet = setTimeout(giveUp('the model did not start writing'), cfg.AGENT_TIMEOUT_MS);
   const whole = setTimeout(giveUp('the model wrote too slowly'), cfg.AGENT_TIMEOUT_MS + (o.limit / SLOWEST) * 1_000);
+  let [seen, looked] = ['', 0];
   const stream = streamText({
     model: nearai(model), instructions: o.instructions, prompt: o.prompt, ...(o.temperature === undefined ? {} : { temperature: o.temperature }),
+    ...(o.schema ? { output: Output.object({ schema: o.schema }) } : {}),
     maxOutputTokens: o.limit, maxRetries: 0, providerOptions: DIRECT, abortSignal: control.signal,
-    onChunk: () => { clearTimeout(quiet); quiet = setTimeout(giveUp('the model fell silent'), cfg.MODEL_SILENCE_MS); },
+    onChunk: ({ chunk }) => {
+      clearTimeout(quiet);
+      quiet = setTimeout(giveUp('the model fell silent'), cfg.MODEL_SILENCE_MS);
+      seen += (chunk as { text?: string }).text ?? '';
+      if (seen.length - looked >= 1_000) {
+        looked = seen.length;
+        if (repeats(seen)) giveUp('the model repeats itself')();
+      }
+    },
     onError: () => {}, // the error is the rejection below; the library would otherwise print it
   });
   try {
     const [text, usage, finishReason, response] = await Promise.all([stream.text, stream.usage, stream.finishReason, stream.response]);
-    return { text, usage, finishReason, response };
+    return { text, usage, finishReason, response, output: o.schema ? ((await stream.output) as unknown) : undefined };
   } finally {
     clearTimeout(quiet);
     clearTimeout(whole);
@@ -218,38 +227,56 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-const STEP_OUT = { read: READ_OUT, pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
-/** Output tokens of one step of an expert's review: its own reading and its passes as deep as the expert chose
- *  (Materials.review), the rest as the protocol needs them to be readable. */
-export const roomOf = (kind: keyof typeof STEP_OUT, m: Materials) => (kind === 'read' ? m.review.read_room : kind === 'pass' ? m.review.pass_room : STEP_OUT[kind]);
-/** Findings taken from a reading or a pass: as many as its room holds, at the 200 tokens a finding with its
- *  evidence takes. A step is told how many, and how many words it has, so that it chooses what to leave out. */
-export const mostOf = (kind: 'read' | 'pass', m: Materials) => Math.max(5, Math.floor(roomOf(kind, m) / (kind === 'read' ? READ_OUT / READ_FINDINGS : PASS_OUT / PASS_FINDINGS)));
-const wordsOf = (tokens: number) => String(Math.round((tokens * 0.6) / 100) * 100); // findings about code run to some 0.6 words a token
-export type ReviewStep = keyof typeof STEP_OUT;
+export type ReviewStep = 'read' | 'pass' | 'check' | 'combine' | 'proof';
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
-  policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge)
-    .replaceAll('{{room}}', wordsOf(roomOf(kind, m))).replaceAll('{{most}}', kind === 'read' || kind === 'pass' ? String(mostOf(kind, m)) : '');
+  policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge);
 const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
-/** The most one step can cost: every byte of its prompt as a token, and its whole output limit. */
-export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>
-  microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: roomOf(kind, m) }, price);
+/** How long a reply may be: as long as the money left in the expert's hold pays for once its prompt is paid (every
+ *  byte of it counted as a token), and never past REPLY_MOST. Below REPLY_LEAST it is not sent: the money is spent. */
+export const limitFor = (price: Price, promptBytes: number, money: bigint) =>
+  Math.min(REPLY_MOST, Math.floor(Number(money - microUsd({ inputTokens: promptBytes }, price)) / Math.max(price.out, 1e-9)));
 
-/** One step of a review: the agent's own reading, a pass with one part of its knowledge, the check of a group of
- *  findings, a look at the confirmed findings together, or the proof of one. `about` is the section the step is given after the question and the materials: the findings to
- *  check, the finding to prove. Sent only if its worst case fits `cap`; a step that fails costs the agent nothing
- *  and returns nothing. `cut`: the reply ran into the step's output limit. */
-export async function step(kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, cap: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
+/** A finding as a reading, a pass or the look at findings together writes it: the form the model fills. */
+const Raised = z.object({ findings: z.array(z.object({ severity: z.string(), where: z.string(), title: z.string(), how: z.string(), evidence: z.string().nullish(), fix: z.string().nullish() })) });
+const severityIn = (s: string): Finding['severity'] => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? 'Medium';
+const quoted = (lines: string) => lines.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (l.startsWith('`') ? l : `\`${l.replace(/`/g, "'")}\``)).join('\n');
+
+/** One step of a review that raises findings: the agent's own reading, a pass with one part of its knowledge, or
+ *  the look at the confirmed findings together (`about`: the section the step is given after the question and the
+ *  materials). The reply is a form: every finding the model reports, as many as it reports, the gravest first.
+ *  `money`: what is left of the agent's hold; the reply may be as long as it pays for. A step that fails costs the
+ *  agent nothing and raises nothing. */
+export async function raise(kind: 'read' | 'pass' | 'combine', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ findings: Finding[]; cost: bigint; why?: Why; cut?: boolean }> {
+  const model = modelOf(kind, m);
+  const price = priceOf(model);
+  if (!price) return { findings: [], cost: 0n, why: 'model_unavailable' };
+  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
+  const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
+  if (limit < REPLY_LEAST) return { findings: [], cost: 0n, why: 'too_expensive' };
+  const call = () => written(model, { instructions: system, prompt, limit, temperature: 0, schema: Raised }); // not retried inside: a review tries a failed step once more itself
+  try {
+    const r = await metered(kind, model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    const form = Raised.parse(r.output);
+    const findings = form.findings.filter((f) => f.title.trim()).map((f): Finding => ({ severity: severityIn(f.severity), where: f.where.trim(), title: f.title.trim(), how: f.how.trim(), evidence: quoted(f.evidence ?? ''), fix: (f.fix ?? '').trim() }));
+    return { findings, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
+  } catch {
+    return { findings: [], cost: 0n, why: 'model_failed' };
+  }
+}
+
+/** The proof of one finding (policies/proof.md): code, in a reply as long as the money left pays for. */
+export async function step(kind: 'proof', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ text: string; cost: bigint; why?: Why; cut?: boolean }> {
   const model = modelOf(kind, m);
   const price = priceOf(model);
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
-  if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
-  const call = () => written(model, { instructions: system, prompt, limit: roomOf(kind, m), temperature: 0 }); // not retried inside: a review tries a failed step once more itself
+  const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
+  if (limit < REPLY_LEAST) return { text: '', cost: 0n, why: 'too_expensive' };
+  const call = () => written(model, { instructions: system, prompt, limit, temperature: 0 });
   try {
-    const r = await metered(kind, model, { agent: m.name, system, prompt }, roomOf(kind, m), call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+    const r = await metered(kind, model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' };
@@ -282,15 +309,17 @@ export type CheckVerdict = z.infer<typeof CheckVerdict>;
  *  thing the group says, as fields, not as prose. Asked for prose, one model wrote an essay where the verdict
  *  should have been and ran out of room before it reached one; a form has nowhere to put an essay. Sent only if
  *  its worst case fits `cap`; a check that fails, or whose reply is no form, costs the agent nothing. */
-export async function check(m: Materials, question: string, pages: Page[], about: string, cap: bigint, knowledge = ''): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = ''): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   if (!price) return { verdicts: [], cost: 0n, why: 'model_unavailable' };
-  if (stepCeiling('check', m, knowledge, question, pages, about, price) > cap) return { verdicts: [], cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions('check', m, knowledge), stepPrompt(question, pages, about)];
-  const call = () => generateText({ model: nearai(m.model), instructions: system, prompt, output: Output.object({ schema: z.object({ verdicts: z.array(CheckVerdict) }) }), temperature: 0, maxOutputTokens: CHECK_OUT, maxRetries: 0, providerOptions: DIRECT, abortSignal: AbortSignal.timeout(2 * cfg.AGENT_TIMEOUT_MS) }); // a form is not streamed: it is given the time a slow model needs to write it whole
+  const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
+  if (limit < REPLY_LEAST) return { verdicts: [], cost: 0n, why: 'too_expensive' };
+  const Form = z.object({ verdicts: z.array(CheckVerdict) });
+  const call = () => written(m.model, { instructions: system, prompt, limit, temperature: 0, schema: Form });
   try {
-    const r = await metered('check', m.model, { agent: m.name, system, prompt }, CHECK_OUT, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
-    return { verdicts: r.output.verdicts, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
+    const r = await metered('check', m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    return { verdicts: Form.parse(r.output).verdicts, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch (e) {
     return { verdicts: [], cost: 0n, why: 'model_failed', cut: (e as { finishReason?: string }).finishReason === 'length' };
   }

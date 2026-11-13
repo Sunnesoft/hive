@@ -467,7 +467,7 @@ try {
     [first, ['ledger-one', 3n * U, `Marker FIRST-ONLY.\n\n${DRAIN}\n\nRULE fee: Low: phantom Project Alpha fee overflow\n\nRULE owner: Low: phantom Project Alpha owner drift\n\nRULE withdraw: Low: phantom Project Alpha payout delay\n\nRULE mint: High: Project Alpha ledger mints from nothing\n\n${filler}\n\nRULE fee: Medium: Project Alpha fee rounds to zero\n\nRULE owner: Medium: misquoted Project Alpha owner check`]],
     // Four files: three passes start at once, the fourth after one of them has ended, so it is told what that one raised.
     [second, ['ledger-two', 3n * U, `Marker SECOND-ONLY.\n\n${DRAIN}\n\nRULE owner: Low: Project Alpha owner is anyone\n\nRULE withdraw: High: Project Alpha payouts are open (twin)`, [DRAIN, DRAIN, DRAIN]]],
-    [tight, ['ledger-three', U / 5n, `Marker THIRD-ONLY.\n\n${DRAIN}`]],
+    [tight, ['ledger-three', U / 1_000n, `Marker THIRD-ONLY.\n\n${DRAIN}`]], // a thousandth of a dollar: it does not pay for a reading
   ]);
   const reviewers = new Map<Account, Buffer>();
   for (const [who, [name, maxCost, knowledge, more = []]] of checklists) {
@@ -518,7 +518,7 @@ try {
   const rv = await job('a-review#1');
   const slot = (who: Account) => rv!.slots.find((x) => x.agent === agentId(who))!;
   check('review: the experts that delivered are paid their rates; a review costs its expert more than one call', slot(first).pay === `${U}` && slot(second).pay === `${U}` && did(first).cost === `${3n * CENT}` && did(second).cost === `${2n * CENT}`, { rv, first: did(first), second: did(second) }); // seventeen calls and twelve, 0.0012 each
-  check('review: a hold that cannot cover the worst case of a review starts none: nothing spent, the owner is told why', did(tight).why === 'too_expensive' && did(tight).cost === '0' && slot(tight).pay === '0' && (await roundOf(tight))?.why === 'too_expensive', { did: did(tight), cabinet: await roundOf(tight) });
+  check('review: an expert whose hold does not pay for a reading is not given the review: it spends nothing and nobody pays it', did(tight) === undefined && (await roundOf(tight)) === undefined && ai.review.passes.every((c) => !c.includes('THIRD-ONLY')), { did: did(tight) ?? null, cabinet: (await roundOf(tight)) ?? null });
   check('review: the owners see how much of the answer came from their experts', (await roundOf(first))?.share === 60 && (await roundOf(second))?.share === 40, [await roundOf(first), await roundOf(second)]);
   market.hire({ id: 'a-asked', title: 'Ledger', description: 'ledger: how should a ledger be closed at the end of a day?', escrow: '10.0' });
   await until('an answer from the reviewers', () => market.delivered('a-asked').length === 1 || market.declined.has('a-asked'));

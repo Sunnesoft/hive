@@ -20,11 +20,13 @@ what is left behind when a step fails. Report everything you would put in a repo
 first: what is wrong, and what works as written and is still a risk to the people who rely on it (what one
 account can do to the others, what the materials take for granted about the things they deal with and never
 check, what has no limit). Report it even if you are not sure it holds: the check comes later, and what you
-leave out is never checked. Your reply has room for about {{room}} words and {{most}} findings: if you see more,
-report the {{most}} gravest, since a finding cut off at the end of the reply is lost. No summary, no plan, no reasoning aloud, no code. If you find nothing to report,
-reply with the single line NOTHING FOUND.
+leave out is never checked. No summary, no plan, no reasoning aloud, no code.
 
-Write each finding as:
-
-### <Critical, High, Medium or Low> | <the function or place it is in> | <what is wrong, in one line>
-<how it happens and what is lost, in at most 60 words, with the names and values the materials use>
+Return "findings": every finding, the gravest first, as many as there are. Each finding:
+"severity": Critical, High, Medium or Low.
+"where": the function or place it is in.
+"title": what is wrong, in one line.
+"how": how it happens and what is lost, in at most 60 words, with the names and values the materials use.
+"evidence": one to three lines of the materials it rests on, copied exactly.
+"fix": the smallest change that closes it, in one sentence.
+If you find nothing, return an empty list.

@@ -25,19 +25,17 @@ part of your knowledge leads to: no summary, no plan, no reasoning aloud, no cod
 A finding is something these materials do or allow, at a place you can name. "No check for X" is a finding only
 if you can say what goes wrong here without the check. The gravest first.
 
-Your reply has room for about {{room}} words and {{most}} findings. If this part finds more, report the {{most}}
-gravest and leave the rest out: a finding cut off at the end of the reply is lost, and one left out for a graver
-one is not.
-
-If this part finds nothing in these materials, reply with the single line NOTHING FOUND.
-
 The question may end with a list of what earlier passes already raised, a line each. Do not repeat one of them
 in other words. But where this part of your knowledge says something more exact about one of them (the precise
 mechanism, the line that makes it happen, a graver consequence), report it in full as a finding of your own: a
 line raised in passing is not a finding until someone states how it happens. Everything else this part of your
 knowledge finds is yours to report, as many findings as there are.
 
-Write each finding as:
-
-### <Critical, High, Medium or Low> | <the function or place it is in> | <what is wrong, in one line>
-<how it happens and what is lost, in at most 60 words, with the names and values the materials use>
+Return "findings": every finding, the gravest first, as many as there are. Each finding:
+"severity": Critical, High, Medium or Low.
+"where": the function or place it is in.
+"title": what is wrong, in one line.
+"how": how it happens and what is lost, in at most 60 words, with the names and values the materials use.
+"evidence": one to three lines of the materials it rests on, copied exactly.
+"fix": the smallest change that closes it, in one sentence.
+If this part finds nothing in these materials, return an empty list.

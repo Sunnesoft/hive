@@ -21,6 +21,12 @@ export const USDC = 1_000_000n; // base units in one USDC
 export const COST_STEP = 10_000n; // 0.01 USDC, as the contract requires
 export const MARKET_FEE_BPS = 500n; // Agent Market's platform fee
 export const MAX_OUT = 4_000; // output tokens of one agent answer
+// How long a reply of a review may be is what the money left in the expert's hold pays for (llm.limitFor), and no
+// number of the protocol. Two bounds stay: REPLY_MOST, under what the models accept at all, and REPLY_LEAST, below
+// which a call is not worth sending. What stops a reply is a loop (rules.repeats), a model that falls silent, or
+// the money running out.
+export const REPLY_MOST = 16_000;
+export const REPLY_LEAST = 1_000;
 export const LOOKUPS = 5; // things an agent may look up in its knowledge for one question with materials, besides the question
 export const LOOKUP_OUT = 300; // output tokens of that look-up
 
@@ -28,7 +34,8 @@ export const LOOKUP_OUT = 300; // output tokens of that look-up
 // then each finding is checked against the materials on its own. These bound what one review can cost.
 export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole: a file of it, or a part of a longer file
 export const MAX_PASSES = 24; // parts read in one review: up to 216,000 characters of knowledge
-export const READ_OUT = 6_000; // output tokens of the expert's own reading, before any checklist: a third of them ran into 4,000
+// The sizes of a full review as it usually goes, for the registration page's estimate of what one costs; no step is cut to them.
+export const READ_OUT = 6_000; // output tokens of the expert's own reading, before any checklist
 export const READ_FINDINGS = 30; // findings taken from it
 export const KNOWN_IN = 3_000; // bytes of what earlier passes raised, a line each, that a later pass is told not to repeat
 export const PASS_FINDINGS = 20; // findings taken from one pass, the first ones: a model that has run out of findings goes on with "no check for ..." until its limit
@@ -267,4 +274,16 @@ export function grounded(evidence: string, material: string) {
 export function provenance(answer: string) {
   const used = new Set([...answer.matchAll(/\[\[(\d+)\]\]/g)].map((m) => Number(m[1])));
   return { text: answer.replace(/\s*\[\[\d+\]\]/g, ''), used };
+}
+
+/** A reply that has started going round: its last 200 characters stand three times more in the 6,000 before them.
+ *  That is how a model in a loop writes (one finding said nine times over); a long reply of different findings
+ *  does not. */
+export function repeats(text: string) {
+  const tail = text.slice(-200);
+  if (tail.length < 200 || new Set(tail).size < 12) return false; // spaces, dashes or one sign over and over is layout, not a loop
+  const before = text.slice(-6_200, -200);
+  let n = 0;
+  for (let i = before.indexOf(tail); i >= 0; i = before.indexOf(tail, i + 1)) if (++n >= 3) return true;
+  return false;
 }
