@@ -287,6 +287,15 @@ const entry = (f: Checked, n: number, marks = '', note = '') =>
     !f.sortedWith && f.fix && `**Fix:** ${f.fix}`,
     !f.sortedWith && f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
+/** A minor finding in brief: what is wrong, where, how in a sentence or two, and the line it rests on. */
+const briefly = (f: Checked, n: number, marks = '', note = '') =>
+  [
+    `### ${n}. ${f.severity}: ${f.title}${marks}`,
+    [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
+    clip(f.how, 300),
+    f.second && `*Second opinion, from the controller:* ${f.second}`,
+    f.evidence && `**Evidence:** ${f.evidence.split('\n')[0]}`,
+  ].filter(Boolean).join('\n\n');
 /** A grave finding that was not confirmed, whole: what was raised, in its own words, and what its check said. */
 const unconfirmed = (f: Raised, n: number, note = '') =>
   [
@@ -470,24 +479,31 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   // A finding the controller doubts stays where it is, whole, with the doubt under it: the controller is a model
   // too, and on one answer it doubted two findings an audit had made.
   const doubted = r.findings.filter((f) => f.doubted).length;
-  const shown = (f: Joined, n: number) => entry(f, n, f.by.map((id) => ` [[${id}]]`).join(''), [experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '', f.crossed && !f.crossed.holds ? `*Another expert of the team checked it and doubts it:* ${f.crossed.said}` : ''].filter(Boolean).join(' '));
+  const noteOf = (f: Joined) => [experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '', f.crossed && !f.crossed.holds ? `*Another expert of the team checked it and doubts it:* ${f.crossed.said}` : ''].filter(Boolean).join(' ');
+  const marksOf = (f: Joined) => f.by.map((id) => ` [[${id}]]`).join('');
+  const shown = (f: Joined, n: number, brief = false) => (brief ? briefly : entry)(f, n, marksOf(f), noteOf(f));
   // What experts who did not see each other's work both confirmed comes first: on a held-out contract every false
   // grave finding of a team was one that a single expert confirmed, and the exploit the team found stood among
   // those two had confirmed. What one expert confirmed follows, said as that.
   const agreed = r.findings.filter((f) => f.by.length > 1).sort((a, b) => b.by.length - a.by.length); // the more experts found it on their own, the higher
   const [spot, alone] = [r.findings.filter((f) => f.by.length < 2 && f.hotspot), r.findings.filter((f) => f.by.length < 2 && !f.hotspot)];
-  const tiers: [Joined[], string][] = experts > 1 ? [
+  // What one expert confirmed as Low is most of a team's answer and the least of it: by blind readers, of 97 such
+  // items on three contracts 78 were true and harmless, and 6 were findings of the audit. They stay, each in brief,
+  // last: left out, they took three of the team's seventeen findings of the audit with them.
+  const [weighty, minor] = [alone.filter((f) => f.severity !== 'Low'), alone.filter((f) => f.severity === 'Low')];
+  const tiers: [Joined[], string, boolean?][] = experts > 1 ? [
     [agreed, `**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`],
     [spot, `**Found on a closer look at a place several experts had notes about**: ${some(spot.length, 'finding')}. One expert took all of the team's notes about the place and settled them; its check confirmed these.`],
-    [alone, `**Confirmed by one expert**: ${some(alone.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`],
+    [weighty, `**Confirmed by one expert**: ${some(weighty.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`],
+    [minor, `**Low, confirmed by one expert**: ${some(minor.length, 'finding')}, each in brief. Little or nothing is lost by any of them; some are worth a line in a fix, most are notes.`, true],
   ] : [[[...spot, ...alone], '']];
   return [
     r.findings.length
       ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on. Findings that may be one and the same stand together, each in its own words.${doubted ? ` The controller, a second model that read them all, doubts ${doubted} of them: its word stands under each. Both are models: read the finding and the doubt.` : ''}`
       : '## Findings\n\nNo finding was confirmed against your materials.',
-    ...tiers.flatMap(([list, head], k) => {
+    ...tiers.flatMap(([list, head, brief], k) => {
       const before = tiers.slice(0, k).reduce((n, [l]) => n + l.length, 0);
-      return list.length ? [...(head ? [head] : []), ...list.map((f, i) => shown(f, before + i + 1))] : [];
+      return list.length ? [...(head ? [head] : []), ...list.map((f, i) => shown(f, before + i + 1, brief))] : [];
     }),
     ...(r.leads.length
       ? [`## Not confirmed\n\n${some(r.leads.length, 'more point was', 'more points were')} raised by an expert's checklist and not confirmed when checked. They are unverified: read them as leads, not as findings.${r.leads.some(grave) ? ' The grave ones are given whole, with what their check said: a check is a model too, and can be wrong.' : ''}`,

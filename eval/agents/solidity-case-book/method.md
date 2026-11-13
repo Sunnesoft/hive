@@ -22,7 +22,7 @@ growth over time that ends in a loss or a stopped service counts the same. So do
 one who caused it, or on those who rely on what the code promises: a standard it claims, a state others read. With
 nobody who gains, a loss or a stopped service is still a finding: how grave depends on what it costs to cause
 against what is lost. A harm someone can do only to themselves, knowingly, is Low; one that ordinary use or a
-mistake brings is graded by what is lost. A point with none of the three is not a finding: at most a Low note.
+mistake brings is graded by what is lost. A point with none of the three is not a finding: at most a Low note. Style, dead or unused code, names and comments are none of the three: leave them out.
 What only the owner can do to users is Medium at most, unless the contract promises users it cannot happen.
 
 The report holds the findings, not the way to them. First every finding in one line: severity, function, what
