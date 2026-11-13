@@ -21,6 +21,11 @@
 // their own repositories; two of those reports (the SWEAT token's and cNEAR's) are from 2026, later than anything
 // the models could have been trained on.
 //
+// The held-out Solidity contracts are five audit contests of December 2024 to April 2025 from ScaBench's curated
+// set (github.com/scabench-org/scabench), chosen as those whose code in scope fits what an expert is given and
+// whose protocol is not among the reports the Solidity case-book was written from. Their lists hold the High and
+// Medium findings of the contest reports, in our words.
+//
 // A contract larger than an expert is given (48,000 characters, ten files) is represented by whole files of it
 // that fit, chosen as those the report's findings are in; findings in files left out are not in the list. Every
 // answer of a contract, the models' alone and the reviews', gets the same files, so the choice favours none of
@@ -46,6 +51,8 @@ const fromTasks = (id: string): ReviewTask => {
 
 const audit = (what: string, files: string[]) =>
   `Audit this NEAR smart contract (Rust, near-sdk) before we deploy it: ${what}. Its source files:\n${files.map((f) => `- ${f}`).join('\n')}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function and the file it is in, and the fix. For each High finding write a proof of concept as a Rust test for the contract's crate.`;
+const auditSol = (what: string, files: string[]) =>
+  `Audit this Solidity smart contract before we deploy it: ${what}. Its source files:\n${files.map((f) => `- ${f}`).join('\n')}\n\nList every vulnerability you find with its severity (High, Medium or Low), the function and the file it is in, and the fix. For each High finding write a proof of concept as a Foundry test.`;
 const at = (base: string, paths: string[]) => paths.map((p) => `${base}/${p}`);
 
 const CONVERTOR = at('https://raw.githubusercontent.com/octopus-network/nep141-token-convertor/7c8a44b49bf62ee57656f67a0ebcea55cb8015c5/nep141-token-convertor-contract',
@@ -73,6 +80,17 @@ const MBSTORE = at('https://raw.githubusercontent.com/Mintbase/mb-contracts/aedb
 const CNEAR = at('https://raw.githubusercontent.com/sig-net/cNEAR/c1944263327d8b4cb0b640824b33f37f78d7108d', ['Cargo.toml', 'src/lib.rs']);
 const POT = at('https://raw.githubusercontent.com/PotLock/core/71f35051f81c333c85fafc42d073173191ad14ca/contracts/pot',
   ['Cargo.toml', 'src/payouts.rs', 'src/donations.rs', 'src/admin.rs', 'src/constants.rs', 'src/events.rs']);
+
+const LAMBO = at('https://raw.githubusercontent.com/code-423n4/2024-12-lambowin/b8b8b0b1d7c9733a7bd9536e027886adb78ff83a/src',
+  ['LamboFactory.sol', 'LamboToken.sol', 'LamboVEthRouter.sol', 'VirtualToken.sol', 'rebalance/LamboRebalanceOnUniwap.sol', 'Utils/LaunchPadUtils.sol', 'libraries/UniswapV2Library.sol']);
+const SYMMIO = at('https://raw.githubusercontent.com/SYMM-IO/token/1d014156b1d9f0ab3259026127b9220eb2da3292/contracts',
+  ['staking/SymmStaking.sol', 'vesting/SymmVesting.sol', 'vesting/Vesting.sol', 'vesting/libraries/LibVestingPlan.sol', 'vesting/interfaces/IMintableERC20.sol', 'vesting/interfaces/IPermit2.sol', 'vesting/interfaces/IPool.sol', 'vesting/interfaces/IRouter.sol']);
+const CRESTAL = at('https://raw.githubusercontent.com/crestalnetwork/crestal-omni-contracts/dc45e98af5e247dce5bbe53b0bd5b1f256884f84/src',
+  ['Blueprint.sol', 'BlueprintCore.sol', 'BlueprintV5.sol', 'EIP712.sol', 'Payment.sol']);
+const NEXTGEN = at('https://raw.githubusercontent.com/code-423n4/2025-01-next-generation/499cfa50a56126c0c3c6caa30808d79f82d31e34/contracts',
+  ['Token.sol', 'Forwarder.sol', 'ERC20AdminUpgradeable.sol', 'ERC20ControlerMinterUpgradeable.sol', 'ERC20MetaTxUpgradeable.sol', 'FeesHandlerUpgradeable.sol']);
+const KINETIQ = at('https://raw.githubusercontent.com/code-423n4/2025-04-kinetiq/7f29c917c09341672e73be2f7917edf920ea2adb/src',
+  ['StakingManager.sol', 'KHYPE.sol']);
 
 export const REVIEWS: ReviewTask[] = [
   fromTasks('bridge audit'),
@@ -260,6 +278,89 @@ export const REVIEWS: ReviewTask[] = [
       'Low (GUV-11): admin_dangerously_set_pot_config sets the whole configuration at once: it is error-prone and should not exist beside the separate setters',
       'Low (GUV-13): no privileged function requires an attached deposit, so a function-call access key of an owner or admin account can call them',
       'Low (GUV-14): nothing keeps the owner, an admin or the chef from also being a project that applies to the pot',
+    ],
+  },
+  {
+    // Code4rena, Lambo.win, contest of 2 - 9 December 2024, on commit b8b8b0b (the last before the contest): the whole
+    // code in scope. The report's High and Medium findings.
+    // In ScaBench's curated set of 18 August 2025; its protocol is not among the sources of the Solidity case-book.
+    id: 'lambowin audit', platform: 'Solidity', set: 'held out', experts: SOLIDITY, files: LAMBO,
+    task: auditSol('launchpad that deploys a new ERC-20 and a Uniswap V2 pair seeded with a loaned virtual token (vETH), with an ETH router for trading the launched tokens and a flash-loan contract that trades on the vETH/WETH Uniswap V3 pool', LAMBO),
+    findings: [
+      'High (H-01): cashIn in VirtualToken.sol: the number of virtual tokens minted is msg.value instead of the amount argument, so when the underlying asset is an ERC-20 the caller\'s tokens are pulled in but nothing is minted and the deposit is lost to the depositor.',
+      'High (H-02): createLaunchPad (with _deployLamboToken) in LamboFactory.sol: the new token is cloned with plain CREATE so its address is predictable from the factory\'s nonce, and the pair is created with an unconditional createPair call; an attacker who creates the Uniswap V2 pair for that next address beforehand makes createPair revert, the nonce does not advance, and every later launch reverts, blocking the factory for good.',
+      'High (H-03): _getQuoteAndDirection in LamboRebalanceOnUniwap.sol: the swap-direction mask is chosen from whether the input token is WETH, which presumes WETH is token1 of the pool; if WETH is token0 the mask returned by previewRebalance is inverted, so the rebalance swaps in the wrong direction or fails and the vETH/WETH peg is not restored.',
+      'High (H-04): rebalance in LamboRebalanceOnUniwap.sol: anyone can call it with any direction mask and amounts, and nothing compares them with what the pool actually needs (previewRebalance); a caller can push an arbitrary trade size through the contract\'s flash loan so that the pool ends far from 1:1 instead of being balanced.',
+      'Medium (M-01): takeLoan in VirtualToken.sol, reached through createLaunchPad in LamboFactory.sol: all launches share a 300-ether loan cap per block while the launcher freely picks the virtual-liquidity amount and pays almost nothing; an attacker who launches a pool with the full cap in each block makes every other launch in that block revert.',
+      'Medium (M-02): _getTokenInOut (with _getTokenBalances) in LamboRebalanceOnUniwap.sol: the trade size is computed from the pool contract\'s raw token balances as the distance of one balance from half their sum, which does not describe a concentrated-liquidity pool (balances include out-of-range positions and the price does not follow a constant-sum rule); previewRebalance returns a wrong amount and a rebalance using it does not bring the price back to 1:1.',
+      'Medium (M-03): buyQuote and sellQuote (_buyQuote, _sellQuote) in LamboVEthRouter.sol: the swaps accept no deadline, so a transaction that stays pending can be executed much later against changed reserves within its old minReturn, leaving the user with a worse trade and open to sandwiching.',
+      'Medium (M-04): _buyQuote and receive in LamboVEthRouter.sol: each buy refunds the excess ETH minus 1 wei and the contract accepts plain ETH transfers, yet no function can send ETH held by the router out; the leftovers and any ETH sent by mistake stay locked.',
+      'Medium (M-05): _getQuoteAndDirection in LamboRebalanceOnUniwap.sol: the quoter is called with sqrtPriceLimitX96 fixed at 0 and, according to the report, with a parameter struct whose field naming does not match the quoter\'s; the quote carries no price bound and may be wrong or fail, so previewRebalance cannot be relied on.',
+      'Medium (M-06): rebalance and onMorphoFlashLoan in LamboRebalanceOnUniwap.sol: the caller\'s directionMask is OR-ed into the pool address without being limited to the two legal values, so a crafted mask redirects the router swap to another pool whose address contains all bits of the real one; with such a pool holding an attacker-made token the attacker collects the vETH/WETH depeg profit through the contract\'s flash loan and the rebalancer gains nothing.',
+      'Medium (M-07): rebalance in LamboRebalanceOnUniwap.sol: the call reverts unless the WETH balance strictly grows, so a rebalance that would restore the peg at zero profit is refused although the contract is meant to hold the peg rather than earn, and the pool stays off peg.',
+      'Medium (M-08): rebalance in LamboRebalanceOnUniwap.sol: because it uses amounts fixed by the caller and reverts when no profit is made, another user can front-run it with a swap in the vETH/WETH pool that removes the profit, so the rebalance reverts; the attacker keeps the depeg open and, per the report, can use the cheaply obtained vETH against other Lambo pools, at the cost of the protocol and its users.',
+      'Medium (M-09): _executeBuy and _executeSell in LamboRebalanceOnUniwap.sol: the swaps go through the OKX router, which can charge a commission on the input and output tokens; with a commission the swap returns too little for the profit check so rebalance reverts (or the router itself reverts above its commission limit), and rebalancing stops.',
+      'Medium (M-10): VirtualToken contract (inherited decimals) in VirtualToken.sol: the virtual token always reports 18 decimals even when its underlying token has another number (for example 6), so a Uniswap V3 position in the virtual/underlying pool shows wrong figures in its position-NFT metadata for liquidity providers.',
+    ],
+  },
+  {
+    // Sherlock, SYMMIO staking and vesting, contest of March 2025, on commit 1d01415, the one the contest copied: the
+    // whole code in scope. ScaBench pins a later commit that holds the fixes, so its published results are on other code.
+    // In ScaBench's curated set of 18 August 2025; its protocol is not among the sources of the Solidity case-book.
+    id: 'symmio audit', platform: 'Solidity', set: 'held out', experts: SOLIDITY, files: SYMMIO,
+    task: auditSol('staking contract paying several reward tokens to stakers of one token, and a vesting contract whose locked tokens can be claimed early for a penalty or converted into pool liquidity that is vested in turn', SYMMIO),
+    findings: [
+      'High (H-1): rewardPerToken and _updateRewardsStates in SymmStaking.sol: the per-token reward increment (elapsed x rate x 1e18 / totalSupply) has no extra scaling for reward tokens with few decimals, so for a 6-decimal token and a large staked supply it rounds to zero while lastUpdated still moves forward; anyone who triggers an update every few blocks (deposit, withdraw, claim or notify) makes stakers earn none of that token, which stays in the contract.',
+      'Medium (M-1): __vesting_init in Vesting.sol, called from initialize in SymmVesting.sol: the parent\'s init function carries the initializer modifier instead of onlyInitializing while the child\'s initialize is itself an initializer, so the nested call is rejected and the inheriting vesting contract cannot be initialised behind its proxy.',
+      'Medium (M-2): configureRewardToken in SymmStaking.sol: removing a reward token only deletes it from the list and keeps its stored reward-per-token, and accounts that stake while it is absent get no paid-per-token value recorded for it; when the token is added again and rewards are notified, those accounts are credited for the whole earlier history, taking rewards owed to others, whose claims then revert for lack of funds.',
+      'Medium (M-3): _resetVestingPlans in Vesting.sol, reached from _addLiquidityProcess in SymmVesting.sol: the reset reverts whenever the new plan amount is below the amount already unlocked, a comparison against the wrong quantity; once a large part of a user\'s LP vesting has unlocked, the new amount (still-locked LP plus newly minted LP) falls below it and the call reverts, so the user can no longer add liquidity from the vesting position.',
+      'Medium (M-4): notifyRewardAmount (with _addRewardsForToken) in SymmStaking.sol: anyone may notify any amount, and each call during a running period spreads the undistributed remainder plus the new amount over a fresh full duration; by notifying dust repeatedly an attacker keeps cutting the rate and pushing the end of the period out, so stakers receive their rewards far later than intended.',
+      'Medium (M-5): resetVestingPlans / _resetVestingPlans in Vesting.sol with resetAmount in LibVestingPlan.sol: an admin reset writes a new absolute amount and zeroes the claimed counter without regard to locked tokens the user has just withdrawn early for a penalty; a user who claims the locked tokens right before the reset transaction lands can claim up to the new amount again, being paid twice at the expense of other beneficiaries.',
+    ],
+  },
+  {
+    // Sherlock, Crestal Network, contest of March 2025, on commit dc45e98: the whole code in scope.
+    // In ScaBench's curated set of 18 August 2025; its protocol is not among the sources of the Solidity case-book.
+    id: 'crestal audit', platform: 'Solidity', set: 'held out', experts: SOLIDITY, files: CRESTAL,
+    task: auditSol('upgradeable contract through which users register projects and request proposals and deployments of AI agents from off-chain workers, paid with ERC-20 tokens or gated by an NFT or a whitelist, with signature-authorised variants of the calls', CRESTAL),
+    findings: [
+      'High (H-1): payWithERC20 in Payment.sol (inherited by the Blueprint contracts): the function is public and takes the paying address as an argument, so anyone can call it to transfer tokens from any account that has approved the Blueprint contract to an address of their choosing, draining those approvals.',
+      'Medium (M-1): createCommonProjectIDAndDeploymentRequest (via deploymentRequest) in BlueprintCore.sol: the deployment request ID is hashed with a constant index of 0 and without the server URL, so two agent creations by one user in the same block for the same project and proposal but different server URLs get the same ID and the second overwrites the first; the user pays the creation fee twice and only one request can be carried through.',
+      'Medium (M-2): createAgentWithSigWithNFT, createAgentWithTokenWithSig and createAgentWithWhitelistUsersWithSig in BlueprintCore.sol: the signed digest covers only the project ID, proposal and server URL, not the worker address, NFT token ID or payment token; whoever sees a signature can submit it first with their own values for those, forcing the signer onto a chosen worker, another NFT or a dearer payment token.',
+      'Medium (M-3): updateWorkerDeploymentConfigWithSig in BlueprintCore.sol: the signed message carries no nonce or expiry (nor the request ID), so one valid signature can be submitted any number of times, and each replay charges the deployment owner the update fee through payWithERC20; the owner loses tokens to the fee wallet up to the approved allowance.',
+      'Medium (M-4): setWorkerPublicKey in BlueprintCore.sol: any address can register itself as a worker with any public key and is appended to the worker list; a user who picks such an address for a private deployment pays the fee and encrypts the proposal to it, the fake worker never deploys, and the fee is not returned.',
+      'Medium (M-5): submitDeploymentRequest (with the one-request-per-project check in deploymentRequest) in BlueprintCore.sol: once a worker has picked a request up nothing lets the owner cancel it or have it time out, and the project cannot issue another; a worker that picks requests up and never submits a proof leaves the project stuck and the fee paid or NFT used wasted.',
+      'Medium (M-6): createAgentWithNFT in BlueprintCore.sol (beside createAgentWithWhitelistUsers): the whitelist and one-agent-per-user checks exist only in the whitelist variant, while the plain NFT variant reaches the same creation path without them; an NFT holder who is not whitelisted creates an agent anyway, so the whitelist restriction is ineffective.',
+    ],
+  },
+  {
+    // Code4rena, Next Generation (the EURF token and its forwarder), contest of 31 January - 7 February 2025, on commit
+    // 499cfa5: the whole code in scope. The report has four High and Medium findings in all.
+    // In ScaBench's curated set of 18 August 2025; its protocol is not among the sources of the Solidity case-book.
+    id: 'nextgen audit', platform: 'Solidity', set: 'held out', experts: SOLIDITY, files: NEXTGEN,
+    task: auditSol('upgradeable euro-pegged ERC-20 with minter and controller roles, blacklist and pause, a transfer fee, permit and signed transfers, and a forwarder contract that relays users\' signed transfers for a fee', NEXTGEN),
+    findings: [
+      'High (H-01): execute and _verifySig in Forwarder.sol: the EIP-712 domain separator used to check the signature is passed in by the caller instead of being computed or checked by the contract, and the request has no expiry; a signature given for the forwarder on one chain can be executed on another chain\'s deployment where the signer\'s nonce is the same, transferring the signer\'s tokens there without consent.',
+      'Medium (M-01): transferFrom (via transferSanity and _payTxFee) in Token.sol: the transfer fee is taken from the token owner\'s balance on top of the transferred amount while only the amount is charged against the allowance; a spender approved for N can make the owner lose N plus the fee, more than was approved.',
+      'Medium (M-02): approve (not overridden) in Token.sol: transfers run a blacklist check but approvals do not, so a blacklisted owner or spender can still give or receive an allowance, contrary to the documented rule that neither party of an approval may be blacklisted.',
+      'Medium (M-03): execute and the ForwardRequest struct in Forwarder.sol: a signed forward request has no deadline and the signer cannot cancel a nonce, so a relayer may hold the request and execute it at any later time under conditions (fees, balances) the signer no longer agrees to.',
+    ],
+  },
+  {
+    // Code4rena, Kinetiq, contest of 7 - 16 April 2025, on commit 7f29c91. Two of the nine files in scope, the two the
+    // findings are in; where the report's link for a finding points to a file left out, its place here is inferred.
+    // In ScaBench's curated set of 18 August 2025; its protocol is not among the sources of the Solidity case-book.
+    id: 'kinetiq audit', platform: 'Solidity', set: 'held out', experts: SOLIDITY, files: KINETIQ,
+    task: auditSol('liquid-staking manager for the HYPE token on HyperEVM: users stake native HYPE for a share token (kHYPE), withdrawals are queued and confirmed after a delay, and an operator processes queued delegation and undelegation operations on the L1', KINETIQ),
+    findings: [
+      'High (H-01): cancelWithdrawal, _withdrawFromValidator and redelegateWithdrawnHYPE in StakingManager.sol: a queued withdrawal covered from the buffer lowers hypeBuffer, but cancelling it does not raise the buffer again and the amount is later \'re-delegated\' as an L1 spot deposit although the HYPE never left the EVM contract; that HYPE stays in the contract counted in no balance, unusable for withdrawals and not staked.',
+      'High (H-02): queueWithdrawal and confirmWithdrawal (_processConfirmation) in StakingManager.sol: the HYPE owed is fixed at the exchange rate of the moment a withdrawal is queued and paid in full on confirmation; after a slashing during the delay the earlier queuers are still paid at the old rate, so the whole loss falls on the remaining kHYPE holders, who may find too little HYPE left.',
+      'High (H-03): receive in StakingManager.sol: every plain HYPE transfer to the contract is routed into stake(), so HYPE coming back from the L1 after an undelegation is staked again and kHYPE is minted to the system sender instead of the funds staying available; users cannot confirm their withdrawals for lack of balance and the kHYPE minted to that address is stranded, distorting the exchange rate.',
+      'Medium (M-01): processValidatorRedelegation in StakingManager.sol: it requires the contract\'s EVM balance to cover the amount, although the funds being redelegated sit in the L1 staking balance and never pass through the EVM contract; legitimate validator rebalancing reverts whenever the EVM balance is smaller than the amount.',
+      'Medium (M-02): confirmWithdrawal in StakingManager.sol: unlike queueWithdrawal it lacks the withdrawal-pause modifier, so users with matured requests can still take HYPE out while withdrawals are paused, defeating the pause.',
+      'Medium (M-03): cancelWithdrawal in StakingManager.sol: cancelling returns the kHYPE and lowers totalQueuedWithdrawals but neither restores the part taken from hypeBuffer nor removes the undelegation already queued in the pending-withdrawals list; the buffer is under-reported and a needless undelegation is later executed on the L1, leaving the accounting out of line with real balances and funds idle.',
+      'Medium (M-04): processL1Operations (_processL1Withdrawals before _processL1Deposits) in StakingManager.sol: all queued withdrawals are executed before all queued deposits, so staking balance is moved out before earlier deposits have been delegated and those delegations then fail for lack of balance; part of the staked HYPE stays undelegated and earns less reward than expected.',
+      'Medium (M-05): _processL1Deposits and resetL1OperationsQueue in StakingManager.sol: the whole pending-deposit array is deleted in one step when its last entry is processed; an attacker who floods the queue with thousands of minimum stakes makes that deletion exceed the block gas limit, so the final batch and the queue reset keep reverting and L1 processing is blocked.',
     ],
   },
 ];

@@ -21,6 +21,11 @@ const NAMED: Record<string, string[]> = {
   'mintbase store audit': ['mintbase'],
   'cnear audit': ['cnear'],
   'pot audit': ['potlock'],
+  'lambowin audit': ['lambo'],
+  'symmio audit': ['symm'],
+  'crestal audit': ['crestal'],
+  'nextgen audit': ['next generation', 'next-generation', 'eurf'],
+  'kinetiq audit': ['kinetiq'],
 };
 const CASE_BOOKS = ['agents/near-contract-review/CASEBOOK-SOURCES.md', 'eval/agents/solidity-case-book/CASEBOOK-SOURCES.md'];
 const GENERIC = new Set(['core', 'contracts', 'audits']); // repository names that say nothing of whose they are
