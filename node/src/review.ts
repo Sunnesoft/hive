@@ -376,11 +376,12 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   return { findings, leads: leads.slice(0, MAX_LEADS) };
 }
 
-/** A proof stands if it was not withdrawn and every step of it stands on a line code finds: in the materials, or
- *  in the public file of a library the step names (`sources`: what code fetched of them). No step is taken on the
- *  word of the expert who wrote it. */
+/** A proof goes to the testers if it was not withdrawn and code finds at least one of its lines (in the materials,
+ *  or in the public file of a library a step names: `sources`). A step whose line code does not find is not
+ *  thrown out by code: it is shown to the testers marked as such, and they settle it. */
+const foundIn = (s: llm.Proof['steps'][number], material: string, sources: Map<string, string>) => grounded(s.line, s.source ? (sources.get(s.source) ?? '') : material);
 export const provedIn = (p: llm.Proof | undefined, material: string, sources: Map<string, string> = new Map()) =>
-  !!p && !p.withdrawn && p.steps.length > 0 && p.steps.every((s) => grounded(s.line, s.source ? (sources.get(s.source) ?? '') : material));
+  !!p && !p.withdrawn && p.steps.some((s) => foundIn(s, material, sources));
 /** The libraries' files a proof may stand on: public source code, at a fixed address, nothing else. */
 const LIBRARY_HOSTS = /^https:\/\/(raw\.githubusercontent\.com|github\.com|docs\.rs)\//;
 const MAX_LIBRARY_FILES = 12; // library files fetched for one trial
@@ -422,7 +423,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const wanted = [...new Set([...proofs.values()].flatMap((p) => p.steps.map((s) => s.source?.trim() ?? '')).filter((u) => LIBRARY_HOSTS.test(u)))].slice(0, MAX_LIBRARY_FILES);
   await Promise.all(wanted.map(async (url) => { const text = await read(url).catch(() => ''); if (text) sources.set(url, text); }));
   const proved = new Set(findings.map((_, k) => k).filter((k) => provedIn(proofs.get(k), material, sources)));
-  const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   \`${s.line}\`${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
+  const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   \`${s.line}\`${foundIn(s, material, sources) ? '' : '\n   (code did not find this line in the materials or in the library named: check it)'}${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
   const showProof = (k: number) => { const p = proofs.get(k)!; return `### ${k}. ${findings[k]!.severity}: ${findings[k]!.title}\n\n${p.steps.map(showStep).join('\n')}\n\nEnd: ${p.end}`; };
   // The tests, each expert of the proofs it did not write.
   const marks: { k: number; mark: llm.Mark }[] = [];

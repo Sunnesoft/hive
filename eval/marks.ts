@@ -6,6 +6,7 @@
 //   EVAL_DIR=eval/out/claude node ... eval/marks.ts score <tag> ...                        (scores the rules)
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import * as llm from '../node/src/llm.ts';
+import { provedIn } from '../node/src/review.ts';
 import { allowedModels } from '../node/src/config.ts';
 import { Materials } from '../node/src/materials.ts';
 import { filesOf } from '../node/src/audit.ts';
@@ -43,14 +44,6 @@ const labelsOf = (id: string, system: string): Map<number, Label> | null => {
     return new Map([...(/^\s*items:\s*(.*)$/m.exec(block)?.[1] ?? '').matchAll(/(\d+):([CHMLI]):([MRNWD]\d*)/g)].map((m) => [Number(m[1]), { severity: m[2]!, kind: m[3]! }]));
   }
   return null;
-};
-
-/** A proof stands if it was not withdrawn and code finds most of its lines, two in three, in the materials: a step
- *  on a line too short to be told from others ("None,") is no sign of a made-up path. */
-const provedIn = (p: llm.Proof | undefined, material: string) => {
-  if (!p || p.withdrawn || !p.steps.length || p.steps.some((s) => s.outside)) return false; // a path through code not shown is an open question
-  const found = p.steps.filter((s) => grounded(s.line, material)).length;
-  return found >= 1 && found * 3 >= p.steps.length * 2;
 };
 
 const [what, ...args] = process.argv.slice(2);

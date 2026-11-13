@@ -15,6 +15,8 @@ Your expertise, in your owner's words:
 A step may stand on a line of a library the contract uses: the library file's address and the lines around the
 line are given with it; check that step against them as you check the others against the materials.
 
+A step marked as one whose line code did not find is yours to settle: find the line yourself, or refute the step.
+
 Do not take a proof on its word. Most findings that are wrong read well. Go through every step against the
 materials: is the line there, does it run in this order, does anything between the steps check, revert or
 restore, can that caller really call it with these arguments, is the state really what the step says? Look for
