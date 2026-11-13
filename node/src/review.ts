@@ -148,19 +148,30 @@ function unfolded<T extends Raised>(groups: Item[][][], made: (g: Item[]) => T):
   return { heads: laid.map((x) => x.head), all: laid.flatMap((x) => [x.head, ...x.rest]) };
 }
 const confirmedIn = (joined: Item[][]) => joined.some((g) => g.some((x) => x.held));
-/** What code took for one thing, looked at again: confirmed wordings whose titles say the same in nearly the same
- *  words stay one finding; the others are set apart, each a finding of its own beside them. Words that are close
- *  are not always one flaw: "the upgrade does not check that the migration succeeded" and "the upgrade does not
- *  reserve gas for the migration" were joined by their words, and the first was left as a line under the second.
- *  What was not confirmed goes with the first. */
-const SAME_TITLE = 0.75; // titles this alike by their words are one finding told twice
+/** The lines of the customer's materials a finding quotes, bare of spaces: what it rests on. */
+const linesOf = (f: Finding) => new Set([...f.evidence.matchAll(/`([^`]{8,})`/g)].map((m) => m[1]!.replace(/\s+/g, '')));
+/** Two confirmed findings are one only if they are identical, not alike: they rest on the same lines of the
+ *  materials (most of what either quotes, the other quotes too) and say the same thing or the same fix in nearly
+ *  the same words. What a finding rests on is its anchor, and code can verify it; what it says there is its claim.
+ *  The same anchor and the same claim: the same finding. For materials that are not text the anchor is of another
+ *  kind (a stretch of time, a place in a plan), and the rule is the same. */
+const identical = (a: Finding, b: Finding) => {
+  const [x, y] = [linesOf(a), linesOf(b)];
+  const shared = [...x].filter((l) => y.has(l)).length;
+  return shared > 0 && shared * 2 >= Math.max(x.size, y.size) && (alike(a.title, b.title) >= SAME_WORDS || alike(a.fix, b.fix) >= SAME_WORDS);
+};
+/** What code took for one thing, looked at again: confirmed wordings that are identical stay one finding; the
+ *  others are set apart, each a finding of its own beside them. Words that are close are not always one flaw: "the
+ *  upgrade does not check that the migration succeeded" and "the upgrade does not reserve gas for the migration"
+ *  were joined by their words, and the first was left as a line under the second. What was not confirmed goes with
+ *  the first. */
 const apart = (g: Item[]): Item[][] => {
   const [held, rest] = [g.filter((x) => x.held), g.filter((x) => !x.held)];
   if (held.length < 2) return [g];
   const among = [...new Set(g.map((x) => x.id).filter((id): id is number => id !== undefined))].sort((a, b) => a - b);
-  const twins = groupsOf(held.length, (a, b) => alike(held[a]!.f.title, held[b]!.f.title) >= SAME_TITLE).map((ids) => ids.map((k) => held[k]!));
-  if (twins.length < 2) return [g];
-  return twins.map((t, i) => [...t.map((x) => ({ ...x, among })), ...(i ? [] : rest)]);
+  const ones = groupsOf(held.length, (a, b) => identical(held[a]!.f, held[b]!.f)).map((ids) => ids.map((k) => held[k]!));
+  if (ones.length < 2) return [g];
+  return ones.map((t, i) => [...t.map((x) => ({ ...x, among })), ...(i ? [] : rest)]);
 };
 const rank = (f: Finding) => SEVERITIES.indexOf(f.severity);
 const grave = (f: Finding) => f.severity === 'Critical' || f.severity === 'High';
