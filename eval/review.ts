@@ -11,11 +11,13 @@
 // EVAL_PROOFS=0  the reviews write no proofs: a fifth of a review's cost, and the reading scores findings, not tests
 // EVAL_EXPERTS   another team for the tasks named, as folder names with commas between: with EVAL_TAG it is kept beside
 //                the task's own team (three Solidity auditors and one NEAR reviewer on a NEAR contract, say)
+// EVAL_DIR       another folder for the results (eval/out/claude), and EVAL_MODEL one model for every expert:
+//                with eval/claude-shim.ts in NEAR AI's place, a run on a Claude model (eval/claude.env)
 // EVAL_REPEATS=5 also asks the first expert's model alone that many times and keeps the answers as one: what a
 //                customer gets who spends on one model, asked again and again, what a swarm costs
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { docsOf, filesOf, linksOf } from '../node/src/audit.ts';
-import { cfg } from '../node/src/config.ts';
+import { allowedModels, cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
@@ -23,9 +25,10 @@ import { closerLook, controlled, crossChecked, hotSpots, join, listOf, reportOf,
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
-import { REVIEWS, type ReviewTask } from './review-tasks.ts';
+import { OUT_DIR, REVIEWS, type ReviewTask } from './review-tasks.ts';
 
-const OUT = 'eval/out/reviews.json';
+const OUT = `${OUT_DIR}/reviews.json`;
+const MODEL = process.env.EVAL_MODEL; // one model for every expert and every model asked alone: a run on another model
 const LIMIT = Number(process.env.EVAL_LIMIT_USD ?? '0.60');
 const TAG = process.env.EVAL_TAG ? ` ${process.env.EVAL_TAG}` : '';
 const ALONE_ROOM = 8_000; // output tokens of a model asked alone, as in every baseline run so far: nothing cuts it short, as nothing would cut a customer's own call
@@ -39,15 +42,28 @@ function keep(task: string, system: string, a: Kept & { why?: string }) {
   spent += a.usd;
   say(`${task} | ${system}: ${a.why ?? 'done'}, $${a.usd.toFixed(4)}, ${Math.round(a.seconds)} s${a.review ? `, ${JSON.stringify(a.review.counts)}` : ''}`);
   if (a.why) return; // what failed is asked again next time
-  (kept[task] ??= {})[system] = a;
-  mkdirSync('eval/out', { recursive: true });
-  writeFileSync(OUT, JSON.stringify(kept, null, 1));
+  mkdirSync(OUT_DIR, { recursive: true });
+  locked(() => { // runs of other tasks may keep theirs at the same moment
+    const now: typeof kept = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
+    (now[task] ??= {})[system] = a;
+    writeFileSync(OUT, JSON.stringify(now, null, 1));
+    Object.assign(kept, now);
+  });
+}
+function locked(work: () => void) {
+  const lock = `${OUT}.lock`;
+  for (let i = 0; ; i++) {
+    try { mkdirSync(lock); break; } catch { if (i > 6_000) throw new Error(`${lock} is held: remove it if no run is going`); }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  }
+  try { work(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 const folder = (name: string) => (existsSync(`eval/agents/${name}`) ? `eval/agents/${name}` : `agents/${name}`);
 const usd = (micro: bigint) => Number(micro) / 1e6;
 const cardOf = (name: string) => {
   const { card, materials } = readAgent(folder(name));
-  return { card, m: Materials.parse(materials) };
+  const { pass_model: _, ...m } = Materials.parse(materials);
+  return { card, m: MODEL ? { ...m, model: MODEL } : { ...m, ...(_ ? { pass_model: _ } : {}) } };
 };
 
 const pagesOf = (t: ReviewTask) => Promise.all(t.files.map(async (url): Promise<Page> => {
@@ -113,12 +129,16 @@ async function joined(t: ReviewTask, pages: Page[]) {
   if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }
 
+/** A reviewer with no materials but the expertise: the model is set after the check of materials, which allows
+ *  only NEAR AI's models, so that a run on another model can ask it too. */
+const nobody = (model: string) => ({ ...Materials.parse({ name: 'nobody', model: allowedModels[0]!, expertise: 'A careful reviewer of smart contracts.', method: '', knowledge: [] }), model });
+
 /** A model asked the task alone and at once: the call of an expert's answer, with the files, none of a sponsor's
  *  materials, and room to write as much as it has to say. */
 async function alone(t: ReviewTask, model: string, pages: Page[]) {
-  const system = `alone, with room: ${model.split('/')[1]}`;
+  const system = `alone, with room: ${model.split('/').at(-1)}`;
   if (kept[t.id]?.[system]) return;
-  const m = Materials.parse({ name: 'nobody', model, expertise: 'A careful reviewer of smart contracts.', method: '', knowledge: [] });
+  const m = nobody(model);
   const at = Date.now();
   const r = await llm.answer(m, [], t.task, pages, usdc('2'), ALONE_ROOM);
   keep(t.id, system, { text: r.text, usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model, ...(r.why ? { why: r.why } : {}) });
@@ -126,9 +146,9 @@ async function alone(t: ReviewTask, model: string, pages: Page[]) {
 
 /** One model asked the task alone several times, the answers one after another: the opponent at a swarm's budget. */
 async function repeated(t: ReviewTask, model: string, times: number, pages: Page[]) {
-  const system = `alone, ${times} times: ${model.split('/')[1]}`;
+  const system = `alone, ${times} times: ${model.split('/').at(-1)}`;
   if (kept[t.id]?.[system]) return;
-  const m = Materials.parse({ name: 'nobody', model, expertise: 'A careful reviewer of smart contracts.', method: '', knowledge: [] });
+  const m = nobody(model);
   const at = Date.now();
   const runs = [];
   for (let i = 0; i < times; i++) runs.push(await llm.answer(m, [], t.task, pages, usdc('2'), ALONE_ROOM)); // one after another: a model's queue is short
@@ -165,7 +185,9 @@ for (const t of tasks) {
   if (spent < LIMIT) await Promise.all(asked.map((model) => alone(t, model, pages)));
   const repeats = Number(process.env.EVAL_REPEATS ?? '0');
   if (repeats > 1 && spent < LIMIT) await repeated(t, cardOf(t.experts[0]!).m.model, repeats, pages);
-  for (const name of experts.length ? t.experts : []) if (spent < LIMIT) await reviewed(t, name, pages); // one after another: a model's queue is short
+  // One after another: a model's queue at NEAR AI is short. EVAL_TOGETHER=1 reviews them at once, where the queue is long (eval/claude-shim.ts).
+  if (process.env.EVAL_TOGETHER === '1') await Promise.all((experts.length ? t.experts : []).map((name) => reviewed(t, name, pages)));
+  else for (const name of experts.length ? t.experts : []) if (spent < LIMIT) await reviewed(t, name, pages);
   if (experts.length) await joined(t, pages);
   if (spent >= LIMIT) say(`stopped: $${spent.toFixed(3)} spent, the limit is $${LIMIT}`);
 }

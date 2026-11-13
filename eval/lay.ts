@@ -5,12 +5,12 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { REVIEWS } from './review-tasks.ts';
+import { OUT_DIR, REVIEWS } from './review-tasks.ts';
 
 const [id, out, only] = process.argv.slice(2) as [string, string, string | undefined];
 const t = REVIEWS.find((x) => x.id === id);
 if (!t || !out) throw new Error(`usage: lay.ts <task id> <folder> [<pattern>]; tasks: ${REVIEWS.map((x) => `"${x.id}"`).join(', ')}`);
-const answers: Record<string, { text: string }> = JSON.parse(readFileSync('eval/out/reviews.json', 'utf8'))[id] ?? {};
+const answers: Record<string, { text: string }> = JSON.parse(readFileSync(`${OUT_DIR}/reviews.json`, 'utf8'))[id] ?? {};
 const wanted = new RegExp(only ?? '.');
 const order = (s: string) => createHash('sha256').update(`${id}\n${out}\n${s}`).digest('hex'); // a shuffle that names cannot be guessed from
 const systems = Object.keys(answers).filter((s) => answers[s]!.text.trim() && wanted.test(s)).sort((a, b) => order(a).localeCompare(order(b)));
@@ -26,6 +26,6 @@ writeFileSync(join(out, 'findings.md'), `# The ${t.findings.length} reference fi
 const pages = await Promise.all(t.files.map(async (url) => `// ===== file: ${url.split('/').slice(-2).join('/')} =====\n${await (await fetch(url)).text()}`));
 const contract = t.platform === 'NEAR' ? 'contract.rs' : 'contract.sol';
 writeFileSync(join(out, contract), pages.join('\n\n'));
-mkdirSync('eval/out/readings', { recursive: true });
-writeFileSync(`eval/out/readings/${id}.map.json`, JSON.stringify(names, null, 2));
+mkdirSync(`${OUT_DIR}/readings`, { recursive: true });
+writeFileSync(`${OUT_DIR}/readings/${id}.map.json`, JSON.stringify(names, null, 2));
 console.log(`${id}: ${systems.length} answers as ${Object.keys(names).join(', ')}; ${contract}, ${pages.reduce((n, p) => n + p.length, 0)} characters; ${t.findings.length} findings`);

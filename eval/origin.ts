@@ -5,7 +5,7 @@
 //   TRACE_DIR=eval/out/trace node --experimental-strip-types eval/origin.ts <task id> <tag> [<since, ISO time>] [<team, commas>]
 import { readdirSync, readFileSync } from 'node:fs';
 import { alike, findingsIn } from '../node/src/rules.ts';
-import { REVIEWS } from './review-tasks.ts';
+import { OUT_DIR, REVIEWS } from './review-tasks.ts';
 
 const [id, tag, since = '', teamArg] = process.argv.slice(2) as [string, string, string?, string?];
 const t = REVIEWS.find((x) => x.id === id)!;
@@ -19,13 +19,13 @@ const fileOf = (c: Call) => /<knowledge>\s*\n?(\S+)/.exec(c.sent.system ?? '')?.
 
 // The swarm's answer as it was kept, with the marks of who confirmed each item; and what the readers matched.
 const swarm = `review ${tag}: the swarm`;
-const kept: Record<string, { text: string }> = JSON.parse(readFileSync('eval/out/reviews.json', 'utf8'))[id];
+const kept: Record<string, { text: string }> = JSON.parse(readFileSync(`${OUT_DIR}/reviews.json`, 'utf8'))[id];
 const entries = new Map([...kept[swarm]!.text.matchAll(/^### (\d+)\. \w+: (.*?)((?: \[\[\d+\]\])*)$/gm)].map((m) => [Number(m[1]), { title: m[2]!, by: [...m[3]!.matchAll(/\[\[(\d+)\]\]/g)].map((x) => Number(x[1])) }]));
-const names: Record<string, string> = JSON.parse(readFileSync(`eval/out/readings/${id}.map.json`, 'utf8'));
+const names: Record<string, string> = JSON.parse(readFileSync(`${OUT_DIR}/readings/${id}.map.json`, 'utf8'));
 const name = Object.entries(names).find(([, s]) => s === swarm)![0];
 const matched = new Map<number, Set<number>>(); // reference finding -> the items that state it
-for (const f of readdirSync('eval/out/readings').filter((x) => x.startsWith(`${id}.`) && x.endsWith('.txt'))) {
-  const block = readFileSync(`eval/out/readings/${f}`, 'utf8').split(/^## +/m).find((b) => b.startsWith(name)) ?? '';
+for (const f of readdirSync(`${OUT_DIR}/readings`).filter((x) => x.startsWith(`${id}.`) && x.endsWith('.txt'))) {
+  const block = readFileSync(`${OUT_DIR}/readings/${f}`, 'utf8').split(/^## +/m).find((b) => b.startsWith(name)) ?? '';
   for (const m of (/^\s*items:\s*(.*)$/m.exec(block)?.[1] ?? '').matchAll(/(\d+):[CHMLI]:M(\d+)/g)) matched.set(Number(m[2]), (matched.get(Number(m[2])) ?? new Set()).add(Number(m[1])));
 }
 

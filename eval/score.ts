@@ -13,13 +13,13 @@
 //                                audit does not list; N true and harmless (by design, a note); W wrong, the code
 //                                refutes it; D<k> the same claim as item k of this answer
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { REVIEWS } from './review-tasks.ts';
+import { OUT_DIR, REVIEWS } from './review-tasks.ts';
 
-const DIR = 'eval/out/readings';
+const DIR = `${OUT_DIR}/readings`;
 type Item = { n: number; severity: string; kind: 'M' | 'R' | 'N' | 'W' | 'D'; ref?: number };
 type Reading = { verdicts: string; items: Item[] };
 type Kept = Record<string, Record<string, { usd: number; text: string }>>;
-const kept: Kept = existsSync('eval/out/reviews.json') ? JSON.parse(readFileSync('eval/out/reviews.json', 'utf8')) : {};
+const kept: Kept = existsSync(`${OUT_DIR}/reviews.json`) ? JSON.parse(readFileSync(`${OUT_DIR}/reviews.json`, 'utf8')) : {};
 
 /** One reader's report: answer name -> what it says of that answer. */
 function parse(text: string): Record<string, Reading> {

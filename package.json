@@ -15,6 +15,8 @@
     "start:testnet": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet node/src/main.ts",
     "stand-ins": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stand-ins.ts",
     "eval": "STORE_DIR=eval/out/store TRACE_DIR=eval/out/trace node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet eval/run.ts",
+    "eval:shim": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/claude-shim.ts",
+    "eval:claude": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=eval/claude.env eval/review.ts",
     "eval:review": "STORE_DIR=eval/out/store TRACE_DIR=eval/out/trace node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.testnet eval/review.ts"
   },
   "dependencies": {

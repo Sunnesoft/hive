@@ -92,6 +92,9 @@ const NEXTGEN = at('https://raw.githubusercontent.com/code-423n4/2025-01-next-ge
 const KINETIQ = at('https://raw.githubusercontent.com/code-423n4/2025-04-kinetiq/7f29c917c09341672e73be2f7917edf920ea2adb/src',
   ['StakingManager.sol', 'KHYPE.sol']);
 
+/** Where the results are kept: another folder for a run on another model (EVAL_DIR=eval/out/claude). */
+export const OUT_DIR = process.env.EVAL_DIR ?? 'eval/out';
+
 export const REVIEWS: ReviewTask[] = [
   fromTasks('bridge audit'),
   fromTasks('loan audit'),
