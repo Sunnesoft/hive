@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { closerLook, controlled, crossChecked, digestOf, hotSpots, join, listOf, reportOf, review, type Review } from './review.ts';
+import { controlled, digestOf, join, listOf, reportOf, review, tried, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
@@ -248,18 +248,16 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const reviews = good.flatMap((g) => (g.review ? [{ id: g.id, ...g.review }] : []));
   const all = await join(reviews);
   const theirs = head(pages.filter((p) => given.has(p.url)));
-  // A grave finding one expert confirmed is checked by another expert of the team, who pays for it from its hold.
-  // Then the places several experts had notes about and none settled get a closer look. Each of these steps is
-  // paid by the expert that does it, from what is left of its hold.
+  // The swarm tries what it found (review.tried): each finding's finder proves it, the others test the proofs, and
+  // what a test refuted goes on the finder's appeal to the arbiter, the protocol's model. Each expert pays for its
+  // part from what is left of its hold.
   const extra = new Map<number, bigint>();
-  const checkers = () => reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent - (extra.get(r.id) ?? 0n) }));
-  const add = (costs: Map<number, bigint>) => costs.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
-  const crossed = await crossChecked(all.findings, checkers(), task, theirs);
-  add(crossed.cost);
-  const closer = await closerLook(hotSpots(reviews, crossed.findings), checkers(), task, theirs);
-  add(closer.cost);
+  const triers = reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent }));
+  const judge = { ...members[reviews[0]?.id ?? 0]!.expert.m, name: 'arbiter', expertise: 'The arbiter of a swarm of reviewers: it owes neither side.', method: '', knowledge: [], model: cfg.PROTOCOL_MODEL };
+  const trial = await tried(all.findings, triers, task, theirs, judge);
+  trial.cost.forEach((c, id) => extra.set(id, c));
   for (const [id, more] of extra) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + more, BigInt(members[id]!.agent.max_cost)).toString() };
-  const joined = { ...all, findings: await controlled([...crossed.findings, ...closer.findings], theirs) }; // the controller, if one is set, says its word beside each finding
+  const joined = { ...all, findings: await controlled(trial.findings, theirs) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
   // An answer made of reviews only opens with one paragraph about them; anything else is composed, the reviews as their titles.
   const onlyReviews = good.length > 0 && reviews.length === good.length;

@@ -21,7 +21,7 @@ import { allowedModels, cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { closerLook, controlled, crossChecked, hotSpots, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
+import { closerLook, controlled, hotSpots, join, listOf, reportOf, review, tried, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
@@ -112,18 +112,18 @@ async function joined(t: ReviewTask, pages: Page[]) {
   const wanted = [...(kept[t.id]?.[plain] ? [] : [plain]), ...(process.env.CONTROL_MODEL && !kept[t.id]?.[second] ? [second] : [])];
   if (parts.length < t.experts.length || !wanted.length) return;
   const joinedAll = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
-  // As a round does: a grave finding one expert confirmed is checked by the next expert of the team, from what is left of its hold.
-  const extra = new Map<number, bigint>();
+    const extra = new Map<number, bigint>();
   const team = () => parts.map((p) => ({ id: p.id, m: cardOf(t.experts[p.id]!).m, money: usdc(cardOf(t.experts[p.id]!).card.max_cost) - BigInt(Math.round(p.r!.usd * 1e6)) - (extra.get(p.id) ?? 0n) }));
   const add = (costs: Map<number, bigint>) => costs.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
-  const crossed = await crossChecked(joinedAll.findings, team(), t.task, pages);
-  add(crossed.cost);
-  // EVAL_CLOSER=0 leaves the hot spots alone: to see what the closer look adds, against the same reviews
-  const spots = process.env.EVAL_CLOSER === '0' ? [] : hotSpots(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, unsure: p.r!.review!.unsure, open: p.r!.review!.open })), crossed.findings);
-  if (spots.length) say(`${t.id}: ${spots.length} hot spots: ${spots.slice(0, 8).map((s) => `${s.place} (${s.experts.size} experts, ${s.notes.length} notes)`).join('; ')}`);
+  // As a round does: the swarm tries what it found, proofs, tests, appeals and the arbiter (review.tried).
+  const judge = { ...cardOf(t.experts[parts[0]!.id]!).m, name: 'arbiter', expertise: 'The arbiter of a swarm of reviewers: it owes neither side.', method: '', knowledge: [], model: MODEL ?? cfg.PROTOCOL_MODEL };
+  const trial = await tried(joinedAll.findings, team(), t.task, pages, judge);
+  add(trial.cost);
+  // EVAL_CLOSER=1 also gives the hot spots a closer look, as the round no longer does
+  const spots = process.env.EVAL_CLOSER === '1' ? hotSpots(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, unsure: p.r!.review!.unsure, open: p.r!.review!.open })), trial.findings) : [];
   const closer = await closerLook(spots, team(), t.task, pages);
   add(closer.cost);
-  const all = { ...joinedAll, findings: [...crossed.findings, ...closer.findings] };
+  const all = { ...joinedAll, findings: [...trial.findings, ...closer.findings] };
   const crossUsd = [...extra.values()].reduce((sum, c) => sum + usd(c), 0);
   if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: crossUsd, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
   if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });

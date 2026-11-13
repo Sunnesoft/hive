@@ -157,6 +157,16 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       return replyForm(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
     }
     if (is('You are an expert taking a closer look at one place')) return (review.closer.push(`${system}\n${user}`), replyForm('NOTHING FOUND')); // stand-ins settle nothing at a hot spot
+    // The swarm's trial of its findings: a stand-in proves each finding on its first line of evidence, and the
+    // others confirm every proof whose line is in the materials; nothing is refuted, so no appeal is made.
+    if (is('You are an expert of a swarm. You reviewed a customer')) {
+      const mine = [...(task.split('# Your findings')[1] ?? '').matchAll(/^### (\d+)\. [^\n]*\n([\s\S]*?)(?=^### |$(?![\s\S]))/gm)];
+      return reply({ proofs: mine.map(([, id, body]) => ({ id: Number(id), steps: [{ does: 'The materials allow it.', line: /`([^`]+)`/.exec(body!)?.[1] ?? '', outside: false }], end: 'Someone loses.', withdrawn: false })) });
+    }
+    if (is('You are an expert of a swarm. Other experts reviewed')) {
+      const theirs = [...(task.split('# Findings and their proofs')[1] ?? '').matchAll(/^### (\d+)\. [^\n]*\n([\s\S]*?)(?=^### |$(?![\s\S]))/gm)];
+      return reply({ marks: theirs.map(([, id, body]) => ({ id: Number(id), mark: 'confirm', step: 0, quote: /`([^`]+)`/.exec(body!)?.[1] ?? '', why: 'A stand-in confirms.' })) });
+    }
     if (is('You are an expert asked to refute a finding')) return (review.refutes.push(`${system}\n${user}`), reply({ verdicts: [{ holds: false, severity: 'Low', where: '', title: '', how: 'A stand-in finds nothing that stops it, and quotes no line.', quote: '', fix: '' }] }));
     if (is('You are an expert checking findings')) {
       review.checks.push(`${system}\n${user}`);
