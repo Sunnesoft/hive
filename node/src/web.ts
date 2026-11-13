@@ -83,7 +83,7 @@ async function searchWeb(query: string): Promise<string[]> {
 export const MAX_SOURCES = 10; // links read per job, besides the customer's files
 export const SOURCE_BYTES = 5_000_000; // the most downloaded for one link
 export const SOURCE_CHARS = 400_000; // of one source's text
-export const PUBLIC_CHARS = 48_000; // of the public material one expert gets with its question
+export const PUBLIC_CHARS = 160_000; // of the public material one expert gets with its question: the customer's files and what they refer to (deps.ts); on NEAR AI a call reads it from its cache after the first
 
 export type Page = { url: string; text: string };
 export type Unread = { url: string; why: string };

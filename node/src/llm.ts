@@ -358,7 +358,7 @@ export async function mark(m: Materials, question: string, pages: Page[], about:
   }
 }
 
-const Proofs = z.object({ proofs: z.array(z.object({ id: z.number(), steps: z.array(z.object({ does: z.string(), line: z.string(), outside: z.boolean().nullish() })), end: z.string(), withdrawn: z.boolean().nullish() })) });
+const Proofs = z.object({ proofs: z.array(z.object({ id: z.number(), steps: z.array(z.object({ does: z.string(), line: z.string(), source: z.string().nullish() })), end: z.string(), withdrawn: z.boolean().nullish() })) });
 export type Proof = z.infer<typeof Proofs>['proofs'][number];
 /** The proofs an expert gives its own findings before peers test them (policies/prove.md): the path step by step,
  *  each step on a line of the materials, which code then finds in them or the proof does not stand. */

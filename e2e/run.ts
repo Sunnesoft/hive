@@ -388,7 +388,7 @@ try {
   check('look-up: an expert given materials reads them and names what to look up in its knowledge; a question without materials needs no look-up', ai.lookups.length > 0 && ai.lookups.every((c) => c.includes('<material ')) && ai.lookups.length < ai.agentCalls.length, { lookups: ai.lookups.length, answers: ai.agentCalls.length });
   check('intake: the answer names the experts who contributed', market.delivered('a-named')[0]!.includes(agentId(codes)), market.delivered('a-named')[0]!.slice(-200));
   const namedCalls = ai.agentCalls.filter((c) => c.includes('Customer context'));
-  check('materials: from a 190 KB manual each expert gets the parts closest to its question, the fact deep inside included', ai.agentCalls.some((c) => c.includes('Hall 7')) && ai.agentCalls.every((c) => c.length < 120_000), namedCalls.map((c) => c.length));
+  check('materials: from a 190 KB manual each expert gets the parts closest to its question, the fact deep inside included', ai.agentCalls.some((c) => c.includes('Hall 7')) && ai.agentCalls.every((c) => c.length < manual.length), namedCalls.map((c) => c.length));
   check('materials: a PDF the customer attached is read as text', ai.agentCalls.some((c) => c.includes('Project Alpha budget is 42 thousand.')));
   check('materials: the answer tells the customer what was read and what could not be', /Your materials: read context\.md, manual\.md, budget\.pdf; could not read photos\.zip \(cannot read application\/zip\)/.test(market.delivered('a-named')[0]!), market.delivered('a-named')[0]!.slice(-400));
 

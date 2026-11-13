@@ -35,7 +35,7 @@ import { lint } from './lint.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
 import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, middleOf, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, usdc, type Finding } from './rules.ts';
-import type { Page } from './web.ts';
+import { read, type Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
@@ -376,13 +376,19 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   return { findings, leads: leads.slice(0, MAX_LEADS) };
 }
 
-/** A proof stands if it was not withdrawn, no step of it runs through code the materials do not hold, and code
- *  finds most of its lines, two in three, in the materials: a step on a line too short to tell apart ("None,") is
- *  no sign of a made-up path. */
-export const provedIn = (p: llm.Proof | undefined, material: string) => {
-  if (!p || p.withdrawn || !p.steps.length || p.steps.some((s) => s.outside)) return false;
-  const found = p.steps.filter((s) => grounded(s.line, material)).length;
-  return found >= 1 && found * 3 >= p.steps.length * 2;
+/** A proof stands if it was not withdrawn and every step of it stands on a line code finds: in the materials, or
+ *  in the public file of a library the step names (`sources`: what code fetched of them). No step is taken on the
+ *  word of the expert who wrote it. */
+export const provedIn = (p: llm.Proof | undefined, material: string, sources: Map<string, string> = new Map()) =>
+  !!p && !p.withdrawn && p.steps.length > 0 && p.steps.every((s) => grounded(s.line, s.source ? (sources.get(s.source) ?? '') : material));
+/** The libraries' files a proof may stand on: public source code, at a fixed address, nothing else. */
+const LIBRARY_HOSTS = /^https:\/\/(raw\.githubusercontent\.com|github\.com|docs\.rs)\//;
+const MAX_LIBRARY_FILES = 12; // library files fetched for one trial
+/** A few lines of a library's file around the line a step stands on: what a tester or the arbiter reads to check it. */
+const around = (text: string, line: string) => {
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.replace(/\s+/g, '').includes(line.trim().split('\n')[0]!.replace(/\s+/g, '').slice(0, 60)));
+  return at < 0 ? '' : lines.slice(Math.max(0, at - 4), at + 5).join('\n');
 };
 const PROVE_AT_ONCE = 15; // findings one expert proves in one call
 const TEST_AT_ONCE = 20; // proofs one expert tests in one call
@@ -411,8 +417,13 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
     spend(t.id, r.cost);
     for (const p of r.proofs) if (part.some(({ k }) => k === p.id)) proofs.set(p.id, p);
   });
-  const proved = new Set(findings.map((_, k) => k).filter((k) => provedIn(proofs.get(k), material)));
-  const showProof = (k: number) => { const p = proofs.get(k)!; return `### ${k}. ${findings[k]!.severity}: ${findings[k]!.title}\n\n${p.steps.map((s, i) => `${i + 1}. ${s.does}\n   \`${s.line}\``).join('\n')}\n\nEnd: ${p.end}`; };
+  // The library files the proofs stand on, fetched by code from their public addresses.
+  const sources = new Map<string, string>();
+  const wanted = [...new Set([...proofs.values()].flatMap((p) => p.steps.map((s) => s.source?.trim() ?? '')).filter((u) => LIBRARY_HOSTS.test(u)))].slice(0, MAX_LIBRARY_FILES);
+  await Promise.all(wanted.map(async (url) => { const text = await read(url).catch(() => ''); if (text) sources.set(url, text); }));
+  const proved = new Set(findings.map((_, k) => k).filter((k) => provedIn(proofs.get(k), material, sources)));
+  const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   \`${s.line}\`${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
+  const showProof = (k: number) => { const p = proofs.get(k)!; return `### ${k}. ${findings[k]!.severity}: ${findings[k]!.title}\n\n${p.steps.map(showStep).join('\n')}\n\nEnd: ${p.end}`; };
   // The tests, each expert of the proofs it did not write.
   const marks: { k: number; mark: llm.Mark }[] = [];
   await each(team.flatMap((t) => chunks([...proved].filter((k) => !findings[k]!.by.includes(t.id) && finder(findings[k]!)?.id !== t.id), TEST_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {

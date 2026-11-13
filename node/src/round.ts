@@ -15,6 +15,7 @@ import { controlled, digestOf, join, listOf, reportOf, review, tried, type Revie
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
+import { referred } from './deps.ts';
 import { gather, linksIn, MAX_SOURCES, PUBLIC_CHARS, textOf, type Page, type Unread } from './web.ts';
 
 
@@ -225,12 +226,15 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   ).catch((e: Error): Unread => ({ url: `attachment: ${f.filename}`, why: e.message.slice(0, 80) }))));
   const found = await gather(task, queries);
   const pages = [...files.filter((f): f is Page => 'text' in f && f.text !== ''), ...found.pages];
+  // What those files refer to and do not hold, from the same repository: the crate's other modules, its libraries.
+  const referredTo = await referred(pages).catch(() => [] as Page[]);
+  pages.push(...referredTo);
   const unread = [...files.filter((f): f is Unread => 'why' in f), ...found.unread];
   log('materials', { pages: pages.length, unread: unread.length }, { sources: pages.map((p) => ({ url: p.url, chars: p.text.length })), failed: unread });
   const shelf = await shelve(pages);
   const sources = [...new Set([...linksIn(task), ...pages.map((p) => p.url).filter((u) => u.startsWith('https://'))])];
   // The customer's own: the files they attached and the links they gave. What a search found is not theirs to have reviewed.
-  const given = new Set(pages.map((p) => p.url).filter((u) => u.startsWith('attachment: ') || linksIn(task).includes(u)));
+  const given = new Set([...pages.map((p) => p.url).filter((u) => u.startsWith('attachment: ') || linksIn(task).includes(u)), ...referredTo.map((p) => p.url)]);
 
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await door.start(id);

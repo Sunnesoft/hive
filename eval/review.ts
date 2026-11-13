@@ -23,6 +23,7 @@ import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
 import { closerLook, controlled, hotSpots, join, listOf, reportOf, review, tried, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
+import { referred } from '../node/src/deps.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
 import { OUT_DIR, REVIEWS, type ReviewTask } from './review-tasks.ts';
@@ -66,11 +67,15 @@ const cardOf = (name: string) => {
   return { card, m: MODEL ? { ...m, model: MODEL } : { ...m, ...(_ ? { pass_model: _ } : {}) } };
 };
 
-const pagesOf = (t: ReviewTask) => Promise.all(t.files.map(async (url): Promise<Page> => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`${url}: ${res.status}`);
-  return { url, text: await res.text() };
-}));
+/** The task's files, and, as a round reads them, what they refer to (deps.ts); EVAL_REFERRED=0: the files alone. */
+const pagesOf = async (t: ReviewTask) => {
+  const given = await Promise.all(t.files.map(async (url): Promise<Page> => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`${url}: ${res.status}`);
+    return { url, text: await res.text() };
+  }));
+  return process.env.EVAL_REFERRED === '0' ? given : [...given, ...(await referred(given))];
+};
 
 /** Before any money is spent: does every model the run needs answer, and do the files fit what an expert is given? */
 async function ready(t: ReviewTask, pages: Page[], models: string[]) {
