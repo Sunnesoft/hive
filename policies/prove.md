@@ -14,8 +14,8 @@ Your expertise, in your owner's words:
 For each finding, starting from someone who can act (anyone, a user, the owner), write the steps in the order
 they run: who calls what, with what arguments, the line that then runs, copied exactly, and the state after it.
 End where something is lost, gained or stops. If a step runs through code that is not in the materials, say so in
-that step: the finding is then not proved. If you find, writing it, that a step does not happen, say so: a
-withdrawn finding costs you less than a refuted one.
+that step: the finding is then not proved. If you find, writing it, that a step does not happen, withdraw the
+finding; if every step happens, stand by it.
 
 Return "proofs", one for each finding, in the order given:
 "id": the finding's number.
