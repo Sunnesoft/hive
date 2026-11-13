@@ -219,19 +219,23 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
 const STEP_OUT = { read: READ_OUT, pass: PASS_OUT, check: CHECK_OUT, combine: COMBINE_OUT, proof: PROOF_OUT };
-/** Findings a step's reply is taken for: a step is told how many, and how many words it has, so that it chooses what to leave out. */
-const STEP_MOST: Partial<Record<keyof typeof STEP_OUT, number>> = { read: READ_FINDINGS, pass: PASS_FINDINGS };
-const roomOf = (kind: keyof typeof STEP_OUT) => String(Math.round((STEP_OUT[kind] * 0.6) / 100) * 100); // findings about code run to some 0.6 words a token
+/** Output tokens of one step of an expert's review: its own reading and its passes as deep as the expert chose
+ *  (Materials.review), the rest as the protocol needs them to be readable. */
+export const roomOf = (kind: keyof typeof STEP_OUT, m: Materials) => (kind === 'read' ? m.review.read_room : kind === 'pass' ? m.review.pass_room : STEP_OUT[kind]);
+/** Findings taken from a reading or a pass: as many as its room holds, at the 200 tokens a finding with its
+ *  evidence takes. A step is told how many, and how many words it has, so that it chooses what to leave out. */
+export const mostOf = (kind: 'read' | 'pass', m: Materials) => Math.max(5, Math.floor(roomOf(kind, m) / (kind === 'read' ? READ_OUT / READ_FINDINGS : PASS_OUT / PASS_FINDINGS)));
+const wordsOf = (tokens: number) => String(Math.round((tokens * 0.6) / 100) * 100); // findings about code run to some 0.6 words a token
 export type ReviewStep = keyof typeof STEP_OUT;
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
   policy[kind].replace('{{expertise}}', () => m.expertise).replace('{{method}}', () => m.method).replace('{{knowledge}}', () => knowledge)
-    .replaceAll('{{room}}', roomOf(kind)).replaceAll('{{most}}', String(STEP_MOST[kind] ?? ''));
+    .replaceAll('{{room}}', wordsOf(roomOf(kind, m))).replaceAll('{{most}}', kind === 'read' || kind === 'pass' ? String(mostOf(kind, m)) : '');
 const stepPrompt = (question: string, pages: Page[], about: string) => (about ? `${asked(question, pages)}\n\n${about}` : asked(question, pages));
 /** The most one step can cost: every byte of its prompt as a token, and its whole output limit. */
 export const stepCeiling = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string, price: Price) =>
-  microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: STEP_OUT[kind] }, price);
+  microUsd({ inputTokens: Buffer.byteLength(stepInstructions(kind, m, knowledge) + stepPrompt(question, pages, about)), outputTokens: roomOf(kind, m) }, price);
 
 /** One step of a review: the agent's own reading, a pass with one part of its knowledge, the check of a group of
  *  findings, a look at the confirmed findings together, or the proof of one. `about` is the section the step is given after the question and the materials: the findings to
@@ -243,9 +247,9 @@ export async function step(kind: ReviewStep, m: Materials, knowledge: string, qu
   if (!price) return { text: '', cost: 0n, why: 'model_unavailable' };
   if (stepCeiling(kind, m, knowledge, question, pages, about, price) > cap) return { text: '', cost: 0n, why: 'too_expensive' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
-  const call = () => written(model, { instructions: system, prompt, limit: STEP_OUT[kind], temperature: 0 }); // not retried inside: a review tries a failed step once more itself
+  const call = () => written(model, { instructions: system, prompt, limit: roomOf(kind, m), temperature: 0 }); // not retried inside: a review tries a failed step once more itself
   try {
-    const r = await metered(kind, model, { agent: m.name, system, prompt }, STEP_OUT[kind], call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
+    const r = await metered(kind, model, { agent: m.name, system, prompt }, roomOf(kind, m), call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch {
     return { text: '', cost: 0n, why: 'model_failed' };

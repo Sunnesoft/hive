@@ -3,7 +3,7 @@
 // and these materials are reference data inside it. Only text is accepted, and nothing in it is ever run.
 import { z } from 'zod';
 import { allowedModels } from './config.ts';
-import { TOPICS } from './rules.ts';
+import { MAX_CHECKS, PASS_OUT, READ_OUT, TOPICS } from './rules.ts';
 import { clean } from './safety.ts';
 import { open } from './seal.ts';
 
@@ -21,6 +21,14 @@ export const Materials = z.strictObject({
   // 'review': given materials, the agent goes through them with every part of its knowledge and checks each finding
   // (review.ts); without materials, and for 'answer', it answers once from the knowledge closest to the question.
   work: z.enum(['answer', 'review']).default('answer'),
+  // How deep a review goes: the expert pays for every call of it from its hold, so how much is spent is the
+  // expert's to decide. Output tokens of its own reading and of each pass, and how many checks at most. The
+  // protocol keeps only bounds that keep a review a review; left out, a review goes as deep as the protocol lets.
+  review: z.strictObject({
+    read_room: z.number().int().min(1_000).max(12_000).default(READ_OUT),
+    pass_room: z.number().int().min(800).max(8_000).default(PASS_OUT),
+    checks: z.number().int().min(5).max(120).default(MAX_CHECKS),
+  }).default({ read_room: READ_OUT, pass_room: PASS_OUT, checks: MAX_CHECKS }),
   // Public, shown in the catalog so customers can choose; audited like the rest: the material must back them.
   examples: z.array(Text(200).pipe(z.string().min(1))).max(3).default([]), // questions it answers well
   topics: z.array(z.enum(TOPICS)).max(3).default([]), // where customers find it

@@ -13,7 +13,7 @@ const sealFor = (sponsor: string, json: unknown) => seal(Buffer.from(JSON.string
 test('sealed materials open only in the runner, only for their sponsor', () => {
   const sealed = sealFor('alice.near', good);
   assert.equal(sealed.includes(Buffer.from('2027-03-14')), false);
-  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', work: 'answer', examples: [], topics: [] });
+  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', work: 'answer', review: { read_room: 6_000, pass_room: 4_000, checks: 60 }, examples: [], topics: [] });
   assert.throws(() => unseal(sealed, runner, 'copycat.near'), Refused); // a copy registered by someone else
   assert.throws(() => unseal(sealed, devSecret('ed25519:other'), 'alice.near'), Refused); // another runner
   const tampered = Buffer.from(sealed);
@@ -23,7 +23,7 @@ test('sealed materials open only in the runner, only for their sponsor', () => {
 
 test('the browser seals exactly like the runner expects', async () => {
   const sealed: Uint8Array = await sealInBrowser(Buffer.from(JSON.stringify(good)), publicKeyOf(runner).toString('hex'), 'alice.near');
-  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', work: 'answer', examples: [], topics: [] });
+  assert.deepEqual(unseal(sealed, runner, 'alice.near'), { ...good, method: '', work: 'answer', review: { read_room: 6_000, pass_room: 4_000, checks: 60 }, examples: [], topics: [] });
 });
 
 test('materials are text with a known shape: no extra fields, an allowed model, invisible characters removed', () => {

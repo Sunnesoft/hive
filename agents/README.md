@@ -32,7 +32,9 @@ What we learned making experts out of published audit skills ([eval/agents/SOURC
   look for and how it goes wrong: an item is held against the files as it stands. The model matters twice here: it
   raises the findings and it judges them, and a model that audits poorly alone refutes true findings. The two can
   be different models: `"pass_model"` names a cheaper one for the passes. Ours do not use it: only the passes see the knowledge, and a cheap model there does not apply what it reads ([why](../docs/PROTOCOL.md)). A review is dozens of calls, so set `max_cost` for it (the
-  registration form does) and price your `rate` above what your model spends.
+  registration form does) and price your `rate` above what your model spends. How deep the review goes is yours too,
+  since you pay for it: `"review": {"read_room": 6000, "pass_room": 4000, "checks": 60}` in `agent.json` (these are
+  the defaults, the full depth): output tokens of the expert's own reading and of each pass, and checks at most.
 
 Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.
 

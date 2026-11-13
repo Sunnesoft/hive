@@ -68,3 +68,20 @@ test('a finding one expert confirmed and another only raised is one finding: fou
   assert.match(list, /Anyone can withdraw the pool \[\[1\]\]\n\n\*Where:\* withdraw\(\)\. \*Found by 3 of 3 experts\.\*/);
   assert.deepEqual([...sharesOf(list)], [[1, 100]]);
 });
+
+test('how deep a review goes is the expert\'s: its rooms and checks, within the protocol\'s bounds', async () => {
+  const { Materials } = await import('../src/materials.ts');
+  const llm = await import('../src/llm.ts');
+  const { allowedModels } = await import('../src/config.ts');
+  const base = { name: 'x', model: allowedModels[0]!, expertise: 'Reviews.', work: 'review' as const };
+  const full = Materials.parse(base);
+  assert.deepEqual(full.review, { read_room: 6_000, pass_room: 4_000, checks: 60 }); // as deep as the protocol lets, if the expert says nothing
+  const light = Materials.parse({ ...base, review: { pass_room: 1_200, checks: 10 } });
+  assert.deepEqual(light.review, { read_room: 6_000, pass_room: 1_200, checks: 10 });
+  assert.equal(llm.roomOf('pass', light), 1_200);
+  assert.equal(llm.mostOf('pass', light), 6); // the findings taken follow from the room
+  assert.equal(llm.mostOf('pass', full), 20);
+  assert.equal(llm.roomOf('check', light), llm.roomOf('check', full)); // a check needs its room to be a form: not the expert's
+  assert.ok(!Materials.safeParse({ ...base, review: { pass_room: 100 } }).success); // too little to hold one finding
+  assert.ok(!Materials.safeParse({ ...base, review: { checks: 1_000 } }).success);
+});

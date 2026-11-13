@@ -176,7 +176,7 @@ export function worstOf(m: Expert['m'], pieces: string[], question: string, page
   const largest = [...pieces].sort((a, b) => b.length - a.length).slice(0, KNOWLEDGE_AT_A_CHECK).join('\n\n');
   return llm.stepCeiling('read', m, '', question, pages, '', price) +
     pieces.reduce((sum, piece) => sum + llm.stepCeiling('pass', m, piece, question, pages, 'x'.repeat(KNOWN_IN), reading), 0n) +
-    BigInt(MAX_CHECKS + MAX_COMBINED) * llm.stepCeiling('check', m, largest, question, pages, 'x'.repeat(CHECK_IN), price) +
+    BigInt(m.review.checks + MAX_COMBINED) * llm.stepCeiling('check', m, largest, question, pages, 'x'.repeat(CHECK_IN), price) +
     llm.stepCeiling('combine', m, '', question, pages, 'x'.repeat(COMBINE_IN), price) +
     3n * llm.sameCeiling(2 * SAME_IN, price) + // asked before the checks, and after them of the confirmed and of the rest; the lines, and as much again for the JSON around them
     (code ? BigInt(MAX_PROOFS) * llm.stepCeiling('proof', m, '', question, pages, 'x'.repeat(PROOF_IN), price) : 0n);
@@ -211,7 +211,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // The expert's own reading comes first, and the passes are told what it found.
   const known = new Map<string, Finding>();
   const first = await step('read', '', '');
-  const own = findingsIn(first.text).slice(0, READ_FINDINGS);
+  const own = findingsIn(first.text).slice(0, llm.mostOf('read', m));
   for (const f of own) known.set(`${f.where} | ${f.title}`.toLowerCase(), f);
   counts.own = own.length;
   // Passes run a few at a time; each is told what was raised before it, a line a finding, the gravest first.
@@ -220,7 +220,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const partOf = new Map<Finding, string>();
   const passes = await each(chosen.pieces, async (piece) => {
     const r = await step('pass', piece, raisedSoFar());
-    const found = findingsIn(r.text).slice(0, PASS_FINDINGS);
+    const found = findingsIn(r.text).slice(0, llm.mostOf('pass', m));
     for (const f of found) { known.set(`${f.where} | ${f.title}`.toLowerCase(), f); partOf.set(f, piece); }
     return { ...r, found };
   });
@@ -245,7 +245,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     })
     .sort((a, b) => rank(gravest(a.all)) - rank(gravest(b.all)) || b.raised - a.raised);
   const material = pages.map((p) => p.text).join('\n');
-  const toCheck = groups.slice(0, MAX_CHECKS);
+  const toCheck = groups.slice(0, m.review.checks); // as many as the expert pays for, the gravest first
   /** The check of one group: what of it holds and quotes a line that is in the materials, and, if nothing does,
    *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
   const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; said?: string; failed?: llm.Why }> => {
