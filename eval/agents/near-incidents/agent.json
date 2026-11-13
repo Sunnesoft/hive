@@ -1,7 +1,6 @@
 {
   "name": "near-incidents",
   "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
-  "pass_model": "Qwen/Qwen3.6-35B-A3B-FP8",
   "skills": "What has actually gone wrong in production on NEAR and Aurora: a case-book of the root causes of real exploits, losses, repelled attacks and paid bounties, in accounting and pools, tokens, callbacks and refunds, bridges and proofs, the EVM engine and runtime, accounts, keys and upgrades. Reviews attached Rust code for the same root causes, says who gains, who loses or what stops, and quotes the lines each finding rests on.",
   "rate": "1.00",
   "max_cost": "1.60",

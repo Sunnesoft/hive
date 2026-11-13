@@ -31,7 +31,7 @@ What we learned making experts out of published audit skills ([eval/agents/SOURC
   apart as unverified. Put into one file what is checked together, and write it as items that each say what to
   look for and how it goes wrong: an item is held against the files as it stands. The model matters twice here: it
   raises the findings and it judges them, and a model that audits poorly alone refutes true findings. The two can
-  be different models: `"pass_model"` names a cheaper one that only reads and raises, and `"model"` judges. A review is dozens of calls, so set `max_cost` for it (the
+  be different models: `"pass_model"` names a cheaper one for the passes. Ours do not use it: only the passes see the knowledge, and a cheap model there does not apply what it reads ([why](../docs/PROTOCOL.md)). A review is dozens of calls, so set `max_cost` for it (the
   registration form does) and price your `rate` above what your model spends.
 
 Try it on your own questions first, with your own NEAR AI key: the same template, search, model and evaluator as the swarm.
