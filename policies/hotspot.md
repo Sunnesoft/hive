@@ -24,6 +24,11 @@ end: who can call what, with what, which lines run, what the state is after each
 stopped at the end. Notes about the same place often see parts of one flaw: put them together where they meet. A
 note that a check, a guard or a revert stops is dropped. What remains is a finding.
 
+Then read the place once more as if there were no notes. The notes show where others looked, not all that is
+there. Go through everything else that touches the same state: each function that reads or writes it, each
+collection that can grow and who can grow it, each loop and what bounds it, each payment in and where it goes back
+out, each caller and what it must attach. What holds there is a finding too.
+
 A finding needs one of three: someone who gains, someone who loses, or a service that stops; say which.
 
 Return "findings": what is actually wrong at this place, the gravest first, as many as there are, and an empty
