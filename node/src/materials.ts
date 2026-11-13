@@ -25,6 +25,8 @@ export const Materials = z.strictObject({
   // there pays for. An expert that wants to spend less says so in its method ("only High and Medium") or here: how
   // many checks at most. Left out, every finding raised is checked while the money lasts.
   review: z.strictObject({ checks: z.number().int().min(1).optional() }).optional(),
+  // How freely the model writes, 0 to 1: 0, the same answer to the same question, unless the expert says otherwise.
+  temperature: z.number().min(0).max(1).optional(),
   // Public, shown in the catalog so customers can choose; audited like the rest: the material must back them.
   examples: z.array(Text(200).pipe(z.string().min(1))).max(3).default([]), // questions it answers well
   topics: z.array(z.enum(TOPICS)).max(3).default([]), // where customers find it

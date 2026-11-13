@@ -51,7 +51,7 @@ export async function nearai(models: string[], port = 0, { general = false } = {
   const routed: { task: string; agents: { id: number; skills: string; requested?: boolean }[] }[] = []; // what the router saw
   const lookups: string[] = []; // what each look-up call saw: an expert reads its share of the materials before it answers
   const embedded: number[] = []; // how many texts each embeddings call carried: indexing a library is a large one
-  const review = { reads: [] as string[], passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], controls: [] as string[], summaries: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
+  const review = { reads: [] as string[], passes: [] as string[], checks: [] as string[], proofs: [] as string[], sorts: [] as string[], combines: [] as string[], closer: [] as string[], refutes: [] as string[], controls: [] as string[], summaries: [] as string[], models: [] as [step: string, model: string][] }; // what each step of a review saw, and the model it was sent to
   const reply = (x: unknown) => [200, {
     id: 'x', object: 'chat.completion', created: 0, model: 'mock',
     choices: [{ index: 0, message: { role: 'assistant', content: typeof x === 'string' ? x : JSON.stringify(x) }, finish_reason: 'stop' }],
@@ -154,6 +154,8 @@ export async function nearai(models: string[], port = 0, { general = false } = {
       const found = [...part.matchAll(/^RULE (\w+): (\w+): (.+)$/gm)].filter(([, place, , claim]) => user.includes(`${place}(`) && !raised.includes(claim!));
       return replyForm(found.map(([, place, severity, claim]) => `### ${severity} | ${place} | ${claim}\nThe materials allow it.`).join('\n\n') || 'NOTHING FOUND');
     }
+    if (is('You are an expert taking a closer look at one place')) return (review.closer.push(`${system}\n${user}`), replyForm('NOTHING FOUND')); // stand-ins settle nothing at a hot spot
+    if (is('You are an expert asked to refute a finding')) return (review.refutes.push(`${system}\n${user}`), reply({ verdicts: [{ holds: false, severity: 'Low', where: '', title: '', how: 'A stand-in finds nothing that stops it, and quotes no line.', quote: '', fix: '' }] }));
     if (is('You are an expert checking findings')) {
       review.checks.push(`${system}\n${user}`);
       review.models.push(['check', body.model]);

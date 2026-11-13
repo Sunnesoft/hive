@@ -227,7 +227,7 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-export type ReviewStep = 'read' | 'pass' | 'check' | 'combine' | 'proof';
+export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hotspot' | 'proof';
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
@@ -239,7 +239,12 @@ export const limitFor = (price: Price, promptBytes: number, money: bigint) =>
   Math.min(REPLY_MOST, Math.floor(Number(money - microUsd({ inputTokens: promptBytes }, price)) / Math.max(price.out, 1e-9)));
 
 /** A finding as a reading, a pass or the look at findings together writes it: the form the model fills. */
-const Raised = z.object({ findings: z.array(z.object({ severity: z.string(), where: z.string(), title: z.string(), how: z.string(), evidence: z.string().nullish(), fix: z.string().nullish() })) });
+const Raised = z.object({
+  findings: z.array(z.object({ severity: z.string(), where: z.string(), title: z.string(), how: z.string(), evidence: z.string().nullish(), fix: z.string().nullish() })),
+  open: z.array(z.object({ where: z.string(), suspicion: z.string(), to_check: z.string().nullish() })).nullish(), // what the step could not take to its end
+});
+/** A suspicion a step could not take to its end: where, what, and what would settle it. */
+export type Open = { where: string; suspicion: string; to_check: string };
 const severityIn = (s: string): Finding['severity'] => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? 'Medium';
 const quoted = (lines: string) => lines.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (l.startsWith('`') ? l : `\`${l.replace(/`/g, "'")}\``)).join('\n');
 
@@ -248,21 +253,22 @@ const quoted = (lines: string) => lines.split('\n').map((l) => l.trim()).filter(
  *  materials). The reply is a form: every finding the model reports, as many as it reports, the gravest first.
  *  `money`: what is left of the agent's hold; the reply may be as long as it pays for. A step that fails costs the
  *  agent nothing and raises nothing. */
-export async function raise(kind: 'read' | 'pass' | 'combine', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ findings: Finding[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function raise(kind: 'read' | 'pass' | 'combine' | 'hotspot', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ findings: Finding[]; open: Open[]; cost: bigint; why?: Why; cut?: boolean }> {
   const model = modelOf(kind, m);
   const price = priceOf(model);
-  if (!price) return { findings: [], cost: 0n, why: 'model_unavailable' };
+  if (!price) return { findings: [], open: [], cost: 0n, why: 'model_unavailable' };
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
-  if (limit < REPLY_LEAST) return { findings: [], cost: 0n, why: 'too_expensive' };
-  const call = () => written(model, { instructions: system, prompt, limit, temperature: 0, schema: Raised }); // not retried inside: a review tries a failed step once more itself
+  if (limit < REPLY_LEAST) return { findings: [], open: [], cost: 0n, why: 'too_expensive' };
+  const call = () => written(model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Raised }); // not retried inside: a review tries a failed step once more itself
   try {
     const r = await metered(kind, model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
     const form = Raised.parse(r.output);
     const findings = form.findings.filter((f) => f.title.trim()).map((f): Finding => ({ severity: severityIn(f.severity), where: f.where.trim(), title: f.title.trim(), how: f.how.trim(), evidence: quoted(f.evidence ?? ''), fix: (f.fix ?? '').trim() }));
-    return { findings, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
+    const open = (form.open ?? []).filter((o) => o.suspicion.trim()).map((o): Open => ({ where: o.where.trim(), suspicion: o.suspicion.trim(), to_check: (o.to_check ?? '').trim() }));
+    return { findings, open, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch {
-    return { findings: [], cost: 0n, why: 'model_failed' };
+    return { findings: [], open: [], cost: 0n, why: 'model_failed' };
   }
 }
 
@@ -274,7 +280,7 @@ export async function step(kind: 'proof', m: Materials, knowledge: string, quest
   const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { text: '', cost: 0n, why: 'too_expensive' };
-  const call = () => written(model, { instructions: system, prompt, limit, temperature: 0 });
+  const call = () => written(model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0 });
   try {
     const r = await metered(kind, model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.text, finish: r.finishReason, id: billedAs(r) }));
     return { text: r.text, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
@@ -309,16 +315,16 @@ export type CheckVerdict = z.infer<typeof CheckVerdict>;
  *  thing the group says, as fields, not as prose. Asked for prose, one model wrote an essay where the verdict
  *  should have been and ran out of room before it reached one; a form has nowhere to put an essay. Sent only if
  *  its worst case fits `cap`; a check that fails, or whose reply is no form, costs the agent nothing. */
-export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = ''): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = '', kind: 'check' | 'refute' = 'check'): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   if (!price) return { verdicts: [], cost: 0n, why: 'model_unavailable' };
-  const [system, prompt] = [stepInstructions('check', m, knowledge), stepPrompt(question, pages, about)];
+  const [system, prompt] = [stepInstructions(kind, m, knowledge), stepPrompt(question, pages, about)];
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { verdicts: [], cost: 0n, why: 'too_expensive' };
   const Form = z.object({ verdicts: z.array(CheckVerdict) });
-  const call = () => written(m.model, { instructions: system, prompt, limit, temperature: 0, schema: Form });
+  const call = () => written(m.model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Form });
   try {
-    const r = await metered('check', m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
+    const r = await metered(kind, m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
     return { verdicts: Form.parse(r.output).verdicts, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch (e) {
     return { verdicts: [], cost: 0n, why: 'model_failed', cut: (e as { finishReason?: string }).finishReason === 'length' };

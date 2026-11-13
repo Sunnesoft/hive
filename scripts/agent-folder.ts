@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 export function readAgent(dir: string) {
   const read = (f: string) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : '');
-  const card: { name: string; model: string; skills: string; rate: string; max_cost: string; examples?: string[]; topics?: string[]; work?: 'answer' | 'review'; pass_model?: string; review?: { checks?: number } } = JSON.parse(read('agent.json'));
+  const card: { name: string; model: string; skills: string; rate: string; max_cost: string; examples?: string[]; topics?: string[]; work?: 'answer' | 'review'; pass_model?: string; review?: { checks?: number }; temperature?: number } = JSON.parse(read('agent.json'));
   const files = existsSync(join(dir, 'knowledge')) ? readdirSync(join(dir, 'knowledge')).filter((f) => !f.startsWith('.')).sort() : [];
   const materials = {
     name: card.name,
@@ -18,7 +18,8 @@ export function readAgent(dir: string) {
     expertise: read('expertise.md'),
     method: read('method.md'),
     work: card.work ?? 'answer',
-    ...(card.review ? { review: card.review } : {}), // how deep a review goes, if the expert says
+    ...(card.review ? { review: card.review } : {}), // how many checks it pays for at most, if the expert says
+    ...(card.temperature !== undefined ? { temperature: card.temperature } : {}),
     examples: card.examples ?? [],
     topics: card.topics ?? [],
     knowledge: files.map((name) => ({ name, text: readFileSync(join(dir, 'knowledge', name), 'utf8') })),

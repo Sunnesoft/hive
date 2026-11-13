@@ -45,8 +45,10 @@ export type Raised = Finding & { also?: string[]; checkSaid?: string; sortedWith
 export type Checked = Raised & { proof?: string; second?: string; doubted?: boolean };
 /** How a review went, in numbers: for the log and the owner's trial run, never the findings themselves. */
 export type Counts = { own: number; passes: number; raised: number; groups: number; checked: number; combined: number; held: number; leads: number; proofs: number; cut: number; unpaid: number }; // unpaid: calls not made because the expert's hold was spent
-/** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them. */
-export type Review = { findings: Checked[]; leads: Raised[]; cost: bigint; counts: Counts; why?: llm.Why };
+/** `findings` held their check; `leads` were raised by a pass and not confirmed, as the pass worded them; `unsure`:
+ *  every one not confirmed, Low ones too, and `open`: what a step could not take to its end. The last two are not
+ *  given to the customer: they point the team at places to look closer (hotSpots). */
+export type Review = { findings: Checked[]; leads: Raised[]; unsure: Raised[]; open: llm.Open[]; cost: bigint; counts: Counts; why?: llm.Why };
 
 const AT_ONCE = 3; // calls of one review in flight at once: more, and a model's queue answers with timeouts
 const EMBED_WAIT = 30_000; // ms a review waits for the embeddings of its findings before it compares them by words
@@ -173,10 +175,11 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const { m } = expert;
   const counts: Counts = { own: 0, passes: 0, raised: 0, groups: 0, checked: 0, combined: 0, held: 0, leads: 0, proofs: 0, cut: 0, unpaid: 0 }; // own: findings of the expert's own reading // cut: replies that ran into their limit, the sign that a limit is too low for this model
   const [price, reading] = [llm.priceOf(m.model), llm.priceOf(llm.modelOf('pass', m))]; // the passes may run on a cheaper model
-  if (!price || !reading) return { findings: [], leads: [], cost: 0n, counts, why: 'model_unavailable' };
+  if (!price || !reading) return { findings: [], leads: [], unsure: [], open: [], cost: 0n, counts, why: 'model_unavailable' };
   const chosen = await parts(expert, question, pages, hold);
   let cost = chosen.cost;
-  const stop = (why: llm.Why): Review => ({ findings: [], leads: [], cost, counts, why });
+  const stop = (why: llm.Why): Review => ({ findings: [], leads: [], unsure: [], open: [], cost, counts, why });
+  const opens: llm.Open[] = []; // what the reading and the passes could not take to their end
 
   /** What is left of the expert's hold: every call is paid from it, and a reply may be as long as it pays for. A
    *  review spends what its expert allowed and no more; when it runs out, what was found so far is given. */
@@ -191,9 +194,11 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     return r;
   };
   const found = async (kind: 'read' | 'pass' | 'combine', knowledge: string, about: string) => {
-    if (Date.now() > deadline) return { findings: [] as Finding[], cost: 0n, why: 'model_failed' as const };
+    if (Date.now() > deadline) return { findings: [] as Finding[], open: [] as llm.Open[], cost: 0n, why: 'model_failed' as const };
     const first = await llm.raise(kind, m, knowledge, question, pages, about, left());
-    return paid(first.why === 'model_failed' && Date.now() < deadline ? await llm.raise(kind, m, knowledge, question, pages, about, left()) : first);
+    const r = paid(first.why === 'model_failed' && Date.now() < deadline ? await llm.raise(kind, m, knowledge, question, pages, about, left()) : first);
+    opens.push(...r.open);
+    return r;
   };
 
   // The expert's own reading comes first, and the passes are told what it found.
@@ -284,7 +289,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const proofs = await each(toProve, async (f) => (Date.now() > deadline ? undefined : codeOf(paid(await llm.step('proof', m, '', question, pages, section('Finding to prove', showFinding(f), PROOF_IN), left())))));
   toProve.forEach((f, i) => proofs[i] && (f.proof = proofs[i]));
   counts.proofs = proofs.filter(Boolean).length;
-  return { findings, leads, cost, counts };
+  return { findings, leads, unsure: open2.all, open: opens, cost, counts };
 }
 
 // ---- a review as text ----
@@ -347,7 +352,7 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
 
 /** `by`: the experts that confirmed it, and whose it is; `seen`: every expert that raised it, confirmed or not;
  *  `crossed`: what another expert of the team said when it checked a grave finding only one expert had confirmed. */
-export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string } };
+export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list: every finding an expert confirmed stays a finding of its own, in
  *  that expert's words, with how many experts raised the like; findings that say the same stand side by side. What
@@ -374,11 +379,12 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   return { findings, leads: leads.slice(0, MAX_LEADS) };
 }
 
-/** A grave finding only one expert confirmed, checked by another expert of the team: with that expert's own model,
- *  method and the parts of its knowledge closest to the finding, and all of the files. Only its doubt is given, with
- *  the line that stops the finding (code finds that line in the files, or the doubt is not given); nothing is
- *  removed. That it holds is not given: shown the claim, a second expert on the same model agreed with five false
- *  grave findings of nine, and both of its doubts were right. The checker pays for its check from its hold. */
+/** A grave finding only one expert confirmed, given to another expert of the team to refute (policies/refute.md):
+ *  with that expert's own model, method and the parts of its knowledge closest to the finding, and all of the
+ *  files. Only its doubt is given, with the line that stops the finding (code finds that line in the files, or the
+ *  doubt is not given); nothing is removed. That it holds is not given until it is measured: asked only whether a
+ *  finding held, a second expert on the same model agreed with five false grave findings of nine, and both of its
+ *  doubts were right. The checker pays for its check from its hold. */
 export async function crossChecked<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
   const cost = new Map<number, bigint>();
   if (team.length < 2) return { findings, cost };
@@ -388,7 +394,7 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
     const checker = team[(team.findIndex((t) => t.id === f.by[0]) + 1) % team.length]!; // the next expert of the team
     const said = `${f.where} ${f.title} ${f.how}`;
     const knowledge = partsOf(filesOf(checker.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
-    const r = await llm.check(checker.m, question, pages, section('Findings to check', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge);
+    const r = await llm.check(checker.m, question, pages, section('Finding to refute', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge, 'refute');
     cost.set(checker.id, (cost.get(checker.id) ?? 0n) + r.cost);
     const v = r.verdicts[0];
     const why = (v?.how ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
@@ -397,6 +403,64 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
     return f;
   });
   return { findings: out, cost };
+}
+
+/** The function or place a finding or a note is about, as code can tell it: the longest name in its "where". */
+const placeOf = (where: string) => ((where.match(/[A-Za-z_][A-Za-z0-9_]{3,}/g) ?? []).filter((n) => !/^(src|lib|contracts?|rs|sol|impl|line|lines|and|the)$/i.test(n)).sort((a, b) => b.length - a.length)[0] ?? '').toLowerCase();
+/** Places of the materials where experts saw something and none of them settled it: where two or more experts left
+ *  a finding only one confirmed, one not confirmed, or a suspicion they could not take to its end, or where one
+ *  expert said it could not; and no finding two experts confirmed stands there already. The places most experts
+ *  left notes at come first. */
+export function hotSpots(reviews: { id: number; findings: Checked[]; unsure?: Raised[]; open?: llm.Open[] }[], settled: Joined[]) {
+  const done = new Set(settled.filter((f) => f.by.length > 1).map((f) => placeOf(f.where)));
+  const spots = new Map<string, { place: string; notes: { id: number; text: string }[]; experts: Set<number>; opens: number }>();
+  const note = (id: number, where: string, text: string, open = false) => {
+    const place = placeOf(where);
+    if (!place || done.has(place)) return;
+    const spot = spots.get(place) ?? { place, notes: [], experts: new Set<number>(), opens: 0 };
+    spot.notes.push({ id, text });
+    spot.experts.add(id);
+    if (open) spot.opens++;
+    spots.set(place, spot);
+  };
+  for (const r of reviews) {
+    for (const f of r.findings) note(r.id, f.where, `confirmed by this expert alone: ${lineOf(f)}. ${f.how}`);
+    for (const f of r.unsure ?? []) note(r.id, f.where, `raised and not confirmed: ${lineOf(f)}. ${f.how}${f.checkSaid ? ` Its check said: ${f.checkSaid}` : ''}`);
+    for (const o of r.open ?? []) note(r.id, o.where, `could not take it to the end: ${o.suspicion}${o.to_check ? ` To settle it: ${o.to_check}` : ''}`, true);
+  }
+  return [...spots.values()].filter((s) => s.experts.size > 1 || s.opens > 0).sort((a, b) => b.experts.size - a.experts.size || b.opens - a.opens || b.notes.length - a.notes.length);
+}
+
+/** A closer look at each hot spot (policies/hotspot.md): one expert of the team, the one that left most notes there,
+ *  is given all of the team's notes about the place and the part of each expert's knowledge nearest to them, and
+ *  settles what is wrong there. What it finds is checked like any finding, by the same expert with the same
+ *  knowledge; what holds is given as found at a hot spot. It pays from what is left of its hold; the places most
+ *  experts left notes at are looked at first, while the money lasts. */
+export async function closerLook(spots: ReturnType<typeof hotSpots>, team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: Joined[]; cost: Map<number, bigint> }> {
+  const cost = new Map<number, bigint>();
+  const material = pages.map((p) => p.text).join('\n');
+  const left = (id: number) => (team.find((t) => t.id === id)?.money ?? 0n) - (cost.get(id) ?? 0n);
+  const spend = (id: number, c: bigint) => cost.set(id, (cost.get(id) ?? 0n) + c);
+  const found = await each(spots, async (spot): Promise<Joined[]> => {
+    const counts = new Map<number, number>();
+    for (const n of spot.notes) counts.set(n.id, (counts.get(n.id) ?? 0) + 1);
+    const who = team.filter((t) => counts.has(t.id)).sort((a, b) => (counts.get(b.id)! - counts.get(a.id)!) || Number(left(b.id) - left(a.id)))[0];
+    if (!who) return [];
+    const said = spot.notes.map((n) => n.text).join('\n');
+    const knowledge = team.map((t) => partsOf(filesOf(t.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near)[0]?.part ?? '').filter(Boolean).join('\n\n');
+    const notes = section(`Notes of the team about ${spot.place}`, spot.notes.map((n) => `- expert ${n.id + 1}: ${n.text}`).join('\n'), CHECK_IN);
+    const r = await llm.raise('hotspot', who.m, knowledge, question, pages, notes, left(who.id));
+    spend(who.id, r.cost);
+    const held: Joined[] = [];
+    for (const f of r.findings) {
+      const c = await llm.check(who.m, question, pages, section('Findings to check', showFinding(f, 1), CHECK_IN), left(who.id), knowledge);
+      spend(who.id, c.cost);
+      const v = c.verdicts.find((x) => x.holds && grounded(x.quote, material));
+      if (v) held.push({ severity: SEVERITIES.find((x) => x.toLowerCase() === v.severity.trim().toLowerCase()) ?? f.severity, where: v.where.trim() || f.where, title: v.title.trim() || f.title, how: v.how.trim(), evidence: v.quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n'), fix: (v.fix ?? '').trim(), by: [who.id], seen: [...spot.experts].sort((a, b) => a - b), hotspot: true });
+    }
+    return held;
+  });
+  return { findings: found.flat(), cost };
 }
 
 /** A second pair of eyes on the joined findings: the controller's model (policies/control.md) reads them all with
@@ -428,11 +492,13 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   // What experts who did not see each other's work both confirmed comes first: on a held-out contract every false
   // grave finding of a team was one that a single expert confirmed, and the exploit the team found stood among
   // those two had confirmed. What one expert confirmed follows, said as that.
-  const [agreed, alone] = experts > 1 ? [r.findings.filter((f) => f.by.length > 1), r.findings.filter((f) => f.by.length < 2)] : [[], r.findings];
+  const agreed = r.findings.filter((f) => f.by.length > 1).sort((a, b) => b.by.length - a.by.length); // the more experts found it on their own, the higher
+  const [spot, alone] = [r.findings.filter((f) => f.by.length < 2 && f.hotspot), r.findings.filter((f) => f.by.length < 2 && !f.hotspot)];
   const tiers: [Joined[], string][] = experts > 1 ? [
     [agreed, `**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`],
+    [spot, `**Found on a closer look at a place several experts had notes about**: ${some(spot.length, 'finding')}. One expert took all of the team's notes about the place and settled them; its check confirmed these.`],
     [alone, `**Confirmed by one expert**: ${some(alone.length, 'finding')}. Each is that expert's word, checked against your files by its own model; read it as one opinion.`],
-  ] : [[alone, '']];
+  ] : [[[...spot, ...alone], '']];
   return [
     r.findings.length
       ? `## Findings\n\n${r.findings.length} (${tally(r.findings)}). Each was checked on its own against your materials and quotes the lines it rests on. Findings that may be one and the same stand together, each in its own words.${doubted ? ` The controller, a second model that read them all, doubts ${doubted} of them: its word stands under each. Both are models: read the finding and the doubt.` : ''}`

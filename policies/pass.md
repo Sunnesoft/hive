@@ -31,6 +31,11 @@ mechanism, the line that makes it happen, a graver consequence), report it in fu
 line raised in passing is not a finding until someone states how it happens. Everything else this part of your
 knowledge finds is yours to report, as many findings as there are.
 
+Work every suspicion to its end before you write it down. Follow the path through the materials: who can call
+it and with what, which lines run, what the state is after each step, who gains or loses what at the end. If a
+check, a guard or a revert on the way stops it, drop it. If a step needs something the materials do not show (a
+contract they call, a library), say so in "how" and write the finding all the same.
+
 Return "findings": every finding, the gravest first, as many as there are. Each finding:
 "severity": Critical, High, Medium or Low.
 "where": the function or place it is in.
@@ -38,4 +43,6 @@ Return "findings": every finding, the gravest first, as many as there are. Each 
 "how": how it happens and what is lost, in at most 60 words, with the names and values the materials use.
 "evidence": one to three lines of the materials it rests on, copied exactly.
 "fix": the smallest change that closes it, in one sentence.
+"open": the suspicions you could not take to the end, each as {"where", "suspicion": what you think may be
+wrong, "to_check": what would settle it}. Another step looks closer at the places where experts left them.
 If this part finds nothing in these materials, return an empty list.

@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { controlled, crossChecked, digestOf, join, listOf, reportOf, review, type Review } from './review.ts';
+import { closerLook, controlled, crossChecked, digestOf, hotSpots, join, listOf, reportOf, review, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
@@ -112,7 +112,7 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
 type Asked = Member & { question: string };
 /** What an expert made of its question, before it is checked. `review`: its findings and leads, which reach the
  *  customer as code joins them; `sizes` go to the log, `seen` only to the trace. */
-type Made = { text: string; cost: bigint; why?: llm.Why; cut?: boolean; review?: Pick<Review, 'findings' | 'leads'>; sizes: Record<string, number>; seen?: object };
+type Made = { text: string; cost: bigint; why?: llm.Why; cut?: boolean; review?: Pick<Review, 'findings' | 'leads' | 'unsure' | 'open'>; sizes: Record<string, number>; seen?: object };
 
 /** An answer: the expert's knowledge searched for its question and, when the question came with materials, for
  *  what the expert chose to look up after reading them; then one call. */
@@ -127,7 +127,7 @@ async function answered(t: Asked, pages: Page[], hold: bigint): Promise<Made> {
 /** A review of the customer's own materials with all of the expert's knowledge (review.ts). */
 async function reviewed(t: Asked, pages: Page[], hold: bigint, code: boolean): Promise<Made> {
   const r = await review(t.expert, t.question, pages, hold, code);
-  return { text: r.why ? '' : reportOf(r), cost: r.cost, sizes: r.counts, ...(r.why ? { why: r.why } : { review: { findings: r.findings, leads: r.leads } }) };
+  return { text: r.why ? '' : reportOf(r), cost: r.cost, sizes: r.counts, ...(r.why ? { why: r.why } : { review: { findings: r.findings, leads: r.leads, unsure: r.unsure, open: r.open } }) };
 }
 
 /** One agent's part, and a check of that part alone. An expert that reviews does so when the customer gave
@@ -249,10 +249,17 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const all = await join(reviews);
   const theirs = head(pages.filter((p) => given.has(p.url)));
   // A grave finding one expert confirmed is checked by another expert of the team, who pays for it from its hold.
-  const checkers = reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent }));
-  const crossed = await crossChecked(all.findings, checkers, task, theirs);
-  for (const [id, extra] of crossed.cost) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + extra, BigInt(members[id]!.agent.max_cost)).toString() };
-  const joined = { ...all, findings: await controlled(crossed.findings, theirs) }; // the controller, if one is set, says its word beside each finding
+  // Then the places several experts had notes about and none settled get a closer look. Each of these steps is
+  // paid by the expert that does it, from what is left of its hold.
+  const extra = new Map<number, bigint>();
+  const checkers = () => reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent - (extra.get(r.id) ?? 0n) }));
+  const add = (costs: Map<number, bigint>) => costs.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
+  const crossed = await crossChecked(all.findings, checkers(), task, theirs);
+  add(crossed.cost);
+  const closer = await closerLook(hotSpots(reviews, crossed.findings), checkers(), task, theirs);
+  add(closer.cost);
+  for (const [id, more] of extra) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + more, BigInt(members[id]!.agent.max_cost)).toString() };
+  const joined = { ...all, findings: await controlled([...crossed.findings, ...closer.findings], theirs) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
   // An answer made of reviews only opens with one paragraph about them; anything else is composed, the reviews as their titles.
   const onlyReviews = good.length > 0 && reviews.length === good.length;

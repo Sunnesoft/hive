@@ -19,7 +19,7 @@ import { cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { controlled, crossChecked, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
+import { closerLook, controlled, crossChecked, hotSpots, join, listOf, reportOf, review, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
 import { readAgent } from '../scripts/agent-folder.ts';
@@ -30,7 +30,7 @@ const LIMIT = Number(process.env.EVAL_LIMIT_USD ?? '0.60');
 const TAG = process.env.EVAL_TAG ? ` ${process.env.EVAL_TAG}` : '';
 const ALONE_ROOM = 8_000; // output tokens of a model asked alone, as in every baseline run so far: nothing cuts it short, as nothing would cut a customer's own call
 type Page = { url: string; text: string };
-type Kept = { text: string; usd: number; seconds: number; model?: string; review?: Pick<Review, 'findings' | 'leads' | 'counts'> };
+type Kept = { text: string; usd: number; seconds: number; model?: string; review?: Pick<Review, 'findings' | 'leads' | 'counts'> & Partial<Pick<Review, 'unsure' | 'open'>> };
 const kept: Record<string, Record<string, Kept>> = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
 let spent = 0;
 const started = new Date().toISOString();
@@ -83,7 +83,7 @@ async function reviewed(t: ReviewTask, name: string, pages: Page[]) {
   const lib = partsOf(filesOf(m)).length <= MAX_PASSES ? { chunks: docsOf(m), vectors: [] } : await index(docsOf(m));
   const at = Date.now();
   const r = await review({ m, lib, digest: '', links: linksOf(m) }, t.task, pages, usdc(card.max_cost), process.env.EVAL_PROOFS !== '0');
-  keep(t.id, `review${TAG}: ${name}`, { text: r.why ? '' : reportOf(r), usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model: m.pass_model ? `${m.model}, passes on ${m.pass_model}` : m.model, review: { findings: r.findings, leads: r.leads, counts: r.counts }, ...(r.why ? { why: r.why } : {}) });
+  keep(t.id, `review${TAG}: ${name}`, { text: r.why ? '' : reportOf(r), usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model: m.pass_model ? `${m.model}, passes on ${m.pass_model}` : m.model, review: { findings: r.findings, leads: r.leads, unsure: r.unsure, open: r.open, counts: r.counts }, ...(r.why ? { why: r.why } : {}) });
 }
 
 /** The experts' reviews as one answer: what the customer gets below the opening paragraph. With CONTROL_MODEL
@@ -97,10 +97,18 @@ async function joined(t: ReviewTask, pages: Page[]) {
   if (parts.length < t.experts.length || !wanted.length) return;
   const joinedAll = await join(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, leads: p.r!.review!.leads })));
   // As a round does: a grave finding one expert confirmed is checked by the next expert of the team, from what is left of its hold.
-  const team = parts.map((p) => ({ id: p.id, m: cardOf(t.experts[p.id]!).m, money: usdc(cardOf(t.experts[p.id]!).card.max_cost) - BigInt(Math.round(p.r!.usd * 1e6)) }));
-  const crossed = await crossChecked(joinedAll.findings, team, t.task, pages);
-  const all = { ...joinedAll, findings: crossed.findings };
-  const crossUsd = [...crossed.cost.values()].reduce((sum, c) => sum + usd(c), 0);
+  const extra = new Map<number, bigint>();
+  const team = () => parts.map((p) => ({ id: p.id, m: cardOf(t.experts[p.id]!).m, money: usdc(cardOf(t.experts[p.id]!).card.max_cost) - BigInt(Math.round(p.r!.usd * 1e6)) - (extra.get(p.id) ?? 0n) }));
+  const add = (costs: Map<number, bigint>) => costs.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
+  const crossed = await crossChecked(joinedAll.findings, team(), t.task, pages);
+  add(crossed.cost);
+  // EVAL_CLOSER=0 leaves the hot spots alone: to see what the closer look adds, against the same reviews
+  const spots = process.env.EVAL_CLOSER === '0' ? [] : hotSpots(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, unsure: p.r!.review!.unsure, open: p.r!.review!.open })), crossed.findings);
+  if (spots.length) say(`${t.id}: ${spots.length} hot spots: ${spots.slice(0, 8).map((s) => `${s.place} (${s.experts.size} experts, ${s.notes.length} notes)`).join('; ')}`);
+  const closer = await closerLook(spots, team(), t.task, pages);
+  add(closer.cost);
+  const all = { ...joinedAll, findings: [...crossed.findings, ...closer.findings] };
+  const crossUsd = [...extra.values()].reduce((sum, c) => sum + usd(c), 0);
   if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: crossUsd, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
   if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }

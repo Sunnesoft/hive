@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { digestOf, listOf, reportOf, type Joined } from '../src/review.ts';
+import { digestOf, hotSpots, listOf, reportOf, type Joined } from '../src/review.ts';
 import { provenance, sharesOf, type Finding } from '../src/rules.ts';
 
 const drain: Finding = { severity: 'High', where: 'withdraw()', title: 'Anyone can withdraw the pool', how: 'withdraw() sends the whole balance to msg.sender.', evidence: '`payable(msg.sender).transfer(address(this).balance);`', fix: 'Add onlyOwner.' };
@@ -101,4 +101,19 @@ test('the answer gives first what experts confirmed each on their own, then one 
   assert.ok(!list.includes('It holds.')); // a second expert's agreement raises nothing: it agreed with false findings
   assert.ok(!/doubts it:\*[^\n]*\[\[/.test(list)); // the checker's word is no part of the answer that is its
   assert.ok(!listOf({ findings: [crossed], leads: [] }, 1).includes('Confirmed by')); // one expert: no tiers
+});
+
+test('hot spots: places where two experts left notes, or one could not settle a suspicion, and no two experts agree yet', () => {
+  const at = (where: string, title: string): Finding => ({ severity: 'Medium', where, title, how: 'how', evidence: '', fix: '' });
+  const reviews = [
+    { id: 0, findings: [at('withdraw_minter in minting.rs', 'minter cannot leave')], unsure: [at('nft_revoke', 'refund without removal')], open: [] },
+    { id: 1, findings: [], unsure: [at('withdraw_minter', 'yocto kept')], open: [{ where: 'nft_approve in approvals.rs', suspicion: 'approvals may grow without bound', to_check: 'a cap on approvals' }] },
+    { id: 2, findings: [at('nft_transfer_call', 'not transferred first')], unsure: [], open: [] },
+  ];
+  const settled: Joined[] = [{ ...at('nft_transfer_call', 'not transferred first'), by: [2, 0], seen: [2, 0] }];
+  const spots = hotSpots(reviews, settled);
+  assert.deepEqual(spots.map((x) => x.place), ['withdraw_minter', 'nft_approve']); // two experts at one place first; one open question too
+  assert.equal(spots[0]!.notes.length, 2);
+  assert.ok(!spots.some((x) => x.place === 'nft_revoke')); // one expert's one note, and no open question: not a hot spot
+  assert.ok(!spots.some((x) => x.place === 'nft_transfer_call')); // two experts agree there already
 });
