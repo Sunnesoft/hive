@@ -1,0 +1,12 @@
+{
+  "name": "control-13",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "skills": "A reviewer of smart contracts with no knowledge of its own: the control of the evaluation, the same model and the same review as the experts, and nothing else.",
+  "rate": "1.00",
+  "max_cost": "3.00",
+  "work": "review",
+  "temperature": 0.8,
+  "topics": [
+    "dev_tools"
+  ]
+}

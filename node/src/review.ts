@@ -99,8 +99,7 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
 
-/** `among`: the experts whose wordings code took for the same thing as this one, when it was set apart from them. */
-type Item = { f: Checked; held: boolean; id?: number; among?: number[] };
+type Item = { f: Checked; held: boolean; id?: number };
 /** What a group of items that say the same is known by: of its confirmed wordings, or of all of them if none is
  *  confirmed, the one in the middle by severity (rules.middleOf). */
 const headOf = (g: Item[]) => middleOf((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
@@ -135,31 +134,6 @@ function unfolded<T extends Raised>(groups: Item[][][], made: (g: Item[]) => T):
   return { heads: laid.map((x) => x.head), all: laid.flatMap((x) => [x.head, ...x.rest]) };
 }
 const confirmedIn = (joined: Item[][]) => joined.some((g) => g.some((x) => x.held));
-/** The lines of the customer's materials a finding quotes, bare of spaces: what it rests on. */
-const linesOf = (f: Finding) => new Set([...f.evidence.matchAll(/`([^`]{8,})`/g)].map((m) => m[1]!.replace(/\s+/g, '')));
-/** Two confirmed findings are one only if they are identical, not alike: they rest on the same lines of the
- *  materials (most of what either quotes, the other quotes too) and say the same thing or the same fix in nearly
- *  the same words. What a finding rests on is its anchor, and code can verify it; what it says there is its claim.
- *  The same anchor and the same claim: the same finding. For materials that are not text the anchor is of another
- *  kind (a stretch of time, a place in a plan), and the rule is the same. */
-const identical = (a: Finding, b: Finding) => {
-  const [x, y] = [linesOf(a), linesOf(b)];
-  const shared = [...x].filter((l) => y.has(l)).length;
-  return shared > 0 && shared * 2 >= Math.max(x.size, y.size) && (alike(a.title, b.title) >= SAME_WORDS || alike(a.fix, b.fix) >= SAME_WORDS);
-};
-/** What code took for one thing, looked at again: confirmed wordings that are identical stay one finding; the
- *  others are set apart, each a finding of its own beside them. Words that are close are not always one flaw: "the
- *  upgrade does not check that the migration succeeded" and "the upgrade does not reserve gas for the migration"
- *  were joined by their words, and the first was left as a line under the second. What was not confirmed goes with
- *  the first. */
-const apart = (g: Item[]): Item[][] => {
-  const [held, rest] = [g.filter((x) => x.held), g.filter((x) => !x.held)];
-  if (held.length < 2) return [g];
-  const among = [...new Set(g.map((x) => x.id).filter((id): id is number => id !== undefined))].sort((a, b) => a - b);
-  const ones = groupsOf(held.length, (a, b) => identical(held[a]!.f, held[b]!.f)).map((ids) => ids.map((k) => held[k]!));
-  if (ones.length < 2) return [g];
-  return ones.map((t, i) => [...t.map((x) => ({ ...x, among })), ...(i ? [] : rest)]);
-};
 const rank = (f: Finding) => SEVERITIES.indexOf(f.severity);
 const grave = (f: Finding) => f.severity === 'Critical' || f.severity === 'High';
 /** Worth a reader's time unconfirmed: what would matter if it were true. An unconfirmed Low is noise. */
@@ -354,28 +328,36 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
  *  `crossed`: what another expert of the team said when it checked a grave finding only one expert had confirmed. */
 export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean };
 export type Lead = Raised & { seen: number[] };
-/** The reviews of several experts as one list: every finding an expert confirmed stays a finding of its own, in
- *  that expert's words, with how many experts raised the like; findings that say the same stand side by side. What
- *  no expert confirmed stays a lead. The experts never saw each other's findings. The gravest first. */
+/** The reviews of several experts as one list. Which findings are one is the protocol's model's answer to one
+ *  narrow question (policies/same.md): the same flaw, the same cause in the same place, so that one fix closes
+ *  both, whatever words each expert used. It sees every wording, a line each, and what it names the same is one
+ *  finding: in the middle of its confirmed wordings, the others listed under it, counted for every expert that
+ *  confirmed any of them. That rule is not one of text: what one fix closes is the same flaw in a video or a plan
+ *  too. What no expert confirmed stays a lead. The experts never saw each other's findings. The gravest first. */
 export async function join(reviews: { id: number; findings: Checked[]; leads: Raised[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
-  // Between experts the protocol's model answers which findings are the same; it sees a line of each, and code joins.
-  // It joins findings with findings and leads with leads; a lead becomes part of a finding only by code's measure.
-  const byCode = await same(all, (x) => x.f);
   const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
-  const sortedAll = reviews.length < 2 ? byCode.map((g) => [g])
-    : [...(await sortedBy(model, byCode.filter((g) => g.some((x) => x.held)))).groups, ...(await sortedBy(model, byCode.filter((g) => !g.some((x) => x.held)))).groups];
-  const sorted = sortedAll.map((joined) => joined.flatMap(apart)); // side by side, never one under another
+  // Wordings that are word for word the same, in the same place, need no model to be one.
+  const verbatim = (items: Item[]) => {
+    const by = new Map<string, Item[]>();
+    for (const x of items) {
+      const key = `${x.f.where} | ${x.f.title}`.toLowerCase().replace(/\s+/g, ' ').trim();
+      by.set(key, [...(by.get(key) ?? []), x]);
+    }
+    return [...by.values()];
+  };
+  const [held, unheld] = [verbatim(all.filter((x) => x.held)), verbatim(all.filter((x) => !x.held))];
+  const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await sortedBy(model, held)).groups, ...(await sortedBy(model, unheld)).groups])
+    .map((joined) => [joined.flat()]);
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
-  // Every confirmed wording is a finding of its own, with how many experts raised the like. What code or the model
-  // took for the same is laid side by side.
+  const wordings = (g: Item[]) => withAlso(headOf(g), g.flatMap((x) => [x.f.title, ...(x.f.also ?? [])]));
   const found = (g: Item[]): Joined => {
-    const [held, first] = [g.filter((x) => x.held), oneOf(g)];
-    const proof = first.proof ?? held.find((x) => x.f.proof)?.f.proof;
-    return { ...first, ...(proof ? { proof } : {}), by: ids(held), seen: g[0]!.among ?? ids(g) };
+    const [confirmed, first] = [g.filter((x) => x.held), wordings(g)];
+    const proof = first.proof ?? confirmed.find((x) => x.f.proof)?.f.proof;
+    return { ...first, ...(proof ? { proof } : {}), by: ids(confirmed), seen: ids(g) };
   };
   const findings = unfolded(sorted.filter(confirmedIn), found).all;
-  const leads = unfolded(sorted.filter((j) => !confirmedIn(j)), (g): Lead => ({ ...oneOf(g), seen: ids(g) })).all;
+  const leads = unfolded(sorted.filter((j) => !confirmedIn(j)), (g): Lead => ({ ...wordings(g), seen: ids(g) })).all;
   return { findings, leads: leads.slice(0, MAX_LEADS) };
 }
 

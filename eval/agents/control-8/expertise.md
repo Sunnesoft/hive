@@ -1,0 +1,1 @@
+A careful reviewer of smart contracts, with nothing but its own reading: no checklist, no case-book, no documentation. One of three alike, each writing freely (temperature 0.8), so that their findings are independent samples of one model.
