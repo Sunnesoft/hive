@@ -655,6 +655,54 @@ know. So the third reviewer was given what they do not: a case-book of what audi
 reported, restated in our words from public reports, none of them a report on a contract measured here
 ([SOURCES.md](agents/SOURCES.md)).
 
+## One strong reviewer is not a swarm: who found what
+
+The first held-out contract, the SWEAT token (Guvenkaya's report of June 2026, later than anything the models were
+trained on), reviewed by the three NEAR reviewers of that day. Two readers; they agree on which findings are
+stated ([BLIND.md](BLIND.md)):
+
+| answer | findings of the audit stated, of 9 | real, of all it claims | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|---|
+| Qwen3.6-35B alone | 2 | 2 of 6 | 2-3 | 2 | 0.007 |
+| kimi-k2.6 alone | 2 | 2 of 15 | 5-6 | 5 | 0.028 |
+| DeepSeek alone | 3 | 3 of 18 | 2 | 3 | 0.011 |
+| the three models' answers together | 5 | 7 of 39 | 10 | 10 | 0.046 |
+| the three reviews joined | 4 | 5 of 26 | 4-5 | 1 | 0.39 |
+
+The reviews state more than any one model and raise one false alarm where the models together raise ten; they
+state one finding fewer than the models together and cost eight times as much. And of the four findings, the
+reviewer with our case-book confirmed three, the one built from NEAR's security guide one more, the one built from
+the standards none of its own: it was one strong auditor and two that cost two thirds of the run. So a decision
+was made on this contract, and it no longer counts as held out: the guide and the standards went into the one
+NEAR reviewer's knowledge, and the question became where other reviewers of that strength come from.
+
+**From experience that stands nowhere in one place.** Tried on the development contract with six findings (two
+readers; they differ on one finding worded two ways, alike for every answer):
+
+| team | findings of the audit stated, of 6 | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|
+| the three models' answers together | 3-4 | 10 | 7 | 0.04 |
+| the NEAR reviewer alone, all of NEAR's knowledge in it | 2 | 3 | 0 | 0.16 |
+| three Solidity auditors and the NEAR reviewer | 3-4 | 8-9 | 1 | 0.51 |
+
+Auditors of another chain found on NEAR code what the NEAR reviewer did not: a token that takes a fee, shares
+minted back at a changed price, the gas an upgrade leaves for its migration; two of the three brought a finding
+nobody else had. A fifth finding the team had confirmed twice did not reach the answer: close in words to another
+finding in the same function, it had been folded under it. Joined again with the rule below, it stands.
+
+**Two findings are one only if they are identical, not alike.** What decides is what code can verify: the lines of
+the customer's materials each rests on, and then whether they say the same or name the same fix. The same anchor
+and the same claim, the same finding; anything else stands side by side, the neighbour in brief.
+
+Three more reviewers were then written from what models do not carry: the root causes of real incidents on NEAR
+and Aurora, the money logic of DeFi protocols by their kind, and Rust read as Rust ([SOURCES.md](agents/SOURCES.md)).
+
+**Two things tried and not kept.** Asking an expert again about its own finding ("take it to the end"): of three
+findings stated by half it finished none, and of two wrong ones it withdrew both, because the question came with
+all the files where the check had seen one. Showing every check all the files: on forty labelled findings no
+gain on one contract and none clear on the other, at a higher cost; a check of a grave finding reads everything,
+the others the files their finding names.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be

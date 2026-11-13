@@ -254,3 +254,40 @@ controller). Two readers, four answers, different order; they gave every answer 
 
 The three models together state findings 1, 2, 3 and 6: four. Finding 6 is `S` for three answers on a lenient
 reading (they word the missing gas check as an underflow of the subtraction; read strictly all three are `P`).
+
+## The first held-out NEAR contract (`sweat token audit`, 9 findings of Guvenkaya's report)
+
+Read by the measures of [README.md](README.md), "How a review is measured": besides the letter for each finding of
+the audit, the readers class every item of an answer ([READER.md](READER.md)), and [score.ts](score.ts) counts.
+Two readers, four answers, different order. `L`: stated only as not confirmed.
+
+| answer | reader A | reader B | stated | claims | real | wrong | false Critical or High |
+|---|---|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `PPASPSSPP` | `PPASPSSPP` | 3 | 18 | 3 | 2 | 3 |
+| alone, with room: kimi-k2.6 | `AAAAAASSP` | `AAAAAASSP` | 2 | 15 | 2 | 5-6 | 5 |
+| alone, with room: Qwen3.6-35B-A3B | `AAAASASAP` | `AAAASASAP` | 2 | 6 | 2 | 2-3 | 2 |
+| the three NEAR reviews joined | `APSASPSSP` | `AASASASSP` | 4 | 25-26 | 5 | 4-5 | 1 |
+
+The readers agree on every `S`; they differ on whether two findings are in passing or absent in the reviews'
+answer. The three models together state findings 4, 5, 6, 7 and 8: five. In the reviews' answer finding 5 was
+confirmed by the reviewer built from the security guide, findings 3, 7 and 8 by the reviewer with our case-book
+(3 by the standards reviewer too).
+
+## Teams on the third development contract (`xref audit` again)
+
+The same contract reviewed by three Solidity auditors and by the NEAR reviewer with all of NEAR's knowledge in it;
+the answers of the mixed team and of the NEAR reviewer alone, read with the three models' answers by two readers.
+
+| answer | reader A | reader B | stated | claims | real | wrong | false Critical or High |
+|---|---|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `PSPAAS` | `PSPAAP` | 1-2 | 12 | 1-2 | 4 | 1 |
+| alone, with room: kimi-k2.6 | `SASAAS` | `SASAAP` | 2-3 | 14 | 2-3 | 4 | 1 |
+| alone, with room: Qwen3.6-35B-A3B | `AAAAAA` | `AAAAAA` | 0 | 8 | 0 | 2-3 | 5 |
+| the NEAR reviewer alone | `LSAPSP` | `LSAPSP` | 2 | 16 | 3 | 3 | 0 |
+| three Solidity auditors and the NEAR reviewer | `SSPSPS` | `SSPSPP` | 3-4 | 37-38 | 4-5 | 8-9 | 1 |
+
+The one letter the readers differ on is finding 6, in three answers alike: all three word the missing gas check
+as an underflow of the subtraction, which one reader takes for the finding and the other for half of it. In the
+mixed team's answer finding 4 was confirmed by the auditor of attack paths alone, finding 1 by the auditor of bug
+patterns alone, finding 2 by all four. Finding 5, which the NEAR reviewer alone states, is `P` in the mixed answer:
+folded there under finding 6's wording.
