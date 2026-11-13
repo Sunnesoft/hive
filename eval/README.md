@@ -729,6 +729,37 @@ What stays as it was: one contract and one run; of everything any answer claims,
 fifty times what it costs a model asked alone. Six reviewers were more than this contract needed: the NEAR
 reviewer and one Solidity auditor between them confirmed all five, for half the price.
 
+## A second held-out contract, and the two together
+
+Mintbase's store, an NFT contract audited by OtterSec in 2023, by the same team of six, fixed before both runs.
+Two readers, who again agree on every letter:
+
+| answer | findings of the audit stated, of 7 | real, of all it claims | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|---|
+| Qwen3.6-35B alone | 2 | 2 of 7 | 1 | 1 | 0.007 |
+| kimi-k2.6 alone | 1 | 3 of 14 | 3 | 2 | 0.019 |
+| DeepSeek alone | 3 | 5-6 of 17 | 3-4 | 0 | 0.012 |
+| the three models' answers together | 4 | 10-11 of 38 | 7-8 | 3 | 0.038 |
+| the team of six | 4 | 7 of 38-39 | 7-8 | 1 | 0.97 by our meter, 0.63 by NEAR AI's bill |
+
+Here it is a draw: the team and the three models together state the same four findings, the audit's three Critical
+ones among them; the three both miss, nobody states.
+
+**The two held-out contracts together, 14 findings:**
+
+| answer | findings stated | real, of all it claims | wrong | false Critical or High | cost, USD |
+|---|---|---|---|---|---|
+| DeepSeek alone | 6 (43%) | 30% | 5 | 1 | 0.02 |
+| the three models' answers together | 8 (57%) | 24% | 14-15 | 8 | 0.08 |
+| the team of six | 9 (64%) | 18% | 11 | 1 | 1.85 by our meter, 1.19 by NEAR AI's bill |
+
+What these two contracts show, and no more than two contracts can: a team of reviewers with different knowledge
+states at least what three models state between them and once more, and where the models raise eight grave
+findings that are not there, the team raises one. What they do not show: a team that reads a contract cleanly.
+Most of what any answer claims is true and no flaw, the team's a little more so than the models'; and the team
+costs fifteen to twenty-five times as much. The claim that stands is the narrow one: the same findings and one
+more, with an eighth of the false alarms.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be

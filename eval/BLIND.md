@@ -307,3 +307,19 @@ The three models together state findings 3, 4, 6 and 7: four. The team states 2,
 what it did not confirm. Finding 2 was confirmed by all six reviewers, 7 by all six, 3 by four, 4 by three, 6 by
 the NEAR reviewer alone. The readers differ on how many of the team's items are wrong (two or five): three of them
 turn on code that is not in the file.
+
+## A second held-out NEAR contract, the same team (`mintbase store audit`, 7 findings of OtterSec's report)
+
+Two readers, four answers, different order. They gave every answer the same seven letters.
+
+| answer | verdicts, both readers | stated | claims | real | wrong | false Critical or High |
+|---|---|---|---|---|---|---|
+| alone, with room: DeepSeek-V4.1-Flash-1017 | `SSSAAPA` | 3 | 17 | 5-6 | 3-4 | 0 |
+| alone, with room: kimi-k2.6 | `AAPAASA` | 1 | 14 | 3 | 3 | 2 |
+| alone, with room: Qwen3.6-35B-A3B | `ASAAASA` | 2 | 7 | 2 | 1 | 1 |
+| the team of six | `SSSAASA` | 4 | 38-39 | 7 | 7-8 | 1 |
+
+The three models together state findings 1, 2, 3 and 6: the same four as the team. Findings 4, 5 and 7 nobody
+states; the team names the method of finding 5 and says of it the opposite of what the audit found. In the team's
+answer finding 2 was confirmed by five reviewers; finding 1 by the reviewer of incidents and one Solidity auditor;
+finding 3 by four; finding 6 by three.
