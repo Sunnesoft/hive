@@ -9,6 +9,8 @@
 // EVAL_LIMIT_USD (default 0.60) the run starts no new work once it has spent that much
 // CONTROL_MODEL  also keeps the joined reviews with the controller's word beside each finding
 // EVAL_PROOFS=0  the reviews write no proofs: a fifth of a review's cost, and the reading scores findings, not tests
+// EVAL_EXPERTS   another team for the tasks named, as folder names with commas between: with EVAL_TAG it is kept beside
+//                the task's own team (three Solidity auditors and one NEAR reviewer on a NEAR contract, say)
 // EVAL_REPEATS=5 also asks the first expert's model alone that many times and keeps the answers as one: what a
 //                customer gets who spends on one model, asked again and again, what a swarm costs
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -136,7 +138,8 @@ async function billed() {
 
 const args = process.argv.slice(2);
 const ids = args.filter((a) => !a.startsWith('--'));
-const tasks = REVIEWS.filter((t) => ids.includes(t.id));
+const team = (process.env.EVAL_EXPERTS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const tasks = REVIEWS.filter((t) => ids.includes(t.id)).map((t) => (team.length ? { ...t, experts: team } : t));
 if (!tasks.length) throw new Error(`name a task: ${REVIEWS.map((t) => `"${t.id}"`).join(', ')}`);
 await llm.refreshPrices();
 for (const t of tasks) {

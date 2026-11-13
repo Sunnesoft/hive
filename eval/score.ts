@@ -27,7 +27,7 @@ function parse(text: string): Record<string, Reading> {
   for (const block of text.split(/^## +/m).slice(1)) {
     const name = block.split('\n')[0]!.trim();
     const verdicts = (/^\s*verdicts:\s*([SLPAD ]+)/m.exec(block)?.[1] ?? '').replace(/\s/g, '');
-    const items = [...(/^\s*items:\s*(.*)$/m.exec(block)?.[1] ?? '').matchAll(/(\d+):([CHMLI]):([MRNWD])(\d*)/g)]
+    const items = [...(/^\s*items:\s*(.*)$/m.exec(block)?.[1] ?? '').matchAll(/[A-Z]?(\d+):([CHMLI]):([MRNWD])[A-Z]?(\d*)/g)]
       .map((m): Item => ({ n: Number(m[1]), severity: m[2]!, kind: m[3] as Item['kind'], ...(m[4] ? { ref: Number(m[4]) } : {}) }));
     if (name && verdicts) out[name] = { verdicts, items };
   }
@@ -36,10 +36,11 @@ function parse(text: string): Record<string, Reading> {
 
 type Row = { system: string; refs: number; stated: number; claims: number; matched: number; real: number; harmless: number; wrong: number; falseGrave: number; usd: number };
 /** What an answer cost: its own call, or for the joined reviews the reviews of the task's experts under the same tag. */
-function costOf(task: { id: string; experts: string[] }, system: string) {
+function costOf(task: { id: string }, system: string) {
   const tag = /^review (\S+): the swarm/.exec(system)?.[1];
   if (!tag) return kept[task.id]?.[system]?.usd ?? 0;
-  return task.experts.reduce((sum, name) => sum + (kept[task.id]?.[`review ${tag}: ${name}`]?.usd ?? 0), 0);
+  const reviews = Object.entries(kept[task.id] ?? {}).filter(([name]) => name.startsWith(`review ${tag}: `) && !name.includes(': the swarm'));
+  return reviews.reduce((sum, [, r]) => sum + r.usd, 0); // whoever reviewed under this tag: a run may name a team of its own
 }
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : '—');
 const f1 = (p: number, r: number) => (p + r ? (2 * p * r) / (p + r) : 0);

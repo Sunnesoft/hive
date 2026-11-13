@@ -27,7 +27,7 @@ export const LOOKUP_OUT = 300; // output tokens of that look-up
 // A review: an agent goes through the customer's materials with every part of its knowledge, one pass a piece,
 // then each finding is checked against the materials on its own. These bound what one review can cost.
 export const PASS_CHARS = 9_000; // of its knowledge one pass reads whole: a file of it, or a part of a longer file
-export const MAX_PASSES = 16; // parts read in one review: up to 144,000 characters of knowledge
+export const MAX_PASSES = 24; // parts read in one review: up to 216,000 characters of knowledge
 export const READ_OUT = 4_000; // output tokens of the expert's own reading, before any checklist: as much room as an answer has
 export const READ_FINDINGS = 20; // findings taken from it
 export const KNOWN_IN = 3_000; // bytes of what earlier passes raised, a line each, that a later pass is told not to repeat
