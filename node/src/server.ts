@@ -12,6 +12,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as chain from './chain.ts';
+import { expertOf } from './admit.ts';
 import { allowedModels, cfg } from './config.ts';
 import { CHUNK, NEAREST } from './library.ts';
 import { priceOf } from './llm.ts';
@@ -75,7 +76,7 @@ let catalog: { at: number; reply: Promise<Reply> } | undefined;
  *  Cached for a minute. */
 function agents(): Promise<Reply> {
   if (catalog && Date.now() - catalog.at < 60_000) return catalog.reply;
-  const reply = Promise.all(ready(chain.listed()).map(async (a) => { // only experts that can take a task now
+  const reply = Promise.all(ready(chain.listed()).filter((a) => !!expertOf(a)).map(async (a) => { // only experts that can take a task now: active, with money for a job, and their materials loaded in this runner
     const [history, audit] = await Promise.all([store.historyOf(a.id), store.auditOf(a.id)]);
     const picked = history.filter((r) => r.picked);
     const delivered = picked.filter((r) => r.delivered);
@@ -141,16 +142,19 @@ async function cabinet(req: IncomingMessage): Promise<Reply> {
   return [200, { account, balance, agents }];
 }
 
-let briefs = { minute: 0, n: 0 };
+let briefs = { minute: 0, n: 0, by: new Map<string, number>() };
 /** The description of an order about to be placed: kept under the hash that will name it on chain. Anyone may
- *  hand one over, so they are small, few a minute, and forgotten in two hours if no order comes for them. */
+ *  hand one over, so they are small, few a minute for each account and a few hundred for all, and forgotten in two
+ *  hours if no order comes for them. One limit for all, at 20 a minute, let one sender stop everyone's orders. */
 async function brief(req: IncomingMessage): Promise<Reply> {
   let body = '';
   for await (const part of req as AsyncIterable<Buffer>) if ((body += part).length > 48_000) return [413, { error: `a task is at most ${orders.MAX_BRIEF} characters` }];
-  const minute = Math.floor(Date.now() / 60_000);
-  if (briefs.minute !== minute) briefs = { minute, n: 0 };
-  if (++briefs.n > 20) return [429, { error: 'busy: try again in a minute' }];
   const sent = (() => { try { return JSON.parse(body); } catch { return null; } })();
+  const minute = Math.floor(Date.now() / 60_000);
+  if (briefs.minute !== minute) briefs = { minute, n: 0, by: new Map() };
+  const who = typeof sent?.customer === 'string' ? sent.customer.slice(0, 64) : '';
+  briefs.by.set(who, (briefs.by.get(who) ?? 0) + 1);
+  if (++briefs.n > 600 || briefs.by.get(who)! > 10) return [429, { error: 'busy: try again in a minute' }];
   const hash = await orders.keepBrief(sent?.salt, sent?.customer, sent?.brief);
   if (hash) log('brief', { brief_hash: hash });
   return hash ? [200, { hash }] : [400, { error: `send {salt: 32 hex characters, customer: the account that places the order, brief: 1 to ${orders.MAX_BRIEF} characters}` }];

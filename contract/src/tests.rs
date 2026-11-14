@@ -211,11 +211,11 @@ fn a_job_nobody_is_owed_for_refuses_revenue() {
 }
 
 #[test]
-fn a_stuck_job_returns_holds_after_run_secs() {
+fn a_stuck_job_returns_holds_after_twice_run_secs() {
     let mut c = setup();
     call(RUNNER, 100);
     c.assign("j1".into(), vec![ag(A), ag(B)]);
-    call(X, 700);
+    call(X, 1_300);
     c.close("j1".into());
     assert_eq!((bal(&c, A), bal(&c, B)), (10 * U, 10 * U));
     assert_books(&c, &[]);
@@ -227,7 +227,7 @@ fn a_stuck_job_cannot_be_closed_early() {
     let mut c = setup();
     call(RUNNER, 100);
     c.assign("j1".into(), vec![ag(A)]);
-    call(X, 699);
+    call(X, 1_299); // past run_secs, but the round may still be running: its models are paid for
     c.close("j1".into());
 }
 
@@ -766,12 +766,12 @@ fn stopping_the_runner_moves_no_money_and_closes_no_way_out() {
     c.halt(true);
     assert!(c.halted());
     assert_eq!(c.owed().0, owed);
-    call(X, 2 + 600); // the stuck job is closed by anyone and the holds come back
+    call(X, 1 + 1_200); // the stuck job is closed by anyone, after twice run_secs, and the holds come back
     c.close("j1".to_string());
     assert_eq!((bal(&c, A), bal(&c, B)), (10 * U, 10 * U));
-    call(A, 2 + 600);
+    call(A, 1 + 1_200);
     c.withdraw(None);
-    call(DAO, 2 + 601);
+    call(DAO, 1 + 1_201);
     c.halt(false); // let go: the runner works again
     call(RUNNER, 2 + 602);
     c.assign("j2".to_string(), vec![ag(B)]);

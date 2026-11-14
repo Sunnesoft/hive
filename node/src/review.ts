@@ -451,9 +451,11 @@ const TEST_AT_ONCE = 20; // proofs one expert tests in one call
  *  487 items 18 were wrong; of those proved and tested by two, 9; the arbiter agreed with the readers on 13 appeals
  *  of 16. Each expert pays for its proofs, tests and appeals from what is left of its hold; the arbiter is the
  *  protocol's. */
-export async function tried<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[], judge: Expert['m']): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
+export async function tried<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[], judge: Expert['m'], until = Infinity): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
   const cost = new Map<number, bigint>();
-  if (team.length < 2 || !findings.length) return { findings, cost };
+  // `until`: the task's time on chain. Past it no step starts: what was not tried goes to the customer as it stands.
+  const late = () => Date.now() > until;
+  if (team.length < 2 || !findings.length || late()) return { findings, cost };
   const material = pages.map((p) => p.text).join('\n');
   const spend = (id: number, c: bigint) => cost.set(id, (cost.get(id) ?? 0n) + c);
   const left = (t: { id: number; money: bigint }) => t.money - (cost.get(t.id) ?? 0n);
@@ -463,6 +465,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   // The proofs, each expert of its own findings.
   const proofs = new Map<number, llm.Proof>();
   await each(team.flatMap((t) => chunks(findings.map((f, k) => ({ f, k })).filter(({ f }) => finder(f)?.id === t.id), PROVE_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
+    if (late()) return;
     const r = await llm.prove(t.m, question, pages, `# Your findings\n\n${part.map(({ f, k }) => shown(f, k)).join('\n\n')}`, left(t));
     spend(t.id, r.cost);
     for (const p of r.proofs) if (part.some(({ k }) => k === p.id)) proofs.set(p.id, p);
@@ -481,6 +484,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   // The tests, each expert of the proofs it did not write.
   const marks: { k: number; by: number; mark: llm.Mark }[] = [];
   await each(team.flatMap((t) => chunks([...proved].filter((k) => !findings[k]!.by.includes(t.id) && finder(findings[k]!)?.id !== t.id), TEST_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
+    if (late()) return;
     const r = await llm.mark(t.m, question, pages, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}`, left(t));
     spend(t.id, r.cost);
     for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', material)) marks.push({ k: m.id, by: t.id, mark: m });
@@ -488,6 +492,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   // The appeals of what a test refuted, each to the arbiter alone.
   const upheld = new Map<number, boolean>();
   await each([...proved].filter((k) => !proofs.get(k)?.withdrawn && marks.some((x) => x.k === k && x.mark.mark === 'refute')), async (k) => {
+    if (late()) return;
     const f = findings[k]!, t = finder(f), said = `${f.where} ${f.title} ${f.how}`;
     const knowledge = partsOf(filesOf(t.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
     const against = marks.filter((x) => x.k === k && x.mark.mark === 'refute').map((x) => `- step ${x.mark.step ?? 0}: ${x.mark.why ?? ''} The line: \`${x.mark.quote}\``).join('\n');
@@ -509,10 +514,11 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
 
 /** The grave findings that stood, every one, each with a test its finder writes along the path the trial upheld
  *  (policies/proof.md), given whole: written, not run. A finding whose review gave it a test keeps that one. */
-export async function tested<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
+export async function tested<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[], until = Infinity): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
   const cost = new Map<number, bigint>();
   const due = findings.filter((f) => standsTried(f) && grave(f) && f.path && !f.proof);
   const written = await each(due, async (f) => {
+    if (Date.now() > until) return undefined; // the task's time is up: a test not written is no loss to the answer
     const t = team.find((x) => x.id === Math.min(...(f.by.length ? f.by : f.seen)));
     if (!t) return undefined;
     const path = f.path!.steps.map((s, i) => `${i + 1}. ${s.does}\n   ${s.line}`).join('\n');

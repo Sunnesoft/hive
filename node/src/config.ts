@@ -19,7 +19,7 @@ const Env = z.object({
   CONTROL_MODEL: z.string().min(1).optional(),
   EMBED_MODEL: z.string().default('Qwen/Qwen3-Embedding-0.6B'), // indexes knowledge, matches skills
   MARKET_URL: z.url().default('https://market.near.ai'),
-  MARKET_TOKEN: z.string().startsWith('aat_').optional(), // without it the swarm serves only orders placed in the contract
+  MARKET_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().startsWith('aat_').optional()), // without it the swarm serves only orders placed in the contract; an empty one, as a compose passes it, is none
   BRAVE_API_KEY: z.string().optional(), // lets the protocol search the web for public materials
   OVERHEAD_USD: z.string().regex(USD).default('0.50'), // the protocol's own cost per Agent Market job; orders use the contract's
   OVERHEAD_PER_AGENT_USD: z.string().regex(USD).default('0.10'),
@@ -33,7 +33,10 @@ const Env = z.object({
   MODEL_SILENCE_MS: z.coerce.number().int().positive().default(60_000), // a model that has started and then writes nothing for this long is given up on
   // A review starts no new call after this long: what is not checked by then is given as not confirmed. Keep it well
   // under the contract's run_secs, after which an order can be sent back unanswered.
-  REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(1_500_000),
+  REVIEW_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000), // one expert's review: half of the task's 30 minutes
+  // The whole round, the trial and the tests with it: under the contract's run_secs (1,800 s), so the answer is in
+  // before anyone may close the job, and the work done is paid.
+  ROUND_MS: z.coerce.number().int().positive().default(1_500_000),
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)
   STORE_DIR: z.string().default('./store'), // sealed uploads; an encrypted volume in the TEE

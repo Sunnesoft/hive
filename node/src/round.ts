@@ -198,6 +198,9 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const refuse = (reason: 'rejected' | 'failed', detail: string): Decision => (round > 1 ? stand(detail) : { decline: { reason, detail } });
 
   log('task', { round, escrow: a.escrowAmount, chars: task.length, attachments: job.attachments.length, messages: thread.length }, { task });
+  // The round answers within the task's time on chain (ROUND_MS, under run_secs): past it no step of the trial or a
+  // test starts, and what stands goes to the customer. A round that ran over could be closed and its work unpaid.
+  const until = Date.now() + cfg.ROUND_MS;
   if (giveUp) return refuse('failed', 'The swarm kept failing on our side.');
   if (round > cfg.MAX_REWORKS + 1 && !redo) return stand(`the ${cfg.MAX_REWORKS} reworks included in the price are used up. Please post further changes as a new job.`);
   // Before any paid call: is there anyone to work at all? (After a restart agents are still loading.)
@@ -258,10 +261,10 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const extra = new Map<number, bigint>();
   const triers = reviews.map((r) => ({ id: r.id, m: members[r.id]!.expert.m, money: BigInt(members[r.id]!.agent.max_cost) - parts[r.id]!.spent }));
   const judge = { ...members[reviews[0]?.id ?? 0]!.expert.m, name: 'arbiter', expertise: 'The arbiter of a swarm of reviewers: it owes neither side.', method: '', knowledge: [], model: cfg.PROTOCOL_MODEL };
-  const trial = await tried(all.findings, triers, task, theirs, judge);
+  const trial = await tried(all.findings, triers, task, theirs, judge, until);
   trial.cost.forEach((c, id) => extra.set(id, c));
   // What stood and is grave gets a test, written by its finder along the path the trial upheld.
-  const tests = await tested(trial.findings, triers.map((t) => ({ ...t, money: t.money - (extra.get(t.id) ?? 0n) })), task, theirs);
+  const tests = await tested(trial.findings, triers.map((t) => ({ ...t, money: t.money - (extra.get(t.id) ?? 0n) })), task, theirs, until);
   tests.cost.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
   trial.findings = tests.findings;
   for (const [id, more] of extra) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + more, BigInt(members[id]!.agent.max_cost)).toString() };

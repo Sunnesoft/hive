@@ -389,7 +389,9 @@ impl Contract {
     /// Closes a stuck job: unfinished after `run_secs` (holds go back) or not paid for after `pay_secs`.
     pub fn close(&mut self, job: String) {
         let j = self.jobs.get(&job).expect("no job");
-        require!(now() >= j.at + if j.finished { self.cfg.pay_secs } else { self.cfg.run_secs }, "too early");
+        // A running job only after twice the task's time: the runner answers within run_secs, and a job closed while
+        // its round still ran would leave the models the operator paid for unpaid.
+        require!(now() >= j.at + if j.finished { self.cfg.pay_secs } else { 2 * self.cfg.run_secs }, "too early");
         for s in self.jobs.remove(&job).unwrap().slots {
             self.credit(&s.sponsor, s.hold.0);
         }

@@ -436,10 +436,10 @@ try {
   const free = await balance(codes);
   await call(asRunner, swarm.accountId, 'assign', { job: 'stuck', agents: [agentId(codes)] });
   const early = await call(owner, swarm.accountId, 'close', { job: 'stuck' }).then(() => 'closed', (e) => String(e));
-  check('close: a stuck job cannot be closed before run_secs', /too early/.test(early), early);
-  await sleep(4_000);
+  check('close: a stuck job cannot be closed before twice run_secs: its round may still be running', /too early/.test(early), early);
+  await sleep(7_000);
   await call(owner, swarm.accountId, 'close', { job: 'stuck' });
-  check('close: after run_secs anyone closes it and the hold comes back', (await balance(codes)) === free);
+  check('close: after twice run_secs anyone closes it and the hold comes back', (await balance(codes)) === free);
 
   // --- pause: the owner stops the runner at once; nothing is done, nothing is paid for, and the ways out stay open ---
   await call(owner, swarm.accountId, 'halt', { halted: true });
