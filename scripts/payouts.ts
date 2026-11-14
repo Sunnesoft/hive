@@ -75,6 +75,14 @@ for (const { assignment: a } of rows) {
   }
   // What Agent Market paid us for it: the escrow minus its fee, or what arrived after a split ruling.
   const revenue = got !== undefined ? usdc(got) : (usdc(a.escrowAmount) * (10_000n - MARKET_FEE_BPS)) / 10_000n;
+  // An accepted task's rounds never owe more than it paid: the swarm prices its team within the escrow. More owed
+  // than arrived is a round the runner did not price, a stolen runner key's planted agent say: nothing is paid,
+  // and the operator looks. A split ruling pays less by right, and names what arrived (--received).
+  const owed = rounds.reduce((s, r) => s + share(r.due, fee_bps), 0n);
+  if (got === undefined && owed > revenue) {
+    console.log(`NOT PAID: the rounds of ${a.assignmentId} owe ${show(owed)} USDC, more than the ${show(revenue)} it paid: check its rounds (${rounds.map((r) => r.job).join(', ')}) before paying by hand`);
+    continue;
+  }
   for (const { job, amount } of split(revenue, rounds)) {
     console.log(`${dry ? 'would pay' : 'paying'} ${show(amount)} USDC to ${job}`);
     if (!dry) {
