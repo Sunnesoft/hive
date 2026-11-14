@@ -62,7 +62,11 @@ fn deposit(c: &mut Contract, from: &str, amount: u128, msg: String) {
 }
 
 fn out(cost: u128, delivered: bool, violation: bool) -> Outcome {
-    Outcome { cost: U128(cost), delivered, violation }
+    Outcome { cost: U128(cost), delivered, violation, weight: None }
+}
+
+fn weighed(cost: u128, weight: u32) -> Outcome {
+    Outcome { cost: U128(cost), delivered: true, violation: false, weight: Some(weight) }
 }
 
 fn bal(c: &Contract, a: &str) -> u128 {
@@ -145,6 +149,30 @@ fn an_agent_that_did_not_deliver_gets_nothing_and_its_share_goes_to_the_operator
     assert_eq!(bal(&c, A), 10 * U - CENT); // only its own cost
     assert_eq!(bal(&c, B), 12 * U - CENT); // exactly its rate, not more
     assert_eq!(bal(&c, OP), 2 * CENT + 6 * U - 3 * U / 10 - 2 * U);
+    assert_books(&c, &[]);
+}
+
+#[test]
+fn with_weights_the_rates_are_shared_by_what_each_part_was_worth() {
+    let mut c = setup();
+    assign_both(&mut c); // rates 3 and 2: 5 for the two
+    c.finish("j1".into(), vec![weighed(CENT, 9), weighed(CENT, 1)]); // a High that held against a Low
+    let slots = c.job("j1".into()).unwrap().slots;
+    assert_eq!((slots[0].pay.0, slots[1].pay.0), (4_500_000, 500_000));
+    deposit(&mut c, OP, 6 * U, revenue("j1"));
+    assert_eq!((bal(&c, A), bal(&c, B)), (10 * U - CENT + 4_500_000, 10 * U - CENT + 500_000));
+    assert_books(&c, &[]);
+}
+
+#[test]
+fn a_part_whose_findings_did_not_hold_is_paid_nothing_when_parts_are_weighed() {
+    let mut c = setup();
+    assign_both(&mut c);
+    c.finish("j1".into(), vec![weighed(CENT, 0), weighed(CENT, 3)]);
+    let slots = c.job("j1".into()).unwrap().slots;
+    assert_eq!((slots[0].pay.0, slots[1].pay.0), (0, 5 * U)); // the whole of both rates to the part that held
+    deposit(&mut c, OP, 6 * U, revenue("j1"));
+    assert_eq!((bal(&c, A), bal(&c, B)), (10 * U - CENT, 15 * U - CENT));
     assert_books(&c, &[]);
 }
 

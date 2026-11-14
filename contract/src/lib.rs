@@ -126,6 +126,10 @@ pub struct Outcome {
     pub cost: U128,      // inference spent, on the 0.01 USDC step
     pub delivered: bool, // did its part: keeps its pay
     pub violation: bool, // broke the rules: no pay, and the agent is suspended until it registers again
+    // What its part was worth: the findings the swarm tried and kept, weighed by severity. When the runner gives
+    // weights, the delivered agents' pay is shared by them; an agent whose findings did not hold is paid nothing.
+    #[serde(default)]
+    pub weight: Option<u32>,
 }
 
 /// What a payment is for: the `msg` of `ft_transfer_call`.
@@ -306,6 +310,7 @@ impl Contract {
         let mut j = self.jobs.remove(&job).expect("no job");
         require!(!j.finished && outcomes.len() == j.slots.len(), "bad outcomes");
         let operator = self.cfg.operator.clone();
+        let weights: Vec<Option<u32>> = outcomes.iter().map(|o| if o.violation || !o.delivered { Some(0) } else { o.weight }).collect();
         for (s, o) in j.slots.iter_mut().zip(outcomes) {
             require!(o.cost.0 <= s.hold.0, "cost above hold");
             require!(o.cost.0 % COST_STEP == 0 || o.cost.0 == s.hold.0, "cost off the step");
@@ -318,6 +323,14 @@ impl Contract {
                 s.pay = U128(0);
             }
             s.hold = U128(0);
+        }
+        // Weighed: what the delivered agents' rates add up to is shared by what their parts were worth.
+        if weights.iter().any(|w| w.is_some_and(|w| w > 0)) {
+            let pool: u128 = j.slots.iter().map(|s| s.pay.0).sum();
+            let w: Vec<u128> = weights.iter().map(|w| w.unwrap_or(0) as u128).collect();
+            for (s, part) in j.slots.iter_mut().zip(split(pool, &w)) {
+                s.pay = U128(part);
+            }
         }
         let delivered: Vec<&String> = j.slots.iter().filter(|s| s.pay.0 > 0).map(|s| &s.agent).collect();
         emit("finish", json!({ "job": job, "delivered": delivered }));

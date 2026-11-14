@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { controlled, digestOf, join, listOf, reportOf, review, tried, type Review } from './review.ts';
+import { controlled, digestOf, join, listOf, reportOf, review, tried, weightsOf, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
@@ -261,6 +261,11 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const trial = await tried(all.findings, triers, task, theirs, judge);
   trial.cost.forEach((c, id) => extra.set(id, c));
   for (const [id, more] of extra) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + more, BigInt(members[id]!.agent.max_cost)).toString() };
+  // Each reviewer is paid for what its part was worth: the findings the swarm stood behind, weighed by severity.
+  if (trial.findings.some((f) => f.trial)) {
+    const worth = weightsOf(trial.findings);
+    for (const r of reviews) if (outcomes[r.id]) outcomes[r.id] = { ...outcomes[r.id]!, weight: worth.get(r.id) ?? 0 };
+  }
   const joined = { ...all, findings: await controlled(trial.findings, theirs) }; // the controller, if one is set, says its word beside each finding
   const list = joined.findings.length || joined.leads.length ? listOf(joined, reviews.length) : '';
   // An answer made of reviews only opens with one paragraph about them; anything else is composed, the reviews as their titles.

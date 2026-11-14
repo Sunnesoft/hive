@@ -227,7 +227,7 @@ export async function lookups(m: Materials, question: string, pages: Page[], cap
 }
 
 /** The steps of a review (review.ts), each a call of the agent's own model under a public policy. */
-export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hotspot' | 'proof' | 'prove' | 'mark' | 'appeal' | 'arbiter';
+export type ReviewStep = 'read' | 'pass' | 'check' | 'refute' | 'combine' | 'hotspot' | 'powers' | 'proof' | 'prove' | 'mark' | 'appeal' | 'arbiter';
 /** The model a step of a review runs on: the passes on the agent's reading model, if it named one. */
 export const modelOf = (kind: ReviewStep, m: Materials) => (kind === 'pass' ? (m.pass_model ?? m.model) : m.model);
 const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
@@ -261,7 +261,7 @@ const quoted = (lines: string) => lines.split('\n').map((l) => l.trim()).filter(
  *  materials). The reply is a form: every finding the model reports, as many as it reports, the gravest first.
  *  `money`: what is left of the agent's hold; the reply may be as long as it pays for. A step that fails costs the
  *  agent nothing and raises nothing. */
-export async function raise(kind: 'read' | 'pass' | 'combine' | 'hotspot', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ findings: Finding[]; open: Open[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function raise(kind: 'read' | 'pass' | 'combine' | 'hotspot' | 'powers', m: Materials, knowledge: string, question: string, pages: Page[], about: string, money: bigint): Promise<{ findings: Finding[]; open: Open[]; cost: bigint; why?: Why; cut?: boolean }> {
   const model = modelOf(kind, m);
   const price = priceOf(model);
   if (!price) return { findings: [], open: [], cost: 0n, why: 'model_unavailable' };

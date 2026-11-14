@@ -13,7 +13,7 @@ export type Agent = {
   balance: string;
 };
 export type Job = { at: number; finished: boolean; slots: { agent: string; hold: string; pay: string }[] }; // finished: the holds are settled, it waits to be paid for
-export type Outcome = { cost: string; delivered: boolean; violation: boolean };
+export type Outcome = { cost: string; delivered: boolean; violation: boolean; weight?: number }; // weight: what its findings that held were worth (review.weightsOf)
 export type Usage = { inputTokens?: number | undefined; outputTokens?: number | undefined; inputTokenDetails?: { cacheReadTokens?: number | undefined } };
 export type Price = { in: number; out: number; cached?: number }; // USD per 1M tokens; `cached`: an input token NEAR AI has seen at the start of an earlier call
 

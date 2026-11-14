@@ -340,7 +340,7 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
 /** How the swarm tried a finding: whether its proof stands (most of its lines in the materials, no step through
  *  code not shown), how many other experts confirmed or refuted it with a line code found, and, if it was
  *  refuted, whether the arbiter upheld the finder's appeal. */
-export type Trial = { proved: boolean; confirm: number; note: number; refute: number; upheld?: boolean };
+export type Trial = { proved: boolean; confirm: number; note: number; refute: number; confirmedBy: number[]; upheld?: boolean };
 export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list. Which findings are one is the protocol's model's answer to one
@@ -374,6 +374,37 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   const findings = unfolded(sorted.filter(confirmedIn), found).all;
   const leads = unfolded(sorted.filter((j) => !confirmedIn(j)), (g): Lead => ({ ...wordings(g), seen: ids(g) })).all;
   return { findings, leads: leads.slice(0, MAX_LEADS) };
+}
+
+/** What the privileged roles of the code can do (policies/powers.md), set down by one expert of the team after the
+ *  reviews: each power a finding of its own, tried by the swarm as any finding is. Audits list them every time; a
+ *  review that judges each power alone leaves them out, as intended. */
+export async function powersOf<T extends Joined>(expert: { id: number; m: Expert['m']; money: bigint }, question: string, pages: Page[]): Promise<{ findings: T[]; cost: bigint }> {
+  const r = await llm.raise('powers', expert.m, '', question, pages, '', expert.money);
+  const material = pages.map((p) => p.text).join('\n');
+  const findings = r.findings.filter((f) => grounded(f.evidence, material)).map((f) => ({ ...f, by: [expert.id], seen: [expert.id] }) as unknown as T);
+  return { findings, cost: r.cost };
+}
+
+/** A finding the testers took for true and harmless more often than for a loss is a note, apart from the findings. */
+const harmless = (f: Joined) => !!f.trial && f.trial.note > f.trial.confirm;
+/** What the swarm stands behind: proved, not a note, and backed by two (its finders and the testers who confirmed
+ *  it) with no refutation, or upheld by the arbiter on appeal. */
+export const standsTried = (f: Joined) => !!f.trial?.proved && !harmless(f) && ((f.by.length + f.trial.confirm >= 2 && f.trial.refute === 0) || f.trial.upheld === true);
+export const isNoteTried = (f: Joined) => !!f.trial?.proved && harmless(f) && f.trial.refute === 0;
+const WORTH: Record<Finding['severity'], number> = { Critical: 27, High: 9, Medium: 3, Low: 1, Info: 0 };
+/** What each expert's part of a round was worth, by the findings the swarm stood behind, weighed by severity: of
+ *  each, seven tenths to the experts who found it and three to those who tested and confirmed it (all of it to the
+ *  finders if none did). A note, or a finding that did not hold, is worth nothing: noise costs its expert what it
+ *  spent and earns it nothing. In tenths, for the contract. */
+export function weightsOf(findings: Joined[]): Map<number, number> {
+  const w = new Map<number, number>();
+  const give = (ids: number[], v: number) => ids.forEach((id) => w.set(id, (w.get(id) ?? 0) + v / ids.length));
+  for (const f of findings.filter(standsTried)) {
+    const [finders, testers, worth] = [f.by.length ? f.by : f.seen, f.trial!.confirmedBy, WORTH[f.severity] * 10];
+    if (testers.length) { give(finders, worth * 0.7); give(testers, worth * 0.3); } else give(finders, worth);
+  }
+  return new Map([...w].map(([id, v]) => [id, Math.round(v)]));
 }
 
 /** A proof goes to the testers if it was not withdrawn and code finds at least one of its lines (in the materials,
@@ -426,11 +457,11 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   \`${s.line}\`${foundIn(s, material, sources) ? '' : '\n   (code did not find this line in the materials or in the library named: check it)'}${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
   const showProof = (k: number) => { const p = proofs.get(k)!; return `### ${k}. ${findings[k]!.severity}: ${findings[k]!.title}\n\n${p.steps.map(showStep).join('\n')}\n\nEnd: ${p.end}`; };
   // The tests, each expert of the proofs it did not write.
-  const marks: { k: number; mark: llm.Mark }[] = [];
+  const marks: { k: number; by: number; mark: llm.Mark }[] = [];
   await each(team.flatMap((t) => chunks([...proved].filter((k) => !findings[k]!.by.includes(t.id) && finder(findings[k]!)?.id !== t.id), TEST_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
     const r = await llm.mark(t.m, question, pages, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}`, left(t));
     spend(t.id, r.cost);
-    for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', material)) marks.push({ k: m.id, mark: m });
+    for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', material)) marks.push({ k: m.id, by: t.id, mark: m });
   });
   // The appeals of what a test refuted, each to the arbiter alone.
   const upheld = new Map<number, boolean>();
@@ -447,7 +478,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   });
   const out = findings.map((f, k) => {
     const on = marks.filter((x) => x.k === k).map((x) => x.mark.mark);
-    const trial: Trial = { proved: proved.has(k), confirm: on.filter((m) => m === 'confirm').length, note: on.filter((m) => m === 'note').length, refute: on.filter((m) => m === 'refute').length, ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
+    const trial: Trial = { proved: proved.has(k), confirm: on.filter((m) => m === 'confirm').length, note: on.filter((m) => m === 'note').length, refute: on.filter((m) => m === 'refute').length, confirmedBy: marks.filter((x) => x.k === k && x.mark.mark === 'confirm').map((x) => x.by), ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
     return { ...f, trial };
   });
   return { findings: out, cost };
@@ -579,10 +610,7 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   const [weighty, minor] = [alone.filter((f) => f.severity !== 'Low'), alone.filter((f) => f.severity === 'Low')];
   // Tried by the swarm (`tried`): what was proved and backed by two experts, or upheld on appeal, stands first; what
   // was proved and nobody refuted follows; what was not proved, or was refuted and lost its appeal, last, in brief.
-  // A finding the testers took for true and harmless more often than for a loss is a note, apart from the findings.
-  const harmless = (f: Joined) => !!f.trial && f.trial.note > f.trial.confirm;
-  const stands = (f: Joined) => !!f.trial?.proved && !harmless(f) && ((f.by.length + f.trial.confirm >= 2 && f.trial.refute === 0) || f.trial.upheld === true);
-  const isNote = (f: Joined) => !!f.trial?.proved && harmless(f) && f.trial.refute === 0;
+  const [stands, isNote] = [standsTried, isNoteTried];
   const open = (f: Joined) => !!f.trial?.proved && !stands(f) && !isNote(f) && f.trial.refute === 0;
   const trialTiers: [Joined[], string, boolean?][] = [
     [r.findings.filter(stands).sort((a, b) => b.by.length - a.by.length), `**Proved and tested by the team**: ${some(r.findings.filter(stands).length, 'finding')}. Each came with a proof on lines of your files, and another expert tested it and could not break it, or the arbiter upheld it.`],
