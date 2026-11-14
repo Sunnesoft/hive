@@ -834,6 +834,30 @@ here). On those four the team states 28 of 35 and the fifteen 18; on the four wh
 **The price is noise.** The team's answers have 487 items against 253, a fifth of them real; most of the rest are
 true and harmless. What one expert confirmed as Low is now given in brief, last.
 
+## The team with the trial, on Haiku and on NEAR AI's models (14 November)
+
+The same eight contracts and the same blind reading, on the code as it is now: the team's findings are proved
+step by step on lines of the code by their finder, tested by the other experts, refuted ones appealed to an
+arbiter, and a finding is withdrawn only on a line that stops it. Same findings sorted by one model call over the
+whole list. Per contract, findings of the audit stated in the main list:
+
+| answer | NearX /10 | Mintbase /7 | cNEAR /7 | Potlock /9 | staking farm /6 | registry /10 | vote escrow /10 | SWEAT /9 | of 68 | wrong items | false Critical or High |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Haiku asked once | 4 | 2 | 4 | 5 | 2 | 4 | 3 | 5 | 29 | | |
+| the team before the trial (Haiku) | 6 | 5 | 6 | 7 | 2 | 7 | 10 | 9 | 52 | 18 of 487 | 4 |
+| **the team with the trial (Haiku)** | 8 | 6 | 6 | 8 | 1 | 7 | 8 | 7 | **51** | **16 of 620** | **2** |
+| the team with the trial (NEAR AI) | 5 | — | 6 | 5 | 2 | 7 | 8 | 5 | 38 of 61 | 67 of 544 | 6 |
+
+NearX and vote escrow on Haiku are of the run before the withdrawal rule (v3); the other six were run fresh and
+tried again with it (v4). Withdrawn on a doubt, four findings of the audits had been taken back by their own
+finders: on registry the rule brought back two (5 to 7). On NEAR AI, DeepSeek failed the NEAR reviewer on
+Mintbase (no team answer); a step whose model fails is now tried once more on another model. Verdicts of every
+reading: `eval/out/claude/readings-v2/*.v4*.txt` and `nearai.items.txt` (git-ignored).
+
+Of all the team's items on Haiku: 23% real flaws (of the audit or not), 51% true and harmless (set apart as
+notes), 24% repeats of an item above, 2.6% wrong. On NEAR AI 15% real, 23% repeats, 12% wrong: the protocol's
+model there (Qwen3.8-27B) sorts and judges less well, and Potlock's answer repeated one item in three.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be

@@ -74,19 +74,28 @@ NEPs) and Solidity auditors built from open material under MIT. Sources and lice
 
 Eight NEAR contracts that none of the knowledge was written from, each with a public audit (68 findings in all).
 Each answer was read blind by a fresh reader that saw it under a neutral name and counted a finding of the audit
-only if the answer stated it as an item of its own. All runs on the same model, Claude Haiku 5.5, through
-[eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place. Details and every run: [eval/README.md](eval/README.md).
+only if the answer stated it as an item of its own, and judged every other item of the answer against the code.
+Details and every run: [eval/README.md](eval/README.md).
 
-| answer | findings of the audits stated, of 68 |
-|---|---|
-| the model asked once | 29 (43%) |
-| fifteen reviewers without knowledge, about the team's spend | 38 (56%) |
-| the team: the NEAR reviewer and two Solidity auditors | 52 (76%) |
+On Claude Haiku 5.5, through [eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place, all eight contracts:
+
+| answer | findings of the audits stated, of 68 | wrong items | false Critical or High |
+|---|---|---|---|
+| the model asked once | 29 (43%) | | |
+| fifteen reviewers without knowledge, about the team's spend | 38 (56%) | | |
+| the team before the trial | 52 (76%) | 18 of 487 (3.7%) | 4 |
+| **the team now**: the NEAR reviewer and two Solidity auditors, with the trial | **51 (75%)** | **16 of 620 (2.6%)** | **2 of 23** |
+
+On NEAR AI's own models (DeepSeek-V4.1-Flash for the experts, Qwen3.8-27B for the protocol), the same team on
+seven of the contracts (on Mintbase NEAR AI's DeepSeek failed the NEAR reviewer): **38 of 61 (62%)**, where the
+same seven gave 45 on Haiku; 12% of the items wrong and 6 false Critical or High of 15. A contract costs $1.00 to
+$1.90 by our meter, about $0.60 to $1.10 by NEAR AI's bill (it billed 59% of our meter for these runs). The swarm works on NEAR's models; the stronger the model that proves, tests
+and judges, the fewer wrong items reach the customer.
 
 At the same spend, knowledge adds what more effort does not. What reviewers without knowledge miss is NEAR's
 own: a method that is not `#[payable]` or asks no yoctoNEAR, a callback not given the token first, storage the
-contract pays for a new account, gas left for a callback. The trial cut the wrong items of the part a customer
-reads first from 18 to 6-7.
+contract pays for a new account, gas left for a callback. Of the findings the audits missed, the team states real
+ones too: about one item in four is a real flaw, of the audit or not; half are true and harmless notes, set apart.
 
 ## What the design guarantees, whatever the models do
 
