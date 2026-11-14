@@ -313,11 +313,18 @@ const entry = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = 
     !f.sortedWith && f.proof && `**Test** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
 /** A minor finding in brief: what is wrong, where, how in a sentence or two, and the line it rests on. */
+/** At most `bytes` of a text, ended at a sentence: cut mid-word, a reader takes the cut for the finding's end. */
+const sentencesOf = (text: string, bytes: number) => {
+  const cut = clip(text, bytes);
+  if (cut === text) return text;
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('.\n'));
+  return end > bytes / 3 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`;
+};
 const briefly = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
-    clip(f.how, 400),
+    sentencesOf(f.how, 400),
     f.path && `*End:* ${f.path.end}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
     f.evidence && `**Evidence:** ${f.evidence.split('\n')[0]}`,
