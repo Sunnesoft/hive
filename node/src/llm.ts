@@ -419,7 +419,7 @@ export async function answer(m: Materials, found: string[], question: string, pa
 
 /** Why a contribution counted or not, as its sponsor may see it: a rule, never the question. */
 export const WHYS = ['answered', 'empty', 'off_topic', 'refused', 'repeated_question', 'addressed_others', 'asked_for_score', 'changed_rules', 'hidden_content', 'attack'] as const;
-export type Why = (typeof WHYS)[number] | 'cut_off' | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
+export type Why = (typeof WHYS)[number] | 'spare_unused' | 'cut_off' | 'too_expensive' | 'model_unavailable' | 'model_failed' | 'not_checked';
 const Check = z.object({ delivered: z.boolean(), violation: z.boolean(), why: z.enum(WHYS), reason: z.string() });
 /** Did this agent do its part? Sees only its question and answer, so no agent can sway another's verdict. */
 export const evaluate = (task: string, question: string, text: string) => protocol('evaluate', { task, question, answer: text }, Check);

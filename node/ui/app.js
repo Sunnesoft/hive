@@ -257,6 +257,7 @@ const RESULTS = {
   model_failed: ['info', 'model failed', 'NEAR AI failed on this call. Not your fault, and not charged.'],
   model_unavailable: ['info', 'model gone', 'The model left NEAR AI. Register again with another model.'],
   not_checked: ['info', 'not checked', 'The checker failed on our side.'],
+  spare_unused: ['info', 'spare, not needed', 'It stood by as the team\'s spare, and everyone delivered: its hold came back whole, and nothing was charged.'],
 };
 const result = (r) => (r.picked ? RESULTS[r.why] ?? ['', r.why, ''] : ['', 'not picked', 'Another expert fit the task better, or the budget ran out. Nothing was spent.']);
 /** Under "Delivered": how much of the answers came from this expert, and how many of them customers sent back. */

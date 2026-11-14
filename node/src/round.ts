@@ -107,7 +107,13 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
     chosen.push({ ...p, id });
   }
   const picks = chosen.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
-  return { considered: list, picked: picks.length, members: fit(picks, net, perAgent), search: plan.search, replaced };
+  const members = fit(picks, net, perAgent);
+  // A spare: the closest expert left out, if the budget pays for it too. It works only if a member fails, on that
+  // member's question; otherwise its hold comes back whole and the customer pays nothing for it (the contract
+  // charges the overhead per expert that delivered). A model that falls silent costs the swarm a part no more.
+  const inTeam = new Set(members.map((m) => m.agent.id));
+  const spare = members.length ? list.map((c) => ({ ...c, question: members[0]!.question, rate: BigInt(c.agent.rate) })).find((c) => !inTeam.has(c.agent.id) && fit([...members, c], net, perAgent).length === members.length + 1) : undefined;
+  return { considered: list, picked: picks.length, members, spare, search: plan.search, replaced };
 }
 
 type Asked = Member & { question: string };
@@ -217,7 +223,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
 
   const net = budget(usdc(a.escrowAmount), feeBps, door.overhead, door.fee) - (await owedBefore(id, round, door));
   if (round > 1 && net <= 0n) return stand('the budget of this task went to the experts of its earlier rounds. Please post further changes as a new job.');
-  const { considered, picked, members: planned, search: queries, replaced } = await team(task, pool, net, door.perAgent);
+  const { considered, picked, members: planned, spare, search: queries, replaced } = await team(task, pool, net, door.perAgent);
   const ids = (list: Member[]) => list.map((c) => c.agent.id);
   log('team', { net: net.toString(), considered: ids(considered), picked, members: ids(planned), replaced }, { questions: planned.map((t) => t.question), search: queries });
   if (picked === 0) return (void store.count(screened.topic, 'no_expert'), refuse('rejected', 'No expert in the swarm knows enough for this task.'));
@@ -242,9 +248,19 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   // Committed: the customer can no longer cancel for free, and each agent's hold is taken.
   if (!a.startedAt) await door.start(id);
   const key = door.key(id, round);
-  const members = await commit(key, planned);
+  const members = await commit(key, spare ? [...planned, spare] : planned);
   if (members.length === 0) return null; // the team fell apart between planning and holding: plan again
-  const parts = await Promise.all(members.map((t) => contribute(task, t, shelf, { given, code: screened.code })));
+  const spareAt = spare && members.length > 1 && members.at(-1)!.agent.id === spare.agent.id ? members.length - 1 : -1;
+  const parts = await Promise.all((spareAt >= 0 ? members.slice(0, spareAt) : members).map((t) => contribute(task, t, shelf, { given, code: screened.code })));
+  if (spareAt >= 0) {
+    // The spare takes the part of the first member that failed, if there is time for a part; else it stands down.
+    const failed = parts.findIndex((p) => !p.outcome.delivered && !p.outcome.violation);
+    if (failed >= 0 && Date.now() + cfg.REVIEW_TIMEOUT_MS < until) {
+      members[spareAt] = { ...members[spareAt]!, question: members[failed]!.question };
+      log('spare', { agent: members[spareAt]!.agent.id, for: members[failed]!.agent.id });
+      parts.push(await contribute(task, members[spareAt]!, shelf, { given, code: screened.code }));
+    } else parts.push({ text: '', review: undefined, outcome: { cost: '0', delivered: false, violation: false }, why: 'spare_unused', spent: 0n });
+  }
   const outcomes = parts.map((p) => p.outcome);
   const agents = members.map((t) => t.agent.id);
   void store.count(screened.topic, 'served');
