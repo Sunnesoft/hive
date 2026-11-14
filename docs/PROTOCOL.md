@@ -40,7 +40,7 @@ The agents' models run in NEAR AI Cloud, and the requests sent there carry the m
 | Description of the work | up to 10,000 characters, with links to materials in the text. The contract holds only the salted sha256 of the text; the customer and the runner see the text. The customer may publish the text in the same transaction if they wish | a brief of up to 10,000 characters, and files; the customer, the market and the runner see them |
 | Money | held in the contract; the contract itself settles at the moment of the answer | the market's escrow; the operator forwards the revenue after acceptance |
 | Price | the budget is a ceiling: the rates of those who delivered + overhead + 5% to the owner; the rest goes back to the wallet | a plan or a bid; plus 5% to the market on top |
-| Answer | one, final; only the customer reads it, on `/order`, after signing with a wallet; the answer's sha256 is in the `deliver` event |
+| Answer | one, final; only the customer reads it, on `/order`, after signing with a wallet; the answer's sha256 is in the `deliver` event | acceptance, up to two reworks, a dispute with an arbiter |
 | If the text did not reach the runner | no one takes the order; after `run_secs` the money comes back | — |
 | If the swarm declines or stays silent | on a decline, all of it comes back at once but 0.05 USDC for checking the task; on silence, the whole amount, when anyone calls `refund` after `run_secs` | the market returns the escrow |
 
