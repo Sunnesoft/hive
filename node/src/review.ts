@@ -238,12 +238,12 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     const once = await llm.check(m, question, pages, about, left(), knowledge);
     const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, pages, about, left(), knowledge) : once);
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
-    const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n').slice(0, 500);
+    const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n');
     const held = r.verdicts.filter((v) => v.holds && grounded(v.quote, material));
     const of = held.map((v) => (v.of ?? []).filter((n) => Number.isInteger(n) && n >= 1 && n <= group.length).map((n) => n - 1));
     const confirmed = held
-      .map((v): Checked => ({ severity: severityOf(v.severity), where: v.where.trim().slice(0, 120), title: v.title.trim().slice(0, 240), how: v.how.trim().slice(0, 900), evidence: lines(v.quote), fix: (v.fix ?? '').trim().slice(0, 500) }));
-    const said = confirmed.length ? undefined : (r.verdicts.find((v) => !v.holds)?.how.trim().slice(0, 400) ?? (r.verdicts.length ? 'It held the finding true and quoted no line that stands in the materials.' : undefined));
+      .map((v): Checked => ({ severity: severityOf(v.severity), where: v.where.trim(), title: v.title.trim(), how: v.how.trim(), evidence: lines(v.quote), fix: (v.fix ?? '').trim() }));
+    const said = confirmed.length ? undefined : (r.verdicts.find((v) => !v.holds)?.how.trim() ?? (r.verdicts.length ? 'It held the finding true and quoted no line that stands in the materials.' : undefined));
     return { confirmed, of, ...(said ? { said } : {}), ...(r.why ? { failed: r.why } : {}) };
   };
   const checks = await each(toCheck, (group) => judged(group.all));
@@ -306,25 +306,18 @@ const entry = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = 
     f.sortedWith && `*Sorted with "${f.sortedWith}" above as the same finding; kept apart in case it is not.*`,
     f.how,
     f.path && pathOf(f.path),
-    !f.sortedWith && f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
+    !f.sortedWith && f.also?.length && `*The same was raised as:* ${f.also.join('; ')}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
     !f.path && f.evidence && `**Evidence:** ${f.evidence}`,
     !f.sortedWith && f.fix && `**Fix:** ${f.fix}`,
     !f.sortedWith && f.proof && `**Test** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
 /** A minor finding in brief: what is wrong, where, how in a sentence or two, and the line it rests on. */
-/** At most `bytes` of a text, ended at a sentence: cut mid-word, a reader takes the cut for the finding's end. */
-const sentencesOf = (text: string, bytes: number) => {
-  const cut = clip(text, bytes);
-  if (cut === text) return text;
-  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('.\n'));
-  return end > bytes / 3 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`;
-};
 const briefly = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
-    sentencesOf(f.how, 400),
+    f.how,
     f.path && `*End:* ${f.path.end}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
     f.evidence && `**Evidence:** ${f.evidence.split('\n')[0]}`,
@@ -337,7 +330,7 @@ const unconfirmed = (f: Raised, n: number, note = '') =>
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
     f.sortedWith && `*Sorted with "${f.sortedWith}" above as the same; kept apart in case it is not.*`,
     f.how,
-    f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
+    f.also?.length && `*The same was raised as:* ${f.also.join('; ')}`,
     f.checkSaid && `*Its check said:* ${f.checkSaid}`,
   ].filter(Boolean).join('\n\n');
 /** The findings that were not confirmed: the grave ones whole, numbered on from `from`, then the others a line each. */
@@ -510,18 +503,16 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   return { findings: out, cost };
 }
 
-export const MAX_TESTS = 8; // tests written in one answer, for the gravest findings that stood
-
-/** The grave findings that stood, each with a test its finder writes along the path the trial upheld
- *  (policies/proof.md): written, not run. A finding whose review gave it a test keeps that one. */
+/** The grave findings that stood, every one, each with a test its finder writes along the path the trial upheld
+ *  (policies/proof.md), given whole: written, not run. A finding whose review gave it a test keeps that one. */
 export async function tested<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
   const cost = new Map<number, bigint>();
-  const due = findings.filter((f) => standsTried(f) && grave(f) && f.path && !f.proof).slice(0, MAX_TESTS);
+  const due = findings.filter((f) => standsTried(f) && grave(f) && f.path && !f.proof);
   const written = await each(due, async (f) => {
     const t = team.find((x) => x.id === Math.min(...(f.by.length ? f.by : f.seen)));
     if (!t) return undefined;
     const path = f.path!.steps.map((s, i) => `${i + 1}. ${s.does}\n   ${s.line}`).join('\n');
-    const r = await llm.step('proof', t.m, '', question, pages, section('Finding to prove', `${showFinding(f)}\n\nHow it happens:\n${path}\nEnd: ${f.path!.end}`, PROOF_IN * 2), t.money - (cost.get(t.id) ?? 0n));
+    const r = await llm.step('proof', t.m, '', question, pages, `# Finding to prove\n\n${showFinding(f)}\n\nHow it happens:\n${path}\nEnd: ${f.path!.end}`, t.money - (cost.get(t.id) ?? 0n));
     cost.set(t.id, (cost.get(t.id) ?? 0n) + r.cost);
     return r.why ? undefined : codeOf(r);
   });
@@ -547,9 +538,9 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
     const r = await llm.check(checker.m, question, pages, section('Finding to refute', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge, 'refute');
     cost.set(checker.id, (cost.get(checker.id) ?? 0n) + r.cost);
     const v = r.verdicts[0];
-    const why = (v?.how ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    const why = (v?.how ?? '').trim().replace(/\s+/g, ' ');
     if (v?.holds && grounded(v.quote, material)) return { ...f, crossed: { by: checker.id, holds: true, said: why } };
-    if (v && !v.holds && v.quote && grounded(`\`${v.quote}\``, material)) return { ...f, crossed: { by: checker.id, holds: false, said: `${why} The line it points at: \`${v.quote.trim().split('\n')[0]!.slice(0, 200)}\`` } };
+    if (v && !v.holds && v.quote && grounded(`\`${v.quote}\``, material)) return { ...f, crossed: { by: checker.id, holds: false, said: `${why} The line it points at: \`${v.quote.trim().split('\n')[0]!}\`` } };
     return f;
   });
   return { findings: out, cost };
@@ -626,9 +617,9 @@ export async function controlled<T extends Checked>(findings: T[], pages: Page[]
   const material = pages.map((p) => p.text).join('\n');
   const said = new Map<number, { second: string; doubted?: boolean }>();
   for (const v of verdicts) {
-    const reason = (v.reason ?? '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    const reason = (v.reason ?? '').trim().replace(/\s+/g, ' ');
     if (!findings[v.id] || said.has(v.id) || !reason) continue;
-    if (v.verdict === 'doubt' && v.stops && grounded(`\`${v.stops}\``, material)) said.set(v.id, { doubted: true, second: `it doubts this. ${reason} The line it points at: \`${v.stops.trim().replace(/\s+/g, ' ').slice(0, 200)}\`` });
+    if (v.verdict === 'doubt' && v.stops && grounded(`\`${v.stops}\``, material)) said.set(v.id, { doubted: true, second: `it doubts this. ${reason} The line it points at: \`${v.stops.trim().replace(/\s+/g, ' ')}\`` });
     const rated = SEVERITIES.find((s) => s.toLowerCase() === (v.severity ?? '').toLowerCase());
     if (v.verdict === 'severity' && rated && rated !== findings[v.id]!.severity) said.set(v.id, { second: `it would rate this ${rated}. ${reason}` });
   }

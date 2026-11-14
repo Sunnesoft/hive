@@ -24,6 +24,9 @@ If the line does not stop your path, appeal: give the one rule of your knowledge
 exactly, as few words of it as carry the rule, and say why the quoted line does not stop the path. Withdraw only
 if the quoted line really stops one of your steps: then name that step.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return:
 "rule": one sentence or line of your knowledge, copied exactly; empty if none applies.
 "answer": at most 60 words: why the refutation does not hold, or, if you withdraw, which step it stops and how.

@@ -24,7 +24,7 @@ does not happen, withdraw the finding; if every step happens, stand by it.
 
 Return "proofs", one for each finding, in the order given:
 "id": the finding's number.
-"steps": the steps, each {"does": what happens, in at most 30 words, "line": the line it stands on, copied exactly,
-"source": the public address of the library file the line is in, or empty if it is in the materials}.
-"end": who gains, who loses what, or what stops, in at most 30 words.
+"steps": the steps, each {"does": what happens, as plainly as it can be said, "line": the line it stands on, copied
+exactly, "source": the public address of the library file the line is in, or empty if it is in the materials}.
+"end": who gains, who loses what, or what stops. A proof has no limit of length: give every step it needs.
 "withdrawn": true if it does not hold after all.

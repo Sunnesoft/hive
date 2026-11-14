@@ -27,6 +27,9 @@ it and with what, which lines run, what the state is after each step, who gains 
 check, a guard or a revert on the way stops it, drop it. If a step needs something the materials do not show (a
 contract they call, a library), say so in "how" and write the finding all the same.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "findings": every finding, the gravest first, as many as there are. Each finding:
 "severity": Critical, High, Medium or Low.
 "where": the function or place it is in.

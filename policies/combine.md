@@ -20,6 +20,9 @@ keeps another from being worse. Follow each such combination through the materia
 Report only what is new: a combination whose harm is larger than, or different from, the harm of its parts. A
 finding of the list said again in other words is not a combination.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "findings": each combination as a finding of its own, the gravest first, as many as there are. Each finding:
 "severity": Critical, High, Medium or Low.
 "where": the function or place it is in.

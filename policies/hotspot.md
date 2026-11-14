@@ -32,6 +32,9 @@ out, each caller and what it must attach. What holds there is a finding too.
 A finding needs one of three: someone who gains, someone who loses, or a service that stops; say which. It need
 not be an attack, and the one who loses may be the one who caused it.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "findings": what is actually wrong at this place, the gravest first, as many as there are, and an empty
 list if nothing holds. Each finding:
 "severity": Critical, High, Medium or Low.

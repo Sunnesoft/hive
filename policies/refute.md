@@ -27,6 +27,9 @@ Only if you have followed every path and nothing stops it, it holds: then say yo
 happens, and quote the lines that make it possible. If something stops it, it does not hold: quote the line that
 stops it. If it is true and nothing is lost, it holds as Low.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "verdicts": one entry for the finding. The entry:
 "holds": true or false.
 "severity": Critical, High, Medium or Low: what it deserves if it holds.

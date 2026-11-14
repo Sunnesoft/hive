@@ -42,10 +42,10 @@ export const PASS_FINDINGS = 20; // findings taken from one pass, the first ones
 export const PASS_OUT = 4_000; // output tokens of one pass: at 1,800, more than half of the passes of two held-out runs were cut off mid-finding
 export const MAX_CHECKS = 60; // checks in one review, the gravest first; the rest are given as not confirmed
 export const MAX_LEADS = 20; // findings a check did not confirm that an answer still lists, apart and as unconfirmed
-export const CHECK_IN = 6_000; // bytes of findings one check is given: one group, as the passes wrote it
+export const CHECK_IN = 30_000; // bytes of findings one check is given: one group, as the passes wrote it, whole
 export const CHECK_AT_ONCE = 5; // wordings one check is shown: a model that joined twenty findings into a group must not have them dismissed in one line
 export const CHECK_OUT = 3_000; // a check answers on a form, a verdict for each of up to five claims; a form cut short is no form at all, and its group goes unchecked
-export const COMBINE_IN = 6_000; // bytes of confirmed findings the step that looks at them together is given
+export const COMBINE_IN = 60_000; // bytes of confirmed findings the step that looks at them together is given: all of them
 export const COMBINE_OUT = 1_200;
 export const MAX_COMBINED = 5; // findings that step may add: each is checked like any other
 export const SUMMARY_OUT = 300; // output tokens of the paragraph that opens a review: room for 120 words, none for a report of its own
@@ -207,7 +207,7 @@ export function findingsIn(text: string): Finding[] {
     if (h) {
       const [where = '', ...rest] = h[2]!.split(/\s*\|\s*|\s+[—–]\s+/);
       const severity = SEVERITIES.find((s) => s.toLowerCase() === h[1]!.toLowerCase())!;
-      out.push({ severity, where: plain(rest.length ? where : '').slice(0, 120), title: plain(rest.length ? rest.join(' — ') : where).slice(0, 240), how: '', evidence: '', fix: '' });
+      out.push({ severity, where: plain(rest.length ? where : ''), title: plain(rest.length ? rest.join(' — ') : where), how: '', evidence: '', fix: '' });
       last = 'how';
       continue;
     }
@@ -218,7 +218,7 @@ export function findingsIn(text: string): Finding[] {
     if (l) last = l[1]!.toLowerCase() as 'evidence' | 'fix';
     else if (!fenced && /^[\s*_#]*proof\b/i.test(line)) last = 'rest';
     if (last === 'rest') continue;
-    f[last] = `${f[last]}${f[last] ? '\n' : ''}${(l ? l[2]! : line).trim()}`.slice(0, last === 'how' ? 900 : 500);
+    f[last] = `${f[last]}${f[last] ? '\n' : ''}${(l ? l[2]! : line).trim()}`;
   }
   return out.filter((f) => f.title);
 }

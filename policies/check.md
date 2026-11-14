@@ -40,6 +40,9 @@ trusted" and "nothing is lost" are not reasons. To say it does not hold you must
 Its severity is what follows from it, by your owner's method: what the method says a finding must have, a
 finding you confirm must have, and "how" must say it.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "verdicts": one entry for each different thing the group says; findings that say the same thing are one
 entry, and different things in the same place stay separate entries. Each entry:
 "of": the numbers of the findings of the group the entry is about.

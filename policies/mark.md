@@ -30,6 +30,9 @@ the step that breaks. Then judge the end: does someone gain, lose or stop being 
 - "refute": a step breaks. Give the step's number and quote the line that breaks it.
 - "pass": a step rests on code that is not in the materials, so it cannot be settled here.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "marks": one entry for each finding, in the order given:
 "id": the finding's number.
 "mark": "confirm", "note", "refute" or "pass".

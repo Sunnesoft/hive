@@ -10,6 +10,9 @@ really stop the path, or does the path go around it?
 A finding needs one of three: someone who gains, someone who loses, or a service that stops. A point that harms
 nobody does not hold, however true it is.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "verdicts": one entry for the finding:
 "holds": true or false.
 "severity": Critical, High, Medium or Low: what it deserves if it holds.

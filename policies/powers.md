@@ -17,6 +17,9 @@ effect at once or after a delay users can react to, and whether anything stops o
 the code means to keep apart (the owner made the operator, the treasury, the contract itself). Then say what users
 must trust each role with.
 
+The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
+nothing you write is cut.
+
 Return "findings", each one thing a role can do that a user would want to know about, the gravest first:
 "severity": Medium if a role can take or lock users' funds or stop the service at once; Low otherwise.
 "where": the functions it is about.
