@@ -21,7 +21,7 @@ import { allowedModels, cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { closerLook, controlled, hotSpots, join, listOf, reportOf, review, tried, type Review } from '../node/src/review.ts';
+import { closerLook, controlled, hotSpots, join, listOf, powersOf, reportOf, review, tried, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { referred } from '../node/src/deps.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
@@ -62,7 +62,11 @@ function locked(work: () => void) {
 const folder = (name: string) => (existsSync(`eval/agents/${name}`) ? `eval/agents/${name}` : `agents/${name}`);
 const usd = (micro: bigint) => Number(micro) / 1e6;
 const cardOf = (name: string) => {
-  const { card, materials } = readAgent(folder(name));
+  const { card: read, materials } = readAgent(folder(name));
+  // EVAL_MAX_COST: another hold for every expert. On another model through eval/claude-shim.ts each token is priced
+  // as DeepSeek's with no cache, where NEAR AI reads the materials at the start of each call from its cache: the
+  // same review costs there a fraction of what the meter counts here, and the expert's own hold would cut it short.
+  const card = process.env.EVAL_MAX_COST ? { ...read, max_cost: process.env.EVAL_MAX_COST } : read;
   const { pass_model: _, ...m } = Materials.parse(materials);
   return { card, m: MODEL ? { ...m, model: MODEL } : { ...m, ...(_ ? { pass_model: _ } : {}) } };
 };
@@ -122,7 +126,10 @@ async function joined(t: ReviewTask, pages: Page[]) {
   const add = (costs: Map<number, bigint>) => costs.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
   // As a round does: the swarm tries what it found, proofs, tests, appeals and the arbiter (review.tried).
   const judge = { ...cardOf(t.experts[parts[0]!.id]!).m, name: 'arbiter', expertise: 'The arbiter of a swarm of reviewers: it owes neither side.', method: '', knowledge: [], model: MODEL ?? cfg.PROTOCOL_MODEL };
-  const trial = await tried(joinedAll.findings, team(), t.task, pages, judge);
+  // EVAL_POWERS=1: the first expert also sets down what the privileged roles can do, tried with the rest.
+  const powers = process.env.EVAL_POWERS === '1' ? await powersOf(team()[0]!, t.task, pages) : { findings: [], cost: 0n };
+  add(new Map([[parts[0]!.id, powers.cost]]));
+  const trial = await tried([...joinedAll.findings, ...powers.findings], team(), t.task, pages, judge);
   add(trial.cost);
   // EVAL_CLOSER=1 also gives the hot spots a closer look, as the round no longer does
   const spots = process.env.EVAL_CLOSER === '1' ? hotSpots(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, unsure: p.r!.review!.unsure, open: p.r!.review!.open })), trial.findings) : [];
