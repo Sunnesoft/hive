@@ -2,7 +2,7 @@
 # secrets come in as encrypted env (.env.tee, see scripts/swarm.sh tee-deploy). Pin the image by digest.
 services:
   runner:
-    image: ghcr.io/OWNER/swarm-runner@sha256:DIGEST # scripts/swarm.sh image ghcr.io/<you>/swarm-runner
+    image: ghcr.io/sunnesoft/swarm-runner@sha256:d22389d78f86f0f25e3ad6f626dc6e7e2d3aadf0721453bcabffb64d7c725b74 # scripts/swarm.sh image ghcr.io/<you>/swarm-runner
     restart: always
     ports:
       - "8080:8080" # /attestation, /info, /upload, the sealing page
@@ -10,9 +10,9 @@ services:
       - /var/run/dstack.sock:/var/run/dstack.sock # keys and quotes from the TEE
       - store:/data # sealed uploads and round decisions, on the CVM's encrypted disk
     environment:
-      NEAR_RPC: https://rpc.mainnet.fastnear.com
-      CONTRACT: swarm.OWNER.near
-      RUNNER_ACCOUNT: runner.OWNER.near
+      NEAR_RPC: https://rpc.testnet.fastnear.com # the demo runs on testnet, with test USDC
+      CONTRACT: swarm2.sfhnx9j68.testnet
+      RUNNER_ACCOUNT: runner.sfhnx9j68.testnet
       PROTOCOL_MODEL: Qwen/Qwen3.8-27B
       AUDIT_MODEL: Qwen/Qwen3.8-27B
       EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B
@@ -20,7 +20,7 @@ services:
       OVERHEAD_PER_AGENT_USD: "0.10"
       DAILY_BUDGET_USD: "2.00" # the most spent at NEAR AI in a UTC day; then no new work is started
       MAX_REWORKS: "2"
-      BIDS: "on" # bid on board tasks at the price of the team each needs
+      BIDS: "off" # "on": bid on board tasks at the price of the team each needs
       MARKET_LISTING_URL: https://market.near.ai/agents/swarm-for-hire # for the site's "Hire" buttons
       NEARAI_API_KEY: ${NEARAI_API_KEY}
       MARKET_TOKEN: ${MARKET_TOKEN:-} # without it only orders placed in the contract are served
