@@ -644,7 +644,7 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
     : `*Proved${f.trial.confirm ? `, and confirmed by ${f.trial.confirm} other expert${f.trial.confirm > 1 ? 's' : ''} who tested the proof` : ''}.*`);
   const noteOf = (f: Joined) => [experts > 1 ? `*Found by ${f.seen.length} of ${experts} experts.*` : '', tried(f), f.crossed && !f.crossed.holds ? `*Another expert of the team checked it and doubts it:* ${f.crossed.said}` : ''].filter(Boolean).join(' ');
   const marksOf = (f: Joined) => f.by.map((id) => ` [[${id}]]`).join('');
-  const shown = (f: Joined, n: number, brief = false) => (brief ? briefly : entry)(f, n, marksOf(f), noteOf(f));
+  const shown = (f: Joined, n: number, brief = false) => (brief || f.severity === 'Low' ? briefly : entry)(f, n, marksOf(f), noteOf(f)); // a Low is said in brief wherever it stands
   // What experts who did not see each other's work both confirmed comes first: on a held-out contract every false
   // grave finding of a team was one that a single expert confirmed, and the exploit the team found stood among
   // those two had confirmed. What one expert confirmed follows, said as that.
@@ -659,7 +659,7 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   const [stands, isNote] = [standsTried, isNoteTried];
   const open = (f: Joined) => !!f.trial?.proved && !stands(f) && !isNote(f); // refuted, or withdrawn and not confirmed: there, with what was said
   const trialTiers: [Joined[], string, boolean?][] = [
-    [r.findings.filter(stands).sort((a, b) => b.by.length - a.by.length), `**Proved and tested by the team**: ${some(r.findings.filter(stands).length, 'finding')}. Each came with a proof on lines of your files, and another expert tested it and could not break it, or the arbiter upheld it.`],
+    [r.findings.filter(stands).sort((a, b) => rank(a) - rank(b) || b.by.length - a.by.length), `**Proved and tested by the team**: ${some(r.findings.filter(stands).length, 'finding')}. Each came with a proof on lines of your files, and another expert tested it and could not break it, or the arbiter upheld it.`],
     [r.findings.filter((f) => open(f) && f.severity !== 'Low'), `**Proved, not yet backed by a second expert**: ${some(r.findings.filter((f) => open(f) && f.severity !== 'Low').length, 'finding')}. No second expert confirmed it, or one refuted it: what was said stands under each.`],
     [r.findings.filter((f) => open(f) && f.severity === 'Low'), `**Low, proved, not yet backed**: ${some(r.findings.filter((f) => open(f) && f.severity === 'Low').length, 'finding')}, each in brief.`, true],
     [r.findings.filter(isNote), `**True, and harmless: notes**: ${some(r.findings.filter(isNote).length, 'point')}, each in brief. The experts who tested them found the code as said, and nobody who gains or loses by it.`, true],

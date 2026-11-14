@@ -34,7 +34,7 @@ const LIMIT = Number(process.env.EVAL_LIMIT_USD ?? '0.60');
 const TAG = process.env.EVAL_TAG ? ` ${process.env.EVAL_TAG}` : '';
 const ALONE_ROOM = 8_000; // output tokens of a model asked alone, as in every baseline run so far: nothing cuts it short, as nothing would cut a customer's own call
 type Page = { url: string; text: string };
-type Kept = { text: string; usd: number; seconds: number; model?: string; review?: Pick<Review, 'findings' | 'leads' | 'counts'> & Partial<Pick<Review, 'unsure' | 'open'>> };
+type Kept = { text: string; usd: number; seconds: number; model?: string; review?: Pick<Review, 'findings' | 'leads' | 'counts'> & Partial<Pick<Review, 'unsure' | 'open'>>; joined?: Parameters<typeof listOf>[0] };
 const kept: Record<string, Record<string, Kept>> = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
 let spent = 0;
 const started = new Date().toISOString();
@@ -140,7 +140,7 @@ async function joined(t: ReviewTask, pages: Page[]) {
   add(closer.cost);
   const all = { ...joinedAll, findings: [...trial.findings, ...closer.findings] };
   const crossUsd = [...extra.values()].reduce((sum, c) => sum + usd(c), 0);
-  if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: crossUsd, seconds: Math.max(...parts.map((p) => p.r!.seconds)) });
+  if (wanted.includes(plain)) keep(t.id, plain, { text: listOf(all, parts.length), usd: crossUsd, seconds: Math.max(...parts.map((p) => p.r!.seconds)), joined: { findings: all.findings, leads: all.leads } }); // kept whole, to be laid out again with no calls
   if (wanted.includes(second)) keep(t.id, second, { text: listOf({ ...all, findings: await controlled(all.findings, pages) }, parts.length), usd: 0, seconds: 0 });
 }
 
