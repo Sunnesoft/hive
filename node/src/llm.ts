@@ -237,10 +237,13 @@ const stepInstructions = (kind: ReviewStep, m: Materials, knowledge: string) =>
  *  text, and NEAR AI reads a beginning it has seen before at a fiftieth of the price (cacheReadCostPerToken): the
  *  materials are most of every call. The system message only says how the rest is laid out (policies/frame.md). */
 const stepCall = (kind: ReviewStep, m: Materials, knowledge: string, question: string, pages: Page[], about: string) => {
-  const materials = pages.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
+  const shown = (list: Page[]) => list.map((p) => `<material url="${p.url}">\n${p.text}\n</material>`).join('\n');
+  const [own, referred] = [pages.filter((p) => !REFERRED.test(p.text) && !p.url.startsWith('referred:')), pages.filter((p) => REFERRED.test(p.text) || p.url.startsWith('referred:'))];
   const task = [`# Your task\n\n${stepInstructions(kind, m, knowledge)}`, about].filter(Boolean).join('\n\n');
-  return [policy.frame, [materials && `# Public materials\n\n${materials}`, `# Question\n\n${question}`, task].filter(Boolean).join('\n\n')] as const;
+  return [policy.frame, [own.length && `# Public materials\n\n${shown(own)}`, referred.length && `# What the materials refer to\n\n${shown(referred)}`, `# Question\n\n${question}`, task].filter(Boolean).join('\n\n')] as const;
 };
+/** The files deps.ts read because the customer's files refer to them: given apart, after the customer's own. */
+const REFERRED = /^\/\/ (a file of the same code|the library )/;
 /** How long a reply may be: as long as the money left in the expert's hold pays for once its prompt is paid (every
  *  byte of it counted as a token), and never past REPLY_MOST. Below REPLY_LEAST it is not sent: the money is spent. */
 export const limitFor = (price: Price, promptBytes: number, money: bigint) =>

@@ -115,6 +115,24 @@ async function sortedBy(model: string, groups: Item[][], cap?: bigint): Promise<
   const said = await llm.sameFindings(model, lines.slice(0, asked), cap);
   return { groups: [...partition(asked, said.groups).map((ids) => ids.map((i) => byRank[i]!)), ...byRank.slice(asked).map((g) => [g])], cost: said.cost };
 }
+/** Wordings that are word for word the same, in the same place: one, with no model asked. */
+const verbatim = (items: Item[]) => {
+  const by = new Map<string, Item[]>();
+  for (const x of items) {
+    const key = `${x.f.where} | ${x.f.title}`.toLowerCase().replace(/\s+/g, ' ').trim();
+    by.set(key, [...(by.get(key) ?? []), x]);
+  }
+  return [...by.values()];
+};
+/** Groups sorted into the same flaw place by place: findings about one function among themselves, a short list the
+ *  model reads closely; findings about different places are never one. Asked about a long list at once, or joined
+ *  by how close their words are, an overflow and a rounding in one fee check became one finding. */
+async function byPlace(model: string, groups: Item[][], cap?: bigint): Promise<{ groups: Item[][][]; cost: bigint }> {
+  const places = new Map<string, Item[][]>();
+  for (const g of groups) { const at = placeOf(headOf(g).where) || '?'; places.set(at, [...(places.get(at) ?? []), g]); }
+  const sorted = await each([...places.values()], async (here) => (here.length < 2 ? { groups: here.map((g) => [g]), cost: 0n } : sortedBy(model, here, cap)));
+  return { groups: sorted.flatMap((r) => r.groups), cost: sorted.reduce((c, r) => c + r.cost, 0n) };
+}
 /** A finding with the other wordings it was joined from, none of them twice and none its own. */
 const withAlso = <T extends Raised>(f: T, wordings: string[]): T => {
   const seen = new Set([f.title.toLowerCase()]);
@@ -253,8 +271,10 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // is the finding. The model's answer joins findings with findings and leads with leads, never a lead into a
   // finding: joined there once, a finding the check had wrongly refused became "another wording" of a different one.
   const items: Item[] = [...[...held.flat(), ...combined].map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
-  const byCode = await same(items, (x) => x.f);
-  const [sure, unsure] = [await sortedBy(m.model, byCode.filter((g) => g.some((x) => x.held)), left()), await sortedBy(m.model, byCode.filter((g) => !g.some((x) => x.held)), left())];
+  // What held is sorted by the same rule as a team's findings are: word for word by code, the rest by the model,
+  // place by place. Joined by how close their words were, two flaws of one check became one finding.
+  const byCode = verbatim(items);
+  const [sure, unsure] = [await byPlace(m.model, byCode.filter((g) => g.some((x) => x.held)), left()), await byPlace(m.model, byCode.filter((g) => !g.some((x) => x.held)), left())];
   cost += sure.cost + unsure.cost;
   const [confirmed, open2] = [unfolded(sure.groups, oneOf), unfolded(unsure.groups, oneOf)];
   const findings: Checked[] = confirmed.all;
@@ -352,17 +372,8 @@ export type Lead = Raised & { seen: number[] };
 export async function join(reviews: { id: number; findings: Checked[]; leads: Raised[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
   const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
-  // Wordings that are word for word the same, in the same place, need no model to be one.
-  const verbatim = (items: Item[]) => {
-    const by = new Map<string, Item[]>();
-    for (const x of items) {
-      const key = `${x.f.where} | ${x.f.title}`.toLowerCase().replace(/\s+/g, ' ').trim();
-      by.set(key, [...(by.get(key) ?? []), x]);
-    }
-    return [...by.values()];
-  };
   const [held, unheld] = [verbatim(all.filter((x) => x.held)), verbatim(all.filter((x) => !x.held))];
-  const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await sortedBy(model, held)).groups, ...(await sortedBy(model, unheld)).groups])
+  const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await byPlace(model, held)).groups, ...(await byPlace(model, unheld)).groups])
     .map((joined) => [joined.flat()]);
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
   const wordings = (g: Item[]) => withAlso(headOf(g), g.flatMap((x) => [x.f.title, ...(x.f.also ?? [])]));
