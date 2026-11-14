@@ -15,10 +15,21 @@ for what holds.
 On 8 live NEAR contracts with published audits, one model stated 28 of the audits' 68 findings. The swarm stated
 **54 (79%)**, with about 2% of its items wrong. [The measurement ↓](#shown-on-near-smart-contracts-in-rust)
 
-**Live and checkable.** The runner runs in a Phala TEE (Intel TDX) at
-<https://5e36ba819f716cc0401b140305124975dfd9254e-8080.dstack-pha1-prod5.phala.network>.
-`scripts/swarm.sh verify <url> app-compose.json` passes all of its checks. The contract is
-`swarm2.sfhnx9j68.testnet` on NEAR testnet. Pages: `/` (check this runner), `/order`, `/experts`, `/app`.
+**Live on NEAR mainnet, and checkable.** The runner runs in a Phala TEE (Intel TDX):
+
+- **Demo:** <https://5e36ba819f716cc0401b140305124975dfd9254e-8080.dstack-pha1-prod5.phala.network>. Pages: `/` (what
+  Hive is, and a check of this runner), `/order` (place an order with a NEAR wallet and USDC), `/experts` (who is in
+  the swarm), `/app` (turn your knowledge into an expert).
+- **Contract:** [`swarm.hiveswarm.near`](https://nearblocks.io/address/swarm.hiveswarm.near) on NEAR mainnet, paid in
+  native USDC (`17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`). Runner account
+  [`runner.hiveswarm.near`](https://nearblocks.io/address/runner.hiveswarm.near), operator
+  [`operator.hiveswarm.near`](https://nearblocks.io/address/operator.hiveswarm.near), owner `hiveswarm.near`.
+- **Check it yourself:** `scripts/swarm.sh verify <demo url> app-compose.json` checks the Intel quote, the keys, the
+  event log, the compose (image digest, env, policies) of the running TEE; it passes all of its checks.
+- **Testnet:** the same contract is on testnet at `swarm2.sfhnx9j68.testnet` with test USDC; its history of test
+  orders is there. The hosted runner now serves mainnet.
+
+Hive is a technology demonstration: see the [Disclaimer](#disclaimer) before you send real funds.
 
 ## For experts: a NEAR wallet and what you know
 
