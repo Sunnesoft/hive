@@ -858,6 +858,26 @@ Of all the team's items on Haiku: 23% real flaws (of the audit or not), 51% true
 notes), 24% repeats of an item above, 2.6% wrong. On NEAR AI 15% real, 23% repeats, 12% wrong: the protocol's
 model there (Qwen3.8-27B) sorts and judges less well, and Potlock's answer repeated one item in three.
 
+## Four ways to use the same knowledge (Haiku, 14 November, the code as it is now)
+
+The same eight contracts, the same blind reading, four answers per contract read side by side by one reader: one
+model asked once; the same model asked once with the NEAR reviewer's knowledge in the call (up to 120,000
+characters); the team's three reviewers as a swarm but with no knowledge files and no linter; and the team.
+
+| answer | NearX /10 | Mintbase /7 | cNEAR /7 | Potlock /9 | staking farm /6 | registry /10 | vote escrow /10 | SWEAT /9 | of 68 |
+|---|---|---|---|---|---|---|---|---|---|
+| one model, asked once | 3 | 2 | 4 | 5 | 2 | 4 | 3 | 5 | 28 (41%) |
+| one model with the knowledge in the call | 0 | 1 | 4 | 6 | — | 5 | — | 3 | 19 of 52 |
+| the swarm without knowledge | 4 | 3 | 5 | 6 | 1 | 5 | 4 | 5 | 33 (49%) |
+| **the swarm with its knowledge** | **7** | **6** | **6** | **8** | **3** | **7** | **10** | **7** | **54 (79%)** |
+
+The swarm with its knowledge leads on every contract. Knowledge put into one call does not help: the model drowns
+in it. A swarm without knowledge adds little: different looks, the same blind spots. What finds is the two
+together: different knowledge, each piece read on its own pass, every finding proved by one expert and tested by
+another. About 12 of the team's 658 items were wrong (1.8%). On staking farm the one call with knowledge came back
+empty; on vote escrow it was not in the reading. Verdicts: `eval/out/claude/readings-v2` and the readers' maps in
+the session's scratchpad (git-ignored).
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be

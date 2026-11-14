@@ -77,14 +77,18 @@ Each answer was read blind by a fresh reader that saw it under a neutral name an
 only if the answer stated it as an item of its own, and judged every other item of the answer against the code.
 Details and every run: [eval/README.md](eval/README.md).
 
-On Claude Haiku 5.5, through [eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place, all eight contracts:
+On Claude Haiku 5.5, through [eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place, all eight contracts,
+the code as it is now:
 
-| answer | findings of the audits stated, of 68 | wrong items | false Critical or High |
-|---|---|---|---|
-| the model asked once | 29 (43%) | | |
-| fifteen reviewers without knowledge, about the team's spend | 38 (56%) | | |
-| the team before the trial | 52 (76%) | 18 of 487 (3.7%) | 4 |
-| **the team now**: the NEAR reviewer and two Solidity auditors, with the trial | **51 (75%)** | **16 of 620 (2.6%)** | **2 of 23** |
+| answer | findings of the audits stated, of 68 |
+|---|---|
+| one model, asked once | 28 (41%) |
+| one model with the experts' knowledge in the same call | 19 of 52 (37%) |
+| the same experts as a swarm, without their knowledge | 33 (49%) |
+| **the swarm of experts with their knowledge** | **54 (79%)**, about 2% of its items wrong |
+
+The swarm with its knowledge leads on every one of the eight contracts. Knowledge alone does not do it, and
+neither does a swarm alone: the gain comes from different knowledge, put together and checked.
 
 On NEAR AI's own models (DeepSeek-V4.1-Flash for the experts, Qwen3.8-27B for the protocol), the same team on
 seven of the contracts (on Mintbase NEAR AI's DeepSeek failed the NEAR reviewer): **38 of 61 (62%)**, where the
