@@ -320,7 +320,7 @@ export async function sameFindings(model: string, lines: string[], cap?: bigint)
   }
 }
 
-const CheckVerdict = z.object({ holds: z.boolean(), severity: z.string(), where: z.string(), title: z.string(), how: z.string(), quote: z.string(), fix: z.string().nullish() });
+const CheckVerdict = z.object({ of: z.array(z.number()).nullish(), holds: z.boolean(), severity: z.string(), where: z.string(), title: z.string(), how: z.string(), quote: z.string(), fix: z.string().nullish() });
 export type CheckVerdict = z.infer<typeof CheckVerdict>;
 /** The check of one group of findings (policies/check.md), by the agent's own model: a verdict on each different
  *  thing the group says, as fields, not as prose. Asked for prose, one model wrote an essay where the verdict

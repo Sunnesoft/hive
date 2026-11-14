@@ -241,7 +241,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const toCheck = m.review?.checks ? groups.slice(0, m.review.checks) : groups; // all of them, the gravest first, unless the expert said how many it pays for
   /** The check of one group: what of it holds and quotes a line that is in the materials, and, if nothing does,
    *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
-  const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; said?: string; failed?: llm.Why }> => {
+  const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; of?: number[][]; said?: string; failed?: llm.Why }> => {
     if (Date.now() > deadline) return { confirmed: [], failed: 'model_failed' };
     // A check reads all of the materials, and the part of the knowledge its findings were raised from: the rule that
     // "assert_one_yocto without #[payable] can never succeed" stood in the knowledge, and the checks that judged
@@ -252,17 +252,23 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, pages, about, left(), knowledge) : once);
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
     const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n').slice(0, 500);
-    const confirmed = r.verdicts.filter((v) => v.holds && grounded(v.quote, material))
+    const held = r.verdicts.filter((v) => v.holds && grounded(v.quote, material));
+    const of = held.map((v) => (v.of ?? []).filter((n) => Number.isInteger(n) && n >= 1 && n <= group.length).map((n) => n - 1));
+    const confirmed = held
       .map((v): Checked => ({ severity: severityOf(v.severity), where: v.where.trim().slice(0, 120), title: v.title.trim().slice(0, 240), how: v.how.trim().slice(0, 900), evidence: lines(v.quote), fix: (v.fix ?? '').trim().slice(0, 500) }));
     const said = confirmed.length ? undefined : (r.verdicts.find((v) => !v.holds)?.how.trim().slice(0, 400) ?? (r.verdicts.length ? 'It held the finding true and quoted no line that stands in the materials.' : undefined));
-    return { confirmed, ...(said ? { said } : {}), ...(r.why ? { failed: r.why } : {}) };
+    return { confirmed, of, ...(said ? { said } : {}), ...(r.why ? { failed: r.why } : {}) };
   };
   const checks = await each(toCheck, (group) => judged(group.all));
   if (toCheck.length && checks.every((r) => r.failed) && Date.now() < deadline) return stop(checks[0]!.failed!); // the model is not there; out of time, what was raised is still given
-  // The wordings a group was joined from stay with what its check confirmed: under the first finding, none that is a finding itself.
+  // The wordings a group was joined from stay with what its check confirmed: each under the finding the check said
+  // it was about. A check may confirm two flaws of one group; all laid under the first, a self-transfer that mints
+  // read as the same as shares sent to the contract. A check that did not say: under the one it confirmed, if one.
   const held = checks.map((r, i): Checked[] => {
     const own = new Set(r.confirmed.map((f) => f.title.toLowerCase()));
-    return r.confirmed.map((f, n) => (n ? f : withAlso(f, toCheck[i]!.wordings.filter((t) => !own.has(t.toLowerCase())))));
+    const all = toCheck[i]!.all;
+    const of = (n: number) => (r.of?.[n]?.length ? r.of[n]!.map((j) => all[j]!.title) : r.confirmed.length === 1 ? all.map((f) => f.title) : []);
+    return r.confirmed.map((f, n) => withAlso(f, of(n).filter((t) => !own.has(t.toLowerCase()))));
   });
 
   // What the confirmed findings allow together: raised by one call that sees them all, a line each, then checked
@@ -556,7 +562,12 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
 }
 
 /** The function or place a finding or a note is about, as code can tell it: the longest name in its "where". */
-const placeOf = (where: string) => ((where.match(/[A-Za-z_][A-Za-z0-9_]{3,}/g) ?? []).filter((n) => !/^(src|lib|contracts?|rs|sol|impl|line|lines|and|the)$/i.test(n)).sort((a, b) => b.length - a.length)[0] ?? '').toLowerCase();
+/** The place a finding is about: the first name in its "where", past file paths and a type's prefix. An expert
+ *  names the function first and what it calls after; taken as the longest name, one fee check written by three
+ *  experts was three places, and its overflow stood three times in one answer. */
+const placeOf = (where: string) =>
+  ((where.replace(/[\w./-]+\.(rs|sol|tsx?|js|py|move|toml)\b/g, ' ').replace(/\b\w+::/g, '').match(/[A-Za-z_][A-Za-z0-9_]{3,}/g) ?? [])
+    .filter((n) => !/^(src|lib|contracts?|impl|line|lines|and|the|with|from|via|also|used|reached|both|each|all|when|then|its|for)$/i.test(n))[0] ?? '').toLowerCase();
 /** Places of the materials where experts saw something and none of them settled it: where two or more experts left
  *  a finding only one confirmed, one not confirmed, or a suspicion they could not take to its end, or where one
  *  expert said it could not; and no finding two experts confirmed stands there already. The places most experts

@@ -42,6 +42,7 @@ finding you confirm must have, and "how" must say it.
 
 Return "verdicts": one entry for each different thing the group says; findings that say the same thing are one
 entry, and different things in the same place stay separate entries. Each entry:
+"of": the numbers of the findings of the group the entry is about.
 "holds": true or false.
 "severity": Critical, High, Medium or Low: what it deserves if it holds.
 "where": the function or place it is in.
