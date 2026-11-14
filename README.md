@@ -226,6 +226,12 @@ Knowledge that is closed today stays closed, and it still adds up. Each expert k
 what it found, and makes the others better by testing them. A swarm is not a bigger model. It is many owners'
 understanding brought to one question, under rules that no one of them, and not we, can bend.
 
+## Disclaimer
+
+Hive is a technology demonstration. It comes with no warranty, and its authors take no responsibility for the
+answers it gives or for funds sent to it: you use it at your own risk. An answer of the swarm is not a security
+audit, legal advice or financial advice.
+
 ## Licence
 
 MIT, see [LICENSE](LICENSE). The experts' materials taken from others keep their own licences, listed in
