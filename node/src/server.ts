@@ -151,9 +151,9 @@ async function brief(req: IncomingMessage): Promise<Reply> {
   if (briefs.minute !== minute) briefs = { minute, n: 0 };
   if (++briefs.n > 20) return [429, { error: 'busy: try again in a minute' }];
   const sent = (() => { try { return JSON.parse(body); } catch { return null; } })();
-  const hash = await orders.keepBrief(sent?.salt, sent?.brief);
+  const hash = await orders.keepBrief(sent?.salt, sent?.customer, sent?.brief);
   if (hash) log('brief', { brief_hash: hash });
-  return hash ? [200, { hash }] : [400, { error: `send {salt: 32 hex characters, brief: 1 to ${orders.MAX_BRIEF} characters}` }];
+  return hash ? [200, { hash }] : [400, { error: `send {salt: 32 hex characters, customer: the account that places the order, brief: 1 to ${orders.MAX_BRIEF} characters}` }];
 }
 
 /** The signed-in customer's orders: open ones and, once settled, their answers and what the contract paid. Nobody else's. */

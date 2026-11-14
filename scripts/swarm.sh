@@ -170,8 +170,8 @@ revenue) # the round is in the accepted answer's footer: "round N"
 order) # the contract keeps only the hash; the answer is read with `answers`, or on the runner's /order page with the same wallet
   : "${CUSTOMER:?account that orders and pays}" "${RUNNER_URL:?the runner that gets the text, e.g. http://127.0.0.1:8080}"
   salt=$(openssl rand -hex 16)
-  hash=$(printf '%s\n%s' "$salt" "$2" | openssl dgst -sha256 -r | cut -d' ' -f1) # computed here: the runner cannot name the task by another
-  told=$(curl -fsS "$RUNNER_URL/brief" -H 'content-type: application/json' -d "$(jq -nc --arg s "$salt" --arg b "$2" '{salt:$s, brief:$b}')" | jq -r .hash)
+  hash=$(printf '%s\n%s\n%s' "$salt" "$CUSTOMER" "$2" | openssl dgst -sha256 -r | cut -d' ' -f1) # computed here: the runner cannot name the task by another; the customer in it: no other account's order can name it
+  told=$(curl -fsS "$RUNNER_URL/brief" -H 'content-type: application/json' -d "$(jq -nc --arg s "$salt" --arg c "$CUSTOMER" --arg b "$2" '{salt:$s, customer:$c, brief:$b}')" | jq -r .hash)
   [[ $told == "$hash" ]] || { echo "the runner did not take the text under its hash" >&2; exit 1; }
   msg=$(jq -nc --arg h "$hash" '{Order:{brief_hash:$h}}')
   [[ ${PUBLISH:-} == 1 ]] && msg=$(jq -nc --arg h "$hash" --arg s "$salt" --arg b "$2" '{Order:{brief_hash:$h, salt:$s, brief:$b}}')

@@ -132,8 +132,8 @@ try {
   /** An order as the page places it: the text to the runner, then USDC with the hash that names the text into the contract. */
   async function placeOrder(amount: bigint, brief: string, { send = true, publish = false } = {}) {
     const salt = randomBytes(16).toString('hex');
-    const hash = createHash('sha256').update(`${salt}\n${brief}`).digest('hex');
-    if (send && (await (await sendBrief({ salt, brief })).json()).hash !== hash) throw new Error('the runner named the task by another hash');
+    const hash = createHash('sha256').update(`${salt}\n${buyer.accountId}\n${brief}`).digest('hex');
+    if (send && (await (await sendBrief({ salt, customer: buyer.accountId, brief })).json()).hash !== hash) throw new Error('the runner named the task by another hash');
     await pay(buyer, amount, { Order: publish ? { brief_hash: hash, salt, brief } : { brief_hash: hash } });
     return hash;
   }
@@ -305,7 +305,7 @@ try {
 
   // --- an order placed in the contract: the money and the hash of the task on chain; the contract itself pays ---
   const [o0, tokens0] = [{ dates: await balance(dates), codes: await balance(codes), owner: await balance(owner.accountId), operator: await balance(operator) }, await tokens(buyer)];
-  check('order: a task without a proper salt, or too long, is not taken', (await sendBrief({ salt: 'short', brief: ALPHA })).status === 400 && (await sendBrief({ salt: 'ab'.repeat(16), brief: 'x'.repeat(10_001) })).status === 400);
+  check('order: a task without a proper salt, or too long, is not taken', (await sendBrief({ salt: 'short', customer: buyer.accountId, brief: ALPHA })).status === 400 && (await sendBrief({ salt: 'ab'.repeat(16), customer: buyer.accountId, brief: 'x'.repeat(10_001) })).status === 400 && (await sendBrief({ salt: 'ab'.repeat(16), brief: ALPHA })).status === 400);
   const hash1 = await placeOrder(8n * U, ALPHA, { publish: true }); // the text also in the transaction: the contract ignores it
   await until('the answer to the order', async () => (await order('order-1')) === null && has('submitted', { assignment: 'order-1' }) > 0);
   await until('the rest of the order back in the buyer\'s wallet', async () => (await tokens(buyer)) === tokens0 - 6n * U);
@@ -337,6 +337,17 @@ try {
   check('order: an order whose text never reached the runner is not worked on', (await order('order-3'))?.brief_hash === hash3 && ai.agentCalls.length === callsBlind && (await mineOf('order-3'))?.brief === null);
   await call(codes, swarm.accountId, 'refund', { order: 'order-3' });
   await until('the textless order\'s money back', async () => (await tokens(buyer)) === tokens0 - 6n * U);
+  // The hash is public on chain: another account that places an order under the buyer's hash gets nothing.
+  const salt4 = randomBytes(16).toString('hex');
+  const copyHash = createHash('sha256').update(`${salt4}\n${buyer.accountId}\n${ALPHA}`).digest('hex');
+  await sendBrief({ salt: salt4, customer: buyer.accountId, brief: ALPHA });
+  const callsCopy = ai.agentCalls.length;
+  await pay(codes, 2n * U, { Order: { brief_hash: copyHash } });
+  await until('the copied order on the copier\'s page', async () => (await ordersOf(codes))?.some((o) => o.briefHash === copyHash) ?? false);
+  await sleep(4_000);
+  const copy = (await ordersOf(codes))?.find((o) => o.briefHash === copyHash);
+  check('order: a copy of another customer\'s hash names no task: the copier never reads it, and nobody works on it', copy?.state === 'no_brief' && copy.brief === null && ai.agentCalls.length === callsCopy, copy);
+  await call(codes, swarm.accountId, 'refund', { order: copy!.id });
   await books();
 
   // --- demand: what tasks needed, by topic; public ---
@@ -438,17 +449,17 @@ try {
   market.hire({ id: 'a-paused', title: 'Project Alpha', description: ALPHA, escrow: '10.0' });
   const tokensPaused = await tokens(buyer);
   const hash4 = await placeOrder(2n * U, ALPHA);
-  const waiting = await order('order-4');
+  const waiting = await order('order-5');
   check('order: the contract holds the money and the hash of the task, never its text', waiting?.brief_hash === hash4 && waiting.brief === undefined && waiting.customer === buyer.accountId && waiting.amount === `${2n * U}`, waiting);
-  const hasty = await call(codes, swarm.accountId, 'refund', { order: 'order-4' }).then(() => 'refunded', (e) => String(e));
+  const hasty = await call(codes, swarm.accountId, 'refund', { order: 'order-5' }).then(() => 'refunded', (e) => String(e));
   check('order: nobody sends an order back before run_secs', /too early/.test(hasty), hasty);
-  await until('the buyer\'s page showing the waiting order', async () => (await mineOf('order-4'))?.state === 'waiting');
-  check('order: the buyer sees it waiting, with its text', (await mineOf('order-4'))?.brief === ALPHA);
+  await until('the buyer\'s page showing the waiting order', async () => (await mineOf('order-5'))?.state === 'waiting');
+  check('order: the buyer sees it waiting, with its text', (await mineOf('order-5'))?.brief === ALPHA);
   await sleep(4_000);
   check('pause: no work and no model calls while paused', market.delivered('a-paused').length === 0 && ai.agentCalls.length === callsBefore);
-  await call(codes, swarm.accountId, 'refund', { order: 'order-4' });
+  await call(codes, swarm.accountId, 'refund', { order: 'order-5' });
   await until('the unanswered order\'s money back', async () => (await tokens(buyer)) === tokensPaused);
-  check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-4')) === null);
+  check('order: one nobody answered within run_secs is sent back at anyone\'s call', (await order('order-5')) === null);
   await call(owner, swarm.accountId, 'halt', { halted: false });
   await until('the task after resume', () => market.delivered('a-paused').length === 1);
   check('pause: after resume the waiting task is served', has('resumed') > 0);

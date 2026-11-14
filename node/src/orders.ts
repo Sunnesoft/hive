@@ -16,23 +16,28 @@ const SALT = /^[0-9a-f]{32}$/;
 export type Receipt = { charge: string; refund: string; fee: string; paid: [agent: string, amount: string][]; operator: string };
 type Placed = { id: string; customer: string; amount: string; briefHash: string; brief: string | null; placed: number };
 export type Settled = Placed & { at: string } & ({ state: 'delivered'; answer: string; answerHash: string; receipt: Receipt | null } | { state: 'declined'; why: string });
-type Brief = { salt: string; brief: string; at: string };
+type Brief = { salt: string; customer: string; brief: string; at: string };
+const ACCOUNT = /^(?=.{2,64}$)([a-z\d]+[-_])*[a-z\d]+(\.([a-z\d]+[-_])*[a-z\d]+)*$/;
 
-/** What an order's hash commits to: a random salt, so a short task cannot be guessed from its hash, then the text. */
-export const briefHash = (salt: string, brief: string) => createHash('sha256').update(`${salt}\n${brief}`).digest('hex');
+/** What an order's hash commits to: a random salt, so a short task cannot be guessed from its hash; the account
+ *  that places the order; then the text. The hash is public on chain: committed to its customer, a copy of it in
+ *  another account's order names no text we hold, and that order gets nobody's task. */
+export const briefHash = (salt: string, customer: string, brief: string) => createHash('sha256').update(`${salt}\n${customer}\n${brief}`).digest('hex');
 
 /** Takes a description ahead of its order and says which hash names it, or null if it is not one we take. */
-export async function keepBrief(salt: unknown, brief: unknown) {
-  if (typeof salt !== 'string' || typeof brief !== 'string' || !SALT.test(salt) || !brief.trim() || brief.length > MAX_BRIEF) return null;
-  const hash = briefHash(salt, brief);
-  await store.keepBrief(hash, { salt, brief, at: new Date().toISOString() } satisfies Brief);
+export async function keepBrief(salt: unknown, customer: unknown, brief: unknown) {
+  if (typeof salt !== 'string' || typeof customer !== 'string' || typeof brief !== 'string' || !SALT.test(salt) || !ACCOUNT.test(customer) || !brief.trim() || brief.length > MAX_BRIEF) return null;
+  const hash = briefHash(salt, customer, brief);
+  await store.keepBrief(hash, { salt, customer, brief, at: new Date().toISOString() } satisfies Brief);
   return hash;
 }
-const briefOf = (hash: string) => store.briefOf<Brief>(hash).then((b) => (b && briefHash(b.salt, b.brief) === hash ? b.brief : null));
+/** The text of an order: only if its hash commits to the very account the contract says placed the order. */
+const briefOf = (hash: string, customer: string) =>
+  store.briefOf<Brief>(hash).then((b) => (b && b.customer === customer && briefHash(b.salt, customer, b.brief) === hash ? b.brief : null));
 
 const decimal = (units: string) => `${BigInt(units) / 1_000_000n}.${`${BigInt(units) % 1_000_000n}`.padStart(6, '0')}`;
 const placed = async (id: string, o: Omit<chain.Order, 'id'>): Promise<Placed> =>
-  ({ id, customer: o.customer, amount: o.amount, briefHash: o.brief_hash, brief: await briefOf(o.brief_hash), placed: o.at });
+  ({ id, customer: o.customer, amount: o.amount, briefHash: o.brief_hash, brief: await briefOf(o.brief_hash, o.customer), placed: o.at });
 
 function receiptOf(events: chain.Event[]): Receipt | null {
   const [d, r] = [events.find((e) => e.event === 'deliver')?.data, events.find((e) => e.event === 'revenue')?.data];
@@ -42,7 +47,7 @@ function receiptOf(events: chain.Event[]): Receipt | null {
 /** Open orders whose description has reached us, as round.ts serves any task: the brief is the description, the
  *  money is the order's amount. An order without its text waits; after run_secs anyone sends it back. */
 export async function rows(orders: chain.Order[]): Promise<Row[]> {
-  const briefs = await Promise.all(orders.map((o) => briefOf(o.brief_hash)));
+  const briefs = await Promise.all(orders.map((o) => briefOf(o.brief_hash, o.customer)));
   return orders.flatMap((o, i) => (briefs[i] === null ? [] : [{
     assignment: { assignmentId: o.id, status: 'in_progress', escrowAmount: decimal(o.amount), startedAt: 'placed', submittedAt: null, deliverableUrl: null },
     job: { jobId: o.id, title: '', description: briefs[i]!, jobKind: 'standard', attachments: [] },
@@ -73,7 +78,7 @@ export const door = (c: chain.Config): Door => ({
     const record = await placed(id, o);
     await chain.decline(id);
     await store.keepOrder<Settled>({ ...record, at: new Date().toISOString(), state: 'declined', why: detail });
-    await store.dropBrief(o.brief_hash);
+    if (record.brief !== null) await store.dropBrief(o.brief_hash); // a copy of another's hash leaves that text alone
   },
 });
 

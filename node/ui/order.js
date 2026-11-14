@@ -21,8 +21,9 @@ if (draft?.brief) $('brief').value = draft.brief;
 if (draft?.amount) $('amount').value = draft.amount;
 const brief = () => $('brief').value.trim();
 const toHex = (b) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-/** What the order's hash commits to: a random salt, so a short task cannot be guessed from its hash, then the text. */
-const briefHash = async (salt, text) => toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}\n${text}`))));
+/** What the order's hash commits to: a random salt, so a short task cannot be guessed from its hash; the account
+ *  that places it, so that nobody else's order can name this task; then the text. */
+const briefHash = async (salt, customer, text) => toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}\n${customer}\n${text}`))));
 const json = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 // Tasks handed to the runner from this browser, by hash, until their orders are answered: to send one again if it got lost.
 const SENT = 'swarm.briefs';
@@ -99,9 +100,9 @@ async function place() {
     // The text first, to the runner; then the money, with the hash that names the text. The runner cannot swap it:
     // the hash is computed here as well.
     const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
-    const hash = await briefHash(salt, text);
-    if ((await getJSON('/brief', json({ salt, brief: text }))).hash !== hash) throw new Error('the runner named the task by another hash');
-    keep(hash, { salt, brief: text });
+    const hash = await briefHash(salt, me, text);
+    if ((await getJSON('/brief', json({ salt, customer: me, brief: text }))).hash !== hash) throw new Error('the runner named the task by another hash');
+    keep(hash, { salt, customer: me, brief: text });
     status('Confirm the payment in your wallet…', 'wait');
     await call(info.token, 'ft_transfer_call', { receiver_id: info.contract, amount: `${a}`, msg: JSON.stringify({ Order: $('publish').checked ? { brief_hash: hash, salt, brief: text } : { brief_hash: hash } }) }, '1');
     sessionStorage.removeItem(DRAFT);
