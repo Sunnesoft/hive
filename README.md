@@ -108,6 +108,10 @@ On Mintbase, NEAR AI's model failed the NEAR reviewer; a failed step is now retr
 | one model, asked once | 22 (36%) | 16% |
 | **the swarm with its knowledge** | **38 (62%)** | 11% |
 
+Two more answers on NEAR AI's models, read side by side on all eight contracts: one model with the NEAR reviewer's
+knowledge in the same call states 27 of 68 (11% of its items wrong), and the three reviewers as a swarm without
+their knowledge 26 of 68 (17% wrong). As on Haiku, neither half alone comes near the two together.
+
 NEAR AI's models are weaker (a flash model and a 27B one), and more wrong items get through. The swarm still nearly
 doubles what one model finds. By NEAR AI's bill, a contract costs about $0.60 to $1.10.
 

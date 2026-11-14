@@ -879,6 +879,21 @@ another. About 12 of the team's 658 items were wrong (1.8%). On staking farm the
 empty; on vote escrow it was not in the reading. Verdicts: `eval/out/claude/readings-v2` and the readers' maps in
 the session's scratchpad (git-ignored).
 
+## The same four ways on NEAR AI's models (14 November)
+
+The two controls run on NEAR AI's models too (DeepSeek-V4.1-Flash), each read blind beside the other on all eight
+contracts: one model asked once with the NEAR reviewer's knowledge in the call, and the team's three reviewers as a
+swarm with no knowledge files.
+
+| answer | NearX /10 | Mintbase /7 | cNEAR /7 | Potlock /9 | staking farm /6 | registry /10 | vote escrow /10 | SWEAT /9 | of 68 | wrong items |
+|---|---|---|---|---|---|---|---|---|---|---|
+| one model with the knowledge in the call | 2 | 3 | 4 | 5 | 1 | 4 | 4 | 4 | 27 (40%) | 19 of 180 |
+| the swarm without knowledge | 3 | 3 | 3 | 3 | 2 | 5 | 6 | 1 | 26 (38%) | 36 of 212 |
+
+Beside the table above (one model 22 of 61, the team 38 of 61 on the seven contracts with a team answer), the
+picture is Haiku's: the knowledge in one call adds a little, a swarm without knowledge adds a little and lets more
+wrong items through, the two together state the most.
+
 ## How a review is measured
 
 From here on the reviews are measured as systems of this kind are measured elsewhere, so that the numbers can be
