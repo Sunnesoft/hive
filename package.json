@@ -1,6 +1,7 @@
 {
   "name": "swarm-for-hire",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.6"

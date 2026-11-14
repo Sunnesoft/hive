@@ -1,119 +1,135 @@
 # Swarm-for-Hire
 
-> **Рой — это способ сложить закрытые знания разных владельцев без доверия друг к другу.**
+> **A swarm is a way to put together the closed knowledge of different owners, with no one trusting anyone.**
 
-Эксперт (спонсор) приносит в рой свои знания: описание экспертизы, методику, файлы до 10 MB. Они шифруются
-у него в браузере ключом раннера в TEE, поэтому их не видит никто: ни владелец роя, ни другие спонсоры.
-Заказчик кладёт заказ прямо в контракт (бюджет в USDC и хеш задачи; текст задачи получает только раннер) или нанимает рой на
-[Agent Market](https://market.near.ai) как одного агента. Рой задаёт каждому нужному эксперту свой вопрос,
-проверяет каждый ответ отдельно, собирает из них один ответ и платит каждому, кто справился, его ставку.
-Деньги держит контракт на NEAR.
+An expert's owner (a sponsor) brings what they know into the swarm: a description of the expertise, a method,
+files up to 10 MB. The files are encrypted in the sponsor's browser to the key of a runner inside a TEE, so no one
+reads them: not the swarm's owner, not the other sponsors. A customer places an order in the contract (a budget
+in USDC and the hash of the task; only the runner gets the task's text) or hires the swarm on
+[Agent Market](https://market.near.ai) as one agent. The swarm picks the experts the task needs, asks each its
+own question, checks every answer, joins them into one, and pays each expert by what its part was worth. A NEAR
+contract holds the money.
 
-Один агент может запустить «рой» у себя, но внутри у него только *его* знания. Чужие закрытые знания и
-честная оплата разным владельцам появляются, только когда правила держат контракт и TEE, а не люди.
+One agent can run a "swarm" of its own, but inside it holds only *its owner's* knowledge. Other owners' closed
+knowledge, and fair pay to each of them, come only when a contract and a TEE keep the rules, not people.
 
-## Кто как с этим работает
+**Try it:** contract `swarm2.sfhnx9j68.testnet` on NEAR testnet; the runner's pages are `/` (landing and the
+check of the TEE), `/order` (place an order with a NEAR wallet), `/experts` (the catalogue) and `/app` (a
+sponsor's app).
 
-| Кто | Где | Что делает | Чего делать не нужно |
+## Who does what
+
+| who | where | what they do | what they never have to do |
 |---|---|---|---|
-| **Заказчик** | `/order` с кошельком NEAR или Agent Market; для выбора экспертов `/experts` | через контракт: бюджет и хеш задачи одной транзакцией, текст задачи — раннеру, ответ на `/order`, остаток возвращается сам. На Agent Market: бриф, файлы, план или задача на доске, приёмка и доработки | разбираться в экспертах (рой выберет сам) |
-| **Эксперт** | `/app` с кошельком NEAR | создаёт экспертов (имя, что знает, промпт, файлы, ставка), смотрит заработок, задачи и причины, пополняет и выводит | писать код, ставить CLI, видеть чужие задачи или доверять нам свои материалы |
-| **Оператор** | терминал | `scripts/swarm.sh payouts` пересылает выплаты за принятые работы всем справившимся экспертам всех раундов (можно в cron), `status` сверяет счета | считать выплаты по каждому заданию |
-| **Владелец** | терминал, Phala | разворачивает, проверяет TEE и выдаёт ключ, ставит на паузу | вмешиваться в задачи и деньги |
-| **Проверяющий** | `/` (блок «Check this runner»), `verify` | сверяет quote, ключи и код раннера | верить на слово |
+| **Customer** | `/order` with a NEAR wallet, or Agent Market | one transaction: the budget and the task's hash; the answer comes to `/order`, what is left goes back by itself | know the experts: the swarm picks them |
+| **Sponsor** | `/app` with a NEAR wallet | makes experts (name, what it knows, prompt, files, rate), sees earnings and each task's outcome and reason, tops up, withdraws | write code, see other people's tasks, trust us with the materials |
+| **Operator** | terminal | `scripts/swarm.sh payouts` forwards Agent Market revenue to every expert that delivered; `status` checks the books | count anyone's pay by hand |
+| **Owner** | terminal, Phala | deploys, checks the TEE and hands it the key, pauses | touch tasks or money |
+| **Anyone** | `/` ("Check this runner"), `scripts/swarm.sh verify` | checks the TEE's quote, the keys and the runner's code | take our word for it |
 
-## Как проходит задача
+## A task, step by step
 
-1. **Вход.** Спонсор шифрует материалы на странице раннера, платит депозит и плату за аудит своим кошельком
-   и загружает их. Раннер в TEE проверяет их моделями и решает: агент работает или нет.
-2. **Заказ.** Заказчик кладёт заказ в контракт или нанимает рой на Agent Market. Модель протокола проверяет
-   задачу и подбирает команду под бюджет. Контракт удерживает у каждого агента его потолок расходов.
-3. **Работа.** Каждый агент видит только свой вопрос, свою часть материалов заказчика и ближайшие к ним куски своих знаний. Ни сети,
-   ни инструментов, ни других агентов.
-4. **Проверка.** Отдельный вызов на каждого агента: справился, не справился или нарушил правила.
-5. **Ответ.** Модель протокола собирает ответ, выходной фильтр убирает опасный код, чужие ссылки и картинки.
-6. **Деньги.** Инференс оплачивает агент из своего удержания. Заказ из контракта рассчитывает сам контракт
-   в момент ответа: 5% владельцу, ставки справившимся, накладные оператору, остаток обратно заказчику на
-   кошелёк. С Agent Market выручка приходит, когда заказчик принял работу, и делится так же; доработки и
-   решения арбитра «переделать» рой выполняет сам.
+1. **Entry.** A sponsor encrypts the materials on the runner's page, pays a deposit and the entry check with
+   their own wallet, and uploads. The runner in the TEE checks the materials with models: the expert works or not.
+2. **Order.** The customer places an order in the contract or on Agent Market. The protocol's model checks the
+   task and picks a team within the budget. The contract holds each expert's spending ceiling.
+3. **Work.** Each expert sees only its own question, its share of the customer's materials and the parts of its
+   own knowledge closest to them. No network, no tools, no other experts.
+4. **Check.** One separate call per expert: delivered, failed, or broke the rules.
+5. **Answer.** The answer is put together; an output filter strips dangerous code, foreign links and images.
+6. **Money.** Each expert pays its inference out of what the contract holds for it. For an order in the
+   contract, the contract settles at delivery: 5% to the owner, the experts' pay, the operator's overhead, the
+   rest back to the customer's wallet.
 
-## Аудит контракта: эксперты, которые проверяют файлы заказчика
+## Contract review: experts that check the customer's code
 
-Заказчик даёт ссылки на файлы контракта (Solidity или Rust для NEAR) и просит аудит. Эксперт с чек-листами
-(`"work": "review"`) не отвечает одним вызовом, а проверяет файлы всеми своими знаниями:
+The customer links the files of a contract (Rust for NEAR or Solidity) and asks for a review. An expert with
+checklists (`"work": "review"`) does not answer in one call. It reads the code with all of its knowledge
+([node/src/review.ts](node/src/review.ts)):
 
-1. **Проход на каждый файл знаний.** Что этот чек-лист находит в коде заказчика?
-2. **Находки собирает код, не модель.** Модель, которая сводит длинный список, теряет редкие находки, а они
-   и есть ценность. Одинаковые находки объединяются по близости смысла.
-3. **Каждая находка проверяется отдельно** и обязана дословно привести строки кода, на которых стоит.
-   Код ищет эти строки в файлах заказчика: нет строки — находка не подтверждена.
-4. **Модель не может выбросить находку.** Неподтверждённое не исчезает: серьёзное идёт отдельным списком
-   с пометкой «не проверено».
-5. **К тяжёлым находкам пишется тест-доказательство**, если заказчик просил код.
+1. **One pass per knowledge file**: what does this checklist find in the customer's code? Files the code imports
+   are read with it, so a step of a proof can follow a call into a library; a linter for NEAR adds what code can
+   tell for sure ([node/src/lint.ts](node/src/lint.ts)).
+2. **Code gathers the findings, not a model.** A model that sums up a long list drops the rare finding, and the
+   rare finding is the value.
+3. **Each finding is checked on its own** and must quote the lines it rests on. Code looks the lines up in the
+   customer's files: no line, no finding.
+4. **The team tries what it found** ([policies/prove.md](policies/prove.md), [mark.md](policies/mark.md),
+   [appeal.md](policies/appeal.md), [arbiter.md](policies/arbiter.md)). The expert that found a finding proves it
+   step by step, each step on a line code finds in the materials. The other experts test the proof and look for
+   the step that breaks. A refuted finding goes, with one appeal by its finder citing one rule of its knowledge,
+   to an arbiter that owes neither side.
+5. **A grave finding that stood gets a test**, written by its finder along the path that was upheld (marked:
+   written, not run).
+6. **Nothing is thrown away.** The answer is laid out by how far each finding got: proved and tested by the team;
+   proved, not yet backed by a second expert; true and harmless (notes); not proved (leads).
 
-Находки разных экспертов складывает код: «нашли 2 из 3 экспертов». Сборщик видит только заголовки и пишет
-резюме. Эксперты разных школ лежат в [eval/agents](eval/agents) и [agents](agents): три аудитора Solidity (по
-открытым материалам Pashov и QuillShield под MIT и наш сборник случаев из 58 публичных аудитов) и ревьюер
-контрактов NEAR, в котором собрано всё: наш чек-лист, сборник случаев из 47 публичных аудитов, гайд безопасности
-из документации NEAR и стандарты NEP. Сборники написаны своими словами и не содержат чужого текста. У каждого аудитора в методе
-стоит одно правило: у находки есть тот, кто выигрывает, тот, кто теряет, или отказ в обслуживании; иначе это не
-находка. Источники и лицензии: [eval/agents/SOURCES.md](eval/agents/SOURCES.md).
-Как это устроено по шагам: [docs/PROTOCOL.md](docs/PROTOCOL.md#раунд-задачи).
+Every auditor's method carries one rule: a finding has someone who gains, someone who loses, or a service that
+stops; otherwise it is not a finding. The experts are in [agents](agents) and [eval/agents](eval/agents): a NEAR
+reviewer (our checklist, a case-book of 87 kinds of findings from 47 public audits, NEAR's security guide, the
+NEPs) and Solidity auditors built from open material under MIT. Sources and licences:
+[eval/agents/SOURCES.md](eval/agents/SOURCES.md).
 
-## Что гарантировано устройством, а не честностью моделей
+## Does it find more? Measured against published audits
 
-- Спонсор рискует только своим: депозитом и платой за аудит. Чужие деньги ему недоступны.
-- Выплата агенту — 0 или ровно его ставка. Недоплаченное уходит оператору, а не соседям: топить соседа невыгодно.
-  Нарушение стоит нарушителю выплаты и приостановки, но никому ничего не приносит: провоцировать его незачем.
-- Ключ раннера вызывает только `review`, `assign`, `finish`, `deliver`, `decline` и не может перевести токены
-  ни себе, ни кому-то по своему выбору: деньги заказа уходят только туда, куда велит контракт.
-- Заказчик через контракт платит только за экспертов, чьи ответы прошли проверку. Отказ и молчание роя
-  возвращают всю сумму; молчание — по вызову любого после таймаута.
-- Ничего загруженного не исполняется: материалы — только текст, агенты только пишут текст.
-- Знания одного агента не попадают к другому. Расходы округляются до 0.01 USDC, чтобы по ним нельзя было передать данные.
+Eight NEAR contracts that none of the knowledge was written from, each with a public audit (68 findings in all).
+Each answer was read blind by a fresh reader that saw it under a neutral name and counted a finding of the audit
+only if the answer stated it as an item of its own. All runs on the same model, Claude Haiku 5.5, through
+[eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place. Details and every run: [eval/README.md](eval/README.md).
 
-## Из чего состоит
-
-| Часть | Зачем |
+| answer | findings of the audits stated, of 68 |
 |---|---|
-| [contract/](contract/src/lib.rs) | Деньги: депозиты, удержания, ставки, выручка, таймауты, вывод. Один файл на Rust |
-| [node/src/](node/src/main.ts) | Раннер в TEE: вход агентов, задачи с Agent Market, ответы, расчёт в контракте |
-| [node/ui/](node/ui/index.html) | Фронт раннера: лендинг `/`, каталог экспертов и помощник брифа `/experts`, приложение эксперта `/app` |
-| [policies/](policies/) | Правила для моделей протокола и шаблон агента. Открыты и входят в аттестацию |
-| [agents/](agents/README.md) | Примеры агентов; `injector` нарочно вредный и не проходит аудит |
-| [e2e/](e2e/run.ts) | Весь путь на локальной цепочке: 5 спонсоров, задачи с Agent Market и заказы в контракте, доработки, спор, деньги до копейки |
-| [scripts/](scripts/swarm.sh) | Все команды: развернуть, проверить TEE, вступить, переслать выручку, вывести |
+| the model asked once | 29 (43%) |
+| fifteen reviewers without knowledge, about the team's spend | 38 (56%) |
+| the team: the NEAR reviewer and two Solidity auditors | 52 (76%) |
 
-## Цена
+At the same spend, knowledge adds what more effort does not. What reviewers without knowledge miss is NEAR's
+own: a method that is not `#[payable]` or asks no yoctoNEAR, a callback not given the token first, storage the
+contract pays for a new account, gas left for a callback. The trial cut the wrong items of the part a customer
+reads first from 18 to 6-7.
 
-Цена задачи = ставки выбранных экспертов + накладные протокола + 5% владельцу + 5% Agent Market. Команду под задачу
-собирает рой, поэтому цена зависит от задачи:
-- **заказ в контракте**: бюджет — потолок. Контракт берёт ставки справившихся, накладные и 5% владельцу,
-  остальное возвращает. Комиссии Agent Market нет; доработок и споров тоже нет;
-- **задача на доске**: рой читает бриф, собирает команду и ставит ровно её цену;
-- **прямой найм**: планы Quick (3 USDC), Standard (10), Deep (30) — это бюджеты; рой собирает лучшую команду, которая
-  в бюджет помещается. Помощник брифа на `/experts` показывает оценку и подходящий план.
+## What the design guarantees, whatever the models do
 
-## Эксперту
+- A sponsor risks only their own deposit and entry fee. Nobody else's money is within their reach.
+- An expert is paid by the contract, out of the order: an expert that failed or broke the rules gets nothing. In
+  a review, what the delivered experts' rates add up to is shared by what their findings that held were worth
+  (Critical 27, High 9, Medium 3, Low 1; finders 70%, those who confirmed 30%). Sinking a neighbour gains nothing:
+  what is not paid goes back to the customer or the operator, not to the others.
+- The runner's key calls only `review`, `assign`, `finish`, `deliver` and `decline`; it cannot send tokens to
+  itself or to anyone it picks. The money of an order goes only where the contract says.
+- A customer pays only for experts whose answers passed the check. A refusal or a silent swarm returns the whole
+  budget; after a timeout, anyone can call for it.
+- Nothing uploaded is run: materials are text, experts only write text.
+- One expert's knowledge never reaches another. Costs are rounded to 0.01 USDC so that no data can pass through them.
 
-- **Приложение** (`/app`, вход кошельком): все свои эксперты на одном балансе, графики заработка и результатов,
-  у каждого эксперта задачи с итогом и причиной, аудит. Новый эксперт — имя, «что знает», промпт, файлы, ставка
-  и одно подтверждение в кошельке. Никогда не видно задач, вопросов и ответов заказчиков.
-- **Отладка:** `scripts/try.ts agents/<агент> "вопрос"` со своим ключом NEAR AI прогоняет тот же шаблон, поиск,
-  модель и оценщика на своих вопросах и показывает всё; `--audit` показывает, пройдёт ли аудит.
+## What it is made of
 
-## Быстрый старт
+| part | what for |
+|---|---|
+| [contract/](contract/src/lib.rs) | Money: deposits, holds, rates, revenue, timeouts, withdrawals. One Rust file |
+| [node/src/](node/src/main.ts) | The runner in the TEE: experts' entry, Agent Market tasks, answers, settlement in the contract |
+| [node/ui/](node/ui/index.html) | The runner's pages: `/`, `/order`, `/experts`, `/app` |
+| [policies/](policies/) | The rules the protocol's models follow and the experts' template. Public, and part of the attestation |
+| [agents/](agents/README.md) | Example experts; `injector` is malicious on purpose and fails the entry check |
+| [e2e/](e2e/run.ts) | The whole path on a local chain: five sponsors, Agent Market tasks and contract orders, reworks, a dispute, money to the last unit |
+| [eval/](eval/README.md) | The measurements: tasks, blind readings, every run |
+| [scripts/](scripts/swarm.sh) | Every command: deploy, check the TEE, join, forward revenue, withdraw |
+
+## Quick start
 
 ```bash
-rustup target add wasm32-unknown-unknown && cargo install cargo-near --locked   # один раз
+rustup target add wasm32-unknown-unknown && cargo install cargo-near --locked   # once
 npm ci
-scripts/local.sh                                                                 # сборка, все тесты, e2e
+scripts/local.sh                                                                 # build, all tests, e2e
 ```
 
-## Документы
+## Documents (in Russian)
 
-- [docs/GUIDE.md](docs/GUIDE.md) — что делать: локально, testnet, TEE на Phala, Agent Market, mainnet.
-- [docs/PROTOCOL.md](docs/PROTOCOL.md) — как это устроено: кто что видит, деньги, угрозы, аналоги.
-- [docs/API.md](docs/API.md) — контракт, HTTP API раннера, переменные, события в логах.
+- [docs/GUIDE.md](docs/GUIDE.md): what to do, locally, on testnet, in a TEE on Phala, on Agent Market, on mainnet.
+- [docs/PROTOCOL.md](docs/PROTOCOL.md): how it works: who sees what, money, threats, related projects.
+- [docs/API.md](docs/API.md): the contract, the runner's HTTP API, settings, log events.
 
-Код контракта закрыт до сдачи на хакатон: сборка не воспроизводимая и без ссылки на исходники.
+## Licence
+
+MIT, see [LICENSE](LICENSE). The experts' materials taken from others keep their own licences, listed in
+[eval/agents/SOURCES.md](eval/agents/SOURCES.md).
