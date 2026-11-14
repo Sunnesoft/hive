@@ -146,7 +146,7 @@ function card(o) {
     o.state === 'delivered' ? [h('div', { class: 'answer-text' }, markdown(o.answer)), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.answerHash}`)] : '',
     o.state === 'no_brief' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm does not have the text of this task'),
       h('span', {}, sent()[o.briefHash] ? 'Sending it again from this browser…' : `It was placed from another browser or device. Open this page there, or get all ${usd(o.amount)} USDC back ${Math.round(terms.run_secs / 60)} minutes after it was placed.`)) : '',
-    o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All ${usd(o.amount)} USDC went back to your wallet.`)) : '',
+    o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All but 0.05 of its ${usd(o.amount)} USDC went back to your wallet: 0.05 paid for the check of the task.`)) : '',
     o.state === 'waiting' ? h('span', { class: 'muted' }, 'The swarm reads the task and picks the experts it needs.') : '',
     o.state === 'working' ? h('span', { class: 'muted' }, 'Each expert is answering its own question; then each answer is checked and one answer is composed.') : '');
 }

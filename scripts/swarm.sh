@@ -38,6 +38,7 @@
 # anyone
 #   verify <url> <compose>         check a runner: Intel quote, its keys, event log, compose, policies
 #   withdraw <account> [usdc]      take a balance, all of it if no amount
+#   daily-cap <account> [usdc]     the most jobs may hold of an account's balance in a UTC day; none: no cap
 #   close <job>                    end a job past its timeout (SIGNER=<account>, default ROOT)
 #   status [account | owner/name]  books, config; an account's balance and agents, or one agent
 set -euo pipefail
@@ -181,6 +182,10 @@ answers) # reads the key from ~/.near-credentials, as near-cli-rs saves it with 
   ts scripts/cabinet.ts "${CUSTOMER:?account that ordered}" "${RUNNER_URL:?the runner, e.g. http://127.0.0.1:8080}" "$NETWORK" --orders ;;
 refund)
   send "$C" refund "$(jq -nc --arg o "$2" '{order:$o}')" "${SIGNER:-${CUSTOMER:-$ROOT}}" ;;
+daily-cap) # the sponsor's own guard: a stolen runner key takes no more than this a day
+  args='{"cap":null}'
+  [[ -n ${3:-} ]] && args=$(jq -nc --arg a "$(usdc "$3")" '{cap:$a}')
+  send "$C" set_daily_cap "$args" "$2" ;;
 withdraw)
   args='{}'
   [[ -n ${3:-} ]] && args=$(jq -nc --arg a "$(usdc "$3")" '{amount:$a}')
