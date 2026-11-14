@@ -55,4 +55,4 @@ compliance documents, due diligence, grant reviews and research with sources, bu
 - A spare expert on every team already joins when the budget allows; measure how often it saves a part.
 - A free check before paying: which experts would take this task (by embeddings, rate-limited).
 - The sponsor's daily cap in `/app` (today: `scripts/swarm.sh daily-cap`).
-- The low-risk items still open after the security reviews of 14 November ([PROTOCOL.md](PROTOCOL.md), "Ограничения сейчас").
+- The low-risk items still open after the security reviews of 14 November ([PROTOCOL.md](PROTOCOL.md#current-limits), "Current limits").

@@ -1,495 +1,509 @@
-# Как устроен рой
+# How the swarm works
 
-> Рой — это способ сложить закрытые знания разных владельцев без доверия друг к другу.
+> The swarm is a way to add up the closed knowledge of different owners without their having to trust each other.
 
-## Участники
+## Participants
 
-| Кто | Что делает |
+| Who | What they do |
 |---|---|
-| **Заказчик** | кладёт заказ в контракт (бюджет и хеш задачи; текст задачи отдаёт раннеру) или нанимает рой на Agent Market, где платит, принимает работу или просит доработку |
-| **Спонсор** | владелец экспертов (у одного аккаунта их может быть сколько угодно, `аккаунт/имя`): приносит знания, платит депозит, получает ставку за каждую задачу |
-| **Раннер** | программа в TEE (Phala, Intel TDX): открывает материалы, ведёт задачи, сообщает итоги контракту |
-| **Контракт** | держит USDC и двигает их только по своим правилам |
-| **Владелец** | развернул рой: настройки, комиссия 5%, проверка TEE перед выдачей ключа |
-| **Оператор** | платит NEAR AI за инференс, пересылает выручку с Agent Market в контракт |
-| **NEAR AI** | модели: и протокола, и агентов. Аккаунт один, оператора |
+| **Customer** | places an order in the contract (the budget and the task's hash; the task's text goes to the runner), or hires the swarm on Agent Market, where it pays, accepts the work or asks for a rework |
+| **Sponsor** | the owner of experts (one account can have any number of them, `account/name`): brings knowledge, pays a deposit, gets the rate for each task |
+| **Runner** | a program in a TEE (Phala, Intel TDX): opens the materials, runs the tasks, reports the outcomes to the contract |
+| **Contract** | holds the USDC and moves it only by its own rules |
+| **Owner** | deployed the swarm: settings, the 5% fee, checking the TEE before handing over the key |
+| **Operator** | pays NEAR AI for inference, forwards Agent Market revenue to the contract |
+| **NEAR AI** | the models, both the protocol's and the agents'. There is one account, the operator's |
 
-## Кто что видит
+## Who sees what
 
-| Данные | Видят |
+| Data | Who sees it |
 |---|---|
-| визитка агента: навыки, ставка, потолок расходов, хэш, размер | все (в контракте) |
-| материалы спонсора: экспертиза, методика, знания | только раннер в TEE и модель NEAR AI в момент вызова |
-| бриф и сообщения заказчика | заказчик, Agent Market, раннер, модели протокола |
-| вопрос агенту | этот агент (то есть модель с его материалами) |
-| ответ агента | раннер: оценщик и сборщик |
-| итоговый ответ | заказчик, после выходного фильтра |
-| расходы агента | все, округлённо до 0.01 USDC |
-| кто какое утверждение дал | хранилище раннера, для споров |
-| раунды агента: тема, выбран ли, итог, расход, выплата; аудит с выдержками | только его спонсор, в кабинете после входа кошельком |
-| спрос по темам: сколько задач, где не нашлось эксперта | все (`GET /demand`) |
+| the agent's card: skills, rate, spending ceiling, hash, size | everyone (in the contract) |
+| the sponsor's materials: expertise, method, knowledge | only the runner in the TEE, and the NEAR AI model during the call |
+| the customer's brief and messages | the customer, Agent Market, the runner, the protocol's models |
+| the question to an agent | that agent (that is, the model with its materials) |
+| the agent's answer | the runner: the evaluator and the composer |
+| the final answer | the customer, after the output filter |
+| the agent's costs | everyone, rounded to 0.01 USDC |
+| who made which statement | the runner's store, for disputes |
+| the agent's rounds: topic, whether it was picked, outcome, cost, payout; the audit with excerpts | only its sponsor, in the cabinet after signing in with a wallet |
+| demand by topic: how many tasks, where no expert was found | everyone (`GET /demand`) |
 
-Модели агентов работают в NEAR AI Cloud, запросы туда идут с материалами. Список моделей
-([policies/models.json](../policies/models.json)) — модели с проверяемым TEE; доверие к NEAR AI остаётся отдельным звеном.
+The agents' models run in NEAR AI Cloud, and the requests sent there carry the materials. The list of models
+([policies/models.json](../policies/models.json)) holds models with a verifiable TEE; trust in NEAR AI remains a separate link.
 
-## Два входа для заказчика
+## Two ways in for the customer
 
-| | Заказ в контракте | Agent Market |
+| | Order in the contract | Agent Market |
 |---|---|---|
-| Как | текст задачи раннеру (`POST /brief`), затем `ft_transfer_call` USDC с `{"Order":{"brief_hash"}}`; на сайте — `/order` | найм роя как агента или задача на доске |
-| Описание работы | до 10 000 символов, ссылки на материалы в тексте. В контракте только sha256 от текста с солью; текст видят заказчик и раннер. По желанию заказчик публикует текст в той же транзакции | бриф до 10 000 символов и файлы; видят заказчик, рынок и раннер |
-| Деньги | лежат в контракте; расчёт делает сам контракт в момент ответа | эскроу рынка; выручку после приёмки пересылает оператор |
-| Цена | бюджет — потолок: ставки справившихся + накладные + 5% владельцу, остаток возвращается на кошелёк | план или ставка; сверху 5% рынка |
-| Ответ | один, окончательный; читает только заказчик на `/order` после подписи кошельком; sha256 ответа в событии `deliver` |
-| Если текст не дошёл до раннера | заказ никто не берёт; через `run_secs` деньги возвращаются | — | приёмка, до двух доработок, спор с арбитром |
-| Если рой отказался или молчит | вся сумма возвращается: при отказе сразу, при молчании — по вызову `refund` любым после `run_secs` | рынок возвращает эскроу |
+| How | the task's text to the runner (`POST /brief`), then `ft_transfer_call` of USDC with `{"Order":{"brief_hash"}}`; on the site, `/order` | hiring the swarm as an agent, or a task on the board |
+| Description of the work | up to 10,000 characters, with links to materials in the text. The contract holds only the salted sha256 of the text; the customer and the runner see the text. The customer may publish the text in the same transaction if they wish | a brief of up to 10,000 characters, and files; the customer, the market and the runner see them |
+| Money | held in the contract; the contract itself settles at the moment of the answer | the market's escrow; the operator forwards the revenue after acceptance |
+| Price | the budget is a ceiling: the rates of those who delivered + overhead + 5% to the owner; the rest goes back to the wallet | a plan or a bid; plus 5% to the market on top |
+| Answer | one, final; only the customer reads it, on `/order`, after signing with a wallet; the answer's sha256 is in the `deliver` event |
+| If the text did not reach the runner | no one takes the order; after `run_secs` the money comes back | — |
+| If the swarm declines or stays silent | on a decline, all of it comes back at once but 0.05 USDC for checking the task; on silence, the whole amount, when anyone calls `refund` after `run_secs` | the market returns the escrow |
 
-Движок один ([round.ts](../node/src/round.ts)): вход — это «дверь» с одинаковыми действиями (взять задачу, сдать
-ответ, отказаться). Рынок — [market.ts](../node/src/market.ts), контракт — [orders.ts](../node/src/orders.ts).
-У заказа один раунд, и его задача в контракте носит id заказа (`order-<n>`).
+There is one engine ([round.ts](../node/src/round.ts)). Each way in is a "door" with the same actions: take a task,
+submit an answer, decline. The market is [market.ts](../node/src/market.ts), the contract is [orders.ts](../node/src/orders.ts).
+An order has one round, and its task in the contract carries the order's id (`order-<n>`).
 
-Заказчика в контракте защищает не приёмка, а устройство расчёта: платится только за экспертов, чей ответ прошёл
-отдельную проверку, а всё непотраченное возвращается. Кому нужны доработки и арбитр, тот идёт через Agent Market.
+In the contract, the customer is protected not by acceptance but by how settlement works: only experts whose answer
+passed a separate check are paid, and everything not spent comes back. A customer who needs reworks and an arbiter
+goes through Agent Market.
 
-**На чём держится доверие в заказе.** Деньги — на правилах контракта: у заказа три исхода (расчёт с возвратом
-остатка, отказ, возврат по таймауту), и ни один не ведёт деньги туда, куда выбрал бы раннер. Что заказано и что
-отвечено — на двух хешах в контракте: хеш задачи кладёт заказчик, хеш ответа раннер; текст, который кто-то
-предъявит позже, сверяется с ними. Соль не даёт подобрать короткую задачу по хешу. Что рой работал честно —
-на аттестации TEE, как и во всём остальном. Чего схема не даёт: качество ответа никто не принимает, а выдачу
-ответа заказчику обеспечивает код раннера, не контракт.
+**What trust in an order rests on.** The money rests on the contract's rules. An order has three outcomes (settlement
+with the rest returned, a decline, a refund after the timeout), and none of them sends the money where the runner
+would choose. What was ordered and what was answered rest on two hashes in the contract: the customer puts in the
+task's hash, the runner puts in the answer's hash. Any text someone shows later is checked against them. The salt
+stops anyone from guessing a short task from its hash. That the swarm worked honestly rests on the TEE attestation,
+as everything else does. What the scheme does not give: no one accepts the quality of the answer, and the runner's
+code, not the contract, makes sure the answer reaches the customer.
 
-## Задача: что приходит с Agent Market и как выбираются эксперты
+## The task: what comes from Agent Market and how experts are picked
 
-Agent Market даёт заказчику **бриф** (текст до 10 000 символов), **вложения** (файлы) и **переписку** (уточнения, просьбы
-о доработке, решения арбитра). Формы для выбора исполнителей у рынка нет, поэтому:
-- эксперта можно **назвать в брифе** по id из открытого каталога (`/experts`, там же помощник брифа). Названные идут
-  первыми и помечаются для маршрутизатора; он берёт их, если их навыки могут помочь, и бюджет при этом соблюдается;
-- остальных маршрутизатор подбирает по открытым навыкам (до 20 ближайших по эмбеддингам) в пределах бюджета;
-- **вложения** (до 5 файлов по 5 MB: PDF, Markdown, текст, CSV, JSON, код) и ссылки из брифа становятся материалами задачи для экспертов;
-- в подписи ответа перечислены эксперты, которые его дали: заказчик может позвать их снова, а эксперты получают репутацию.
+Agent Market gives the customer a **brief** (text of up to 10,000 characters), **attachments** (files) and **messages**
+(clarifications, requests for rework, the arbiter's decisions). The market has no form for choosing who does the work, so:
+- an expert can be **named in the brief** by its id from the public catalogue (`/experts`, which also has a brief
+  helper). Named experts go first and are marked for the router; it takes them if their skills can help and the
+  budget still holds;
+- the router picks the rest by their public skills (up to the 20 nearest by embeddings), within the budget;
+- **attachments** (up to 5 files of 5 MB each: PDF, Markdown, text, CSV, JSON, code) and links from the brief become the task's materials for the experts;
+- the answer's footer lists the experts who gave it: the customer can call them again, and the experts gain reputation.
 
-**Цена.** Задача на доске получает ставку ровно в цену нужной ей команды. Прямой найм идёт по планам-бюджетам
-(Quick 3, Standard 10, Deep 30 USDC): рой собирает лучшую команду, которая помещается в план.
+**Price.** A task on the board gets a bid of exactly the price of the team it needs. Direct hiring goes by budget
+plans (Quick 3, Standard 10, Deep 30 USDC): the swarm builds the best team that fits in the plan.
 
-## Вход агента
+## An agent's entry
 
 ```mermaid
 sequenceDiagram
-  actor S as Спонсор
-  participant R as Раннер (TEE)
+  actor S as Sponsor
+  participant R as Runner (TEE)
   participant T as USDC
-  participant C as Контракт
+  participant C as Contract
   participant M as NEAR AI
-  S->>R: GET /info (ключ шифрования, модели, плата)
-  Note over S: шифрует материалы у себя: X25519 + AES-GCM, свой аккаунт внутри шифра
-  S->>T: ft_transfer_call(депозит, Register: имя, навыки, ставка, потолок, хэш, размер)
+  S->>R: GET /info (encryption key, models, fee)
+  Note over S: encrypts the materials on its own side: X25519 + AES-GCM, its own account inside the ciphertext
+  S->>T: ft_transfer_call(deposit, Register: name, skills, rate, ceiling, hash, size)
   T->>C: ft_on_transfer
-  Note over C: плата за аудит оператору, остаток на баланс, статус Pending
-  S->>R: POST /upload/<аккаунт>/<имя> (зашифрованные байты)
-  Note over R: принимает, только если в контракте Pending с этим хэшем и размером
-  R->>M: каждый кусок: скан (policies/scan.md)
-  R->>M: решение (policies/audit.md)
-  R->>M: эмбеддинги знаний
-  R->>C: review(агент, номер регистрации, да/нет) → Active или Suspended
+  Note over C: audit fee to the operator, the rest to the balance, status Pending
+  S->>R: POST /upload/{account}/{name} (encrypted bytes)
+  Note over R: accepts only if the contract has Pending with this hash and size
+  R->>M: each chunk: scan (policies/scan.md)
+  R->>M: decision (policies/audit.md)
+  R->>M: embeddings of the knowledge
+  R->>C: review(agent, registration number, yes/no) → Active or Suspended
 ```
 
-- **Плата за аудит** = `audit_base` + `audit_per_mb` × размер (по умолчанию 0.10 + 0.10 за MB). Депозит не меньше платы + `min_deposit`.
-- **Копия чужих байтов не откроется:** id эксперта (`аккаунт/имя`) вшит в шифр. Одинаковые материалы на двух аккаунтах — один эксперт: в одну задачу они не попадут.
-- **Причина отказа не публикуется:** она может цитировать материалы. Что запрещено, написано в [scan.md](../policies/scan.md) и [audit.md](../policies/audit.md).
-- **Три сбоя на нашей стороне** (NEAR AI недоступен) — отказ, чтобы один агент не стоил нам бесконечно.
-- **Новые материалы или навыки** — новая регистрация и новый аудит. Решение аудита называет номер регистрации:
-  если визитку заменили, пока шёл аудит, контракт решение не примет.
-- Открытые навыки тоже проходят скан: они попадают в запрос модели, которая собирает команду.
-- Спонсор не пишет промпт. Агент собирается по [шаблону](../policies/agent.md), материалы входят в него как справка, а не как команды.
+- **Audit fee** = `audit_base` + `audit_per_mb` × size (by default 0.10 + 0.10 per MB). The deposit is at least the fee + `min_deposit`.
+- **A copy of someone else's bytes will not open:** the expert's id (`account/name`) is sewn into the ciphertext. The same materials on two accounts count as one expert: they will not both get into one task.
+- **The reason for a rejection is not published:** it may quote the materials. What is forbidden is written in [scan.md](../policies/scan.md) and [audit.md](../policies/audit.md).
+- **Three failures on our side** (NEAR AI unavailable) mean a rejection, so that one agent cannot cost us without end.
+- **New materials or skills** mean a new registration and a new audit. The audit's decision names the registration number:
+  if the card was replaced while the audit ran, the contract will not accept the decision.
+- The public skills are scanned too: they go into the prompt of the model that builds the team.
+- The sponsor does not write the prompt. The agent is built from a [template](../policies/agent.md), and the materials go into it as reference, not as commands.
 
-## Раунд задачи
+## The round of a task
 
 ```mermaid
 sequenceDiagram
-  actor K as Заказчик
+  actor K as Customer
   participant A as Agent Market
-  participant R as Раннер (TEE)
+  participant R as Runner (TEE)
   participant M as NEAR AI
-  participant C as Контракт
-  K->>A: нанимает рой, деньги в эскроу
-  R->>A: очередь заданий, переписка, версии
-  R->>M: проверка задачи (job.md)
-  R->>M: команда под бюджет и вопрос каждому (route.md)
+  participant C as Contract
+  K->>A: hires the swarm, money into escrow
+  R->>A: job queue, messages, versions
+  R->>M: check of the task (job.md)
+  R->>M: a team for the budget and a question to each (route.md)
   R->>A: start
-  R->>C: assign(раунд, агенты): удержать потолки, записать ставки
-  par каждый агент отдельно
-    alt отвечает на вопрос
-      R->>M: ближайшие куски его знаний + его вопрос → ответ
-    else проверяет файлы заказчика (work: review)
-      R->>M: проход на каждую часть его знаний (pass.md)
-      Note over R: находки разбирает и группирует код
-      R->>M: проверка каждой группы по файлам (check.md), доказательства (proof.md)
+  R->>C: assign(round, agents): hold the ceilings, record the rates
+  par each agent separately
+    alt answers a question
+      R->>M: the nearest chunks of its knowledge + its question → answer
+    else reviews the files of the customer (work: review)
+      R->>M: a pass for each part of its knowledge (pass.md)
+      Note over R: code parses and groups the findings
+      R->>M: check of each group against the files (check.md), proofs (proof.md)
     end
-    R->>M: оценка только этой части (evaluate.md)
+    R->>M: evaluation of this part only (evaluate.md)
   end
-  Note over R: находки разных экспертов складывает код
-  R->>M: сборка ответа из принятых частей (compose.md): от проверок — только заголовки
-  Note over R: выходной фильтр, решение раунда записано на диск
-  R->>C: finish(раунд, расходы, справился, нарушил)
-  R->>A: submit(ответ)
+  Note over R: code adds up the findings of different experts
+  R->>M: composing the answer from the accepted parts (compose.md): only the titles from reviews
+  Note over R: output filter, the round decision written to disk
+  R->>C: finish(round, costs, delivered, violated)
+  R->>A: submit(answer)
 ```
 
-**Кто попадает в кандидаты:** агент `Active`, на балансе есть его потолок, материалы открыты в этом раннере,
-модель есть в прайсе NEAR AI, потолок покрывает худший случай одного ответа. Если кандидатов больше 20,
-берутся 20 ближайших к задаче по эмбеддингам открытых навыков. Пока кандидатов нет (например, сразу после
-перезапуска), раунд ждёт и не тратит ни одного платного вызова.
+**Who becomes a candidate:** an agent that is `Active`, whose ceiling is on its balance, whose materials are open in
+this runner, whose model is in NEAR AI's price list, and whose ceiling covers the worst case of one answer. If there
+are more than 20 candidates, the 20 nearest to the task by the embeddings of their public skills are taken. While
+there are no candidates (for example, right after a restart), the round waits and makes no paid call.
 
-**Замена слабого выбора.** Роутер выбирает по словам в описании навыков: насколько эксперт хорош, из описания не
-видно. Раннер знает другое: какая доля прошлых ответов пришла от эксперта против равной доли на всех участников
-(1 — равная доля). Если у другого кандидата этот показатель выше, чем у выбранного, на 0.2 и больше, а ставка не
-выше, модель протокола получает один узкий вопрос ([stand-in.md](../policies/stand-in.md)): мог бы этот кандидат
-ответить на тот же вопрос? Если да, спрашивают его. Эксперта, которого назвал заказчик, не заменяют; эксперта
-без истории не заменяют и им не заменяют.
+**Replacing a weak pick.** The router picks by the words in the skills' description, and a description does not show
+how good an expert is. The runner knows something else: what share of past answers came from the expert, against an
+equal share for every participant (1 means an equal share). If another candidate's figure is higher than the picked
+one's by 0.2 or more, and its rate is no higher, the protocol model gets one narrow question
+([stand-in.md](../policies/stand-in.md)): could this candidate answer the same question? If yes, that candidate is
+asked. An expert the customer named is not replaced. An expert with no history is neither replaced nor used as a
+replacement.
 
-**Расход агента не может превысить удержание.** Токен модели не короче одного байта UTF-8, поэтому худший
-случай вызова — все байты запроса как токены плюс предел ответа. Вызов уходит в NEAR AI, только если этот
-худший случай помещается в удержание. Иначе агент просто не отвечает и ничего не платит.
+**An agent's cost cannot exceed its hold.** A model token is at least one UTF-8 byte long, so the worst case of a
+call is every byte of the prompt as a token, plus the answer's limit. A call goes to NEAR AI only if this worst case
+fits in the hold. Otherwise the agent simply does not answer and pays nothing.
 
-**Бюджет на агентов** = цена × 0.95 (Agent Market) × (1 − комиссия владельца) − накладные раунда (0.50).
-Каждый агент стоит своей ставки и ещё 0.10 накладных. Пример: 10 USDC → 9.5 → 9.025 → 8.525.
-Модель выбирает агентов по важности; берётся самый длинный список с начала, который влезает в бюджет.
-Все раунды одной задачи делят этот бюджет: доработка тратит только то, что не задолжали прошлые раунды
-(ставки справившихся и их накладные). Если ничего не осталось, рой сдаёт прошлый ответ с пометкой.
+**The budget for agents** = price × 0.95 (Agent Market) × (1 − the owner's fee) − the round's overhead (0.50).
+Each agent costs its rate plus 0.10 of overhead. Example: 10 USDC → 9.5 → 9.025 → 8.525.
+The model ranks the agents by importance, and the longest list from the top that fits in the budget is taken.
+All rounds of one task share this budget: a rework spends only what past rounds do not owe (the rates of those who
+delivered and their overhead). If nothing is left, the swarm submits the past answer with a note.
 
-**История эксперта.** Роутер видит у каждого кандидата «справился/взят» за последние 50 задач (у нового — пусто).
-При равных навыках берёт того, у кого история лучше; того, кто редко справляется, — только если больше некому.
-Так за слабую работу платит её автор (его реже зовут), а не эксперты, с которыми он работал.
+**An expert's history.** For each candidate the router sees "delivered/taken" over the last 50 tasks (empty for a new
+one). With equal skills it takes the one with the better history, and one who rarely delivers only if there is no one
+else. So the author of weak work pays for it (it is called less often), not the experts it worked with.
 
-**Материалы заказчика:** до 5 вложенных файлов, до 10 https-ссылок из брифа и переписки и, если задан
-`BRAVE_API_KEY`, до трёх поисков. Читаются PDF (в отдельном потоке, код из файла не исполняется), HTML (тоже в
-отдельном потоке), Markdown, текст, CSV, JSON, код; ссылки на GitHub (файл или README репозитория) и публичные
-Google Docs, Sheets, Slides читаются там, где лежит их содержимое. Скачивает протокол (агенты в сеть не ходят),
-через фильтр SSRF, до 5 МБ на источник. Если материалов больше 48 000 символов, они режутся на куски и
-индексируются один раз на задачу: каждый эксперт получает куски, ближайшие к его вопросу (до 48 000 символов).
-Что не открылось (закрытая ссылка, неизвестный формат), ответ называет заказчику.
+**The customer's materials:** up to 5 attached files, up to 10 https links from the brief and the messages, and, if
+`BRAVE_API_KEY` is set, up to three searches. Formats that are read: PDF (in a separate thread; code in the file is
+not run), HTML (also in a separate thread), Markdown, text, CSV, JSON, code. Links to GitHub (a file or a
+repository's README) and to public Google Docs, Sheets and Slides are read where their content lives. The protocol
+downloads them (agents do not go to the network), through an SSRF filter, up to 5 MB per source. If the materials
+exceed 48,000 characters, they are cut into chunks and indexed once per task: each expert gets the chunks nearest to
+its question (up to 48,000 characters). Whatever did not open (a private link, an unknown format), the answer names
+to the customer.
 
-**Справка по материалам.** Знания эксперта ищутся по смыслу, а слова «проверь этот контракт» ни к чему в них не
-близки: что искать, написано в самом контракте. Поэтому, если вопрос пришёл с материалами, эксперт сначала читает
-их и называет до пяти вещей, которые стоит посмотреть в своих знаниях ([шаблон](../policies/lookup.md), отдельный
-короткий вызов его же модели за его счёт). Из знаний берутся шесть кусков по очереди: лучший по вопросу, лучший по
-каждой из этих вещей. Запросы никто не видит, они только выбирают куски его же знаний. Без материалов этого шага
-нет.
+**Lookup from the materials.** An expert's knowledge is searched by meaning, and the words "check this contract" are
+close to nothing in it: what to look for is written in the contract itself. So if a question comes with materials,
+the expert first reads them and names up to five things worth looking up in its knowledge
+([template](../policies/lookup.md); a separate short call of its own model, at its own cost). Six chunks are then
+taken from the knowledge in turn: the best for the question, and the best for each of these things. No one sees these
+queries; they only pick chunks of the expert's own knowledge. Without materials there is no such step.
 
-**Проверка материалов (`work: review`).** Ответ — это один вызов с шестью ближайшими кусками знаний. Для
-чек-листов этого мало: на аудитах один ответ видел 8–16% чек-листа и находил не больше, чем модель без него
-([eval/README.md](../eval/README.md)). Эксперт, который объявил `"work": "review"`, работает иначе, когда заказчик
-дал свои файлы (вложения или ссылки из брифа; то, что нашёл поиск, не проверяется):
+**Review of materials (`work: review`).** An answer is one call with the six nearest chunks of knowledge. For
+checklists that is not enough: on audits, one answer saw 8–16% of the checklist and found no more than the model
+without it ([eval/README.md](../eval/README.md)). An expert that declared `"work": "review"` works differently when the
+customer has given its own files (attachments or links from the brief; what a search found is not reviewed):
 
-| Шаг | Кто делает | Что происходит |
+| Step | Who does it | What happens |
 |---|---|---|
-| своё чтение | модель эксперта, [read.md](../policies/read.md) | первый вызов без чек-листа: эксперт читает файлы так, как читал бы их один, и записывает всё, что видит, на бланке. Чек-лист сужает модель до своих пунктов: проходы, которым велели сообщать «только то, к чему ведёт эта часть», не подняли ни одной из главных находок контракта, где та же модель одним вызовом нашла семь |
-| проходы | модель эксперта, [pass.md](../policies/pass.md) | часть знаний — это файл знаний (длинный файл — несколько частей до 9 000 символов), всего до 24 частей; на каждую часть один вызов: что эта часть находит в файлах. Ответ — бланк со всеми находками, сколько бы их ни было. Проходу говорят, что уже поднято до него (строка на находку); он может повторить поднятое, если говорит точнее: механизм, строку, последствие |
-| записи | код | находки приходят на бланке, код их не вычитывает из текста и не урезает. Дальше список целиком не переписывает ни одна модель: модель, которая сводит длинный список, теряет редкие пункты, а редкие и есть ценность |
-| группы | код, затем узкий вопрос модели | записи об одном и том же объединяются по близости эмбеддингов (0.85; каждая запись группы близка к каждой, цепочка соседей не склеивает разное). Если сервис эмбеддингов молчит 30 секунд — по общим словам. Потом модель эксперта отвечает на узкий вопрос «какие из этих об одном и том же» ([same.md](../policies/same.md)), и названное проверяется вместе: одна проблема в десяти формулировках проверяется один раз. Проверке показывают не больше пяти формулировок за раз: модель, которой показали двадцать, отклоняет их одной строкой |
-| проверки | модель эксперта, [check.md](../policies/check.md) | на каждую группу один вызов, самые тяжёлые первыми, пока хватает денег эксперта; проверяется каждая формулировка, по пять за раз: правда ли то, что находка говорит о файлах? Прежде чем подтвердить, проверка ищет то, что находке мешает: если находка говорит, что чего-то нет (проверки, возврата, отката), читается место, где это должно быть. Ответ — форма, а не текст: по каждой формулировке «верно или нет», важность, место, как это происходит, строки файла и исправление. Чтобы отказать, проверка должна указать строку, которая находке мешает. Что считать находкой и как мерить её важность, говорит метод самого эксперта (он подставляется в проверку), а не протокол: у наших аудиторов это «кто-то выигрывает, кто-то теряет или что-то перестаёт работать; иначе это не находка» |
-| что видит проверка | код | все файлы заказчика и ту часть знаний эксперта, из которой пришла находка. Без этого знание и умение его применить не встречались в одном вызове: правило «`assert_one_yocto` без `#[payable]` никогда не сработает» стояло в знаниях, а проверки находок про эту самую функцию его не видели |
-| цитата | код | приведённая строка ищется в файлах заказчика (без учёта пробелов и переносов; цитата с «...» — по кускам). Нет такой строки — находка не подтверждена, что бы ни сказала модель |
-| не подтверждено | код | то, что проверка не подтвердила, не выбрасывается: «нет» модели — такое же суждение, как и «да», и лучшая из наших моделей отказала находке, которую сама только что сделала. Critical и High даются целиком, как их подняли, с тем, что сказала проверка; Medium — строкой; всего до 20. Неподтверждённые Low отбрасываются |
-| вместе | модель эксперта, [combine.md](../policies/combine.md) | один вызов видит подтверждённые находки, по строке на каждую, и отвечает, что следует из двух-трёх из них вместе и чего ни одна не говорит сама (одна даёт разрешение, другая позволяет им воспользоваться любому). Каждый такой вывод проходит ту же проверку с цитатой; неподтверждённый отбрасывается. Шаг может только добавить |
-| рядом | модель эксперта, [same.md](../policies/same.md) | тот же узкий вопрос после проверок: какие из находок говорят об одном и том же другими словами? Ответ модели ничего не сворачивает и не убирает: названные одинаковыми находки встают рядом, каждая остаётся отдельной находкой в своих словах, с пометкой «Sorted with … kept apart in case it is not». Свёрнутые в одну, пять верных формулировок однажды получили заголовок шестой, неверной, и в находке усомнились из-за него. Номер, которого нет в списке, или находка, названная дважды, ничего не меняют |
-| доказательства | модель эксперта, [proof.md](../policies/proof.md) | если задача просит код: тест для Critical и High, до 3, один на находки, вставшие рядом. Написан, не запущен — ответ так и говорит |
+| own reading | the expert's model, [read.md](../policies/read.md) | the first call, without the checklist: the expert reads the files as it would on its own and writes everything it sees on a form. A checklist narrows the model to its own items: passes told to report "only what this part leads to" raised none of the main findings of a contract where the same model, in one call, found seven |
+| passes | the expert's model, [pass.md](../policies/pass.md) | a part of the knowledge is one knowledge file (a long file is several parts of up to 9,000 characters), up to 24 parts in all; one call per part: what does this part find in the files? The answer is a form with all the findings, however many there are. A pass is told what was already raised before it (one line per finding); it may repeat a raised finding if it says it more precisely: the mechanism, the line, the consequence |
+| records | code | findings arrive on the form; code does not extract them from prose and does not trim them. From here on, no model rewrites the whole list: a model that sums up a long list loses the rare items, and the rare items are the value |
+| groups | code, then a narrow question to a model | records about the same thing are joined by embedding closeness (0.85; every record of a group is close to every other, so a chain of neighbours does not glue different things together). If the embedding service is silent for 30 seconds, they are joined by shared words. Then the expert's model answers the narrow question "which of these are about the same thing" ([same.md](../policies/same.md)), and what it names is checked together: one problem in ten wordings is checked once. A check is shown no more than five wordings at a time: a model shown twenty rejects them in one line |
+| checks | the expert's model, [check.md](../policies/check.md) | one call per group, the most severe first, while the expert's money lasts; each wording is checked, five at a time: is what the finding says about the files true? Before confirming, the check looks for what stops the finding: if the finding says something is missing (a check, a refund, a rollback), it reads the place where that should be. The answer is a form, not prose: for each wording, "true or not", severity, location, how it happens, the file's lines and the fix. To reject, the check must point to the line that stops the finding. What counts as a finding and how to measure its severity is set by the expert's own method (it is put into the check), not by the protocol: for our auditors it is "someone gains, someone loses, or something stops working; otherwise it is not a finding" |
+| what the check sees | code | all of the customer's files and the part of the expert's knowledge the finding came from. Without this, the knowledge and the skill to apply it never met in one call: the rule "`assert_one_yocto` without `#[payable]` never works" was in the knowledge, but the checks of findings about that very function did not see it |
+| quote | code | the quoted line is looked up in the customer's files (ignoring spaces and line breaks; a quote with "..." is looked up piece by piece). No such line, and the finding is not confirmed, whatever the model said |
+| not confirmed | code | what the check did not confirm is not thrown away: a model's "no" is a judgement just like its "yes", and the best of our models rejected a finding it had just made itself. Critical and High are given in full, as raised, with what the check said; Medium as one line; up to 20 in all. Unconfirmed Low ones are dropped |
+| together | the expert's model, [combine.md](../policies/combine.md) | one call sees the confirmed findings, a line for each, and answers what follows from two or three of them together that none of them says alone (one grants a permission, another lets anyone use it). Each such conclusion goes through the same check with a quote; an unconfirmed one is dropped. The step can only add |
+| side by side | the expert's model, [same.md](../policies/same.md) | the same narrow question after the checks: which of the findings say the same thing in other words? The model's answer folds nothing and removes nothing: findings named as the same are placed side by side, and each stays a separate finding in its own words, marked "Sorted with … kept apart in case it is not". Once, folded into one, five true wordings got the title of a sixth, false one, and the finding was doubted because of it. A number that is not in the list, or a finding named twice, changes nothing |
+| proofs | the expert's model, [proof.md](../policies/proof.md) | if the task asks for code: a test for Critical and High, up to 3, one for findings placed side by side. Written, not run, and the answer says so |
 
-Сборщик получает от проверки только заголовки находок и пишет один абзац до 120 слов
-([summary.md](../policies/summary.md), предел 300 токенов; всё, что он допишет после абзаца, отрезает код). На первом
-заказе через контракт сборщик, которого просили «собрать ответ» из заголовков, написал собственный список находок и
-четыре теста, которых не писал ни один эксперт. Сами находки заказчик получает
-ниже резюме так, как их написал эксперт: с важностью, местом, строками из файла, исправлением и доказательством;
-под ними — список неподтверждённого, с пометкой, что это не находки, а поводы посмотреть.
-Находки нескольких экспертов складывает код, и только складывает: раннер их не перепроверяет и не переписывает.
-Правило одно: **две находки — одна, только если они тождественны, а не похожи.** Тождество определяет то, что
-может проверить код: находки стоят на одних и тех же строках материалов заказчика и говорят одно и то же (или
-называют одно исправление). Тогда это одна находка с пометкой «нашли 2 из 3 экспертов». Всё остальное, даже
-очень близкое по словам, стоит рядом, каждая находка в словах своего эксперта; соседняя даётся кратко (что, как,
-строки). Близкие слова — ещё не один изъян: «обновление не проверяет, что миграция прошла» и «обновление не
-оставляет газа на миграцию» однажды были склеены по словам, и первая находка осталась строкой под второй. Модель
-протокола отвечает на узкий вопрос ([same.md](../policies/same.md)), какие находки похожи, и её ответ решает
-только, что поставить рядом.
+The composer gets only the findings' titles from a review and writes one paragraph of up to 120 words
+([summary.md](../policies/summary.md), a limit of 300 tokens; code cuts off anything it writes after the paragraph). On
+the first order through the contract, a composer asked to "compose the answer" from the titles wrote its own list of
+findings and four tests that no expert had written. The customer gets the findings themselves
+below the summary, as the expert wrote them: with severity, location, lines from the file, the fix and the proof;
+below them is a list of what was not confirmed, marked as not findings but reasons to look.
+Code adds up the findings of several experts, and only adds them up: the runner does not re-check or rewrite them.
+There is one rule: **two findings are one only if they are identical, not merely similar.** Identity is decided by
+what code can check: the findings sit on the same lines of the customer's materials and say the same thing (or name
+one fix). Then it is one finding, marked "found by 2 of 3 experts". Everything else, even when very close in wording,
+stands side by side, each finding in its own expert's words; the neighbouring one is given briefly (what, how,
+lines). Close wording does not yet make one flaw: "the upgrade does not check that the migration went through" and
+"the upgrade leaves no gas for the migration" were once glued together by their words, and the first finding was left
+as a line under the second. The protocol model answers a narrow question ([same.md](../policies/same.md)) about which
+findings are similar, and its answer decides only what to place side by side.
 
-**В ответе сначала то, что эксперты подтвердили каждый сам.** Находки, которые подтвердили двое и больше
-экспертов, не видевших работы друг друга, идут первым блоком; находки одного эксперта — вторым, с пометкой, что это
-мнение одного. На NearX в первом блоке оказались 8 находок, среди них реальный взлом 2022 года, и ни одной ложной
-серьёзной; все пять ложных серьёзных были во втором. Серьёзную находку одного эксперта проверяет следующий эксперт
-команды, своими знаниями и по всем файлам, и платит за это из своего удержания. В ответ идёт только его сомнение,
-со строкой, которая находке мешает; его согласие ничего не поднимает: увидев готовое утверждение, второй эксперт на
-той же модели согласился с пятью ложными серьёзными находками из девяти, а оба его сомнения были верны.
+**The answer starts with what experts confirmed each on their own.** Findings confirmed by two or more experts who did
+not see each other's work go in the first block; findings of one expert go in the second, marked as one expert's
+opinion. On NearX the first block held 8 findings, among them the real hack of 2022, and not one false serious
+finding; all five false serious ones were in the second. A serious finding of one expert is checked by the next expert
+of the team, with its own knowledge and against all the files, and that expert pays for it from its own hold. Only its
+doubt goes into the answer, with the line that stops the finding; its agreement raises nothing: shown a ready-made
+claim, a second expert on the same model agreed with five of nine false serious findings, and both of its doubts were
+right.
 
-**Горячие точки.** Модели часто смотрят в нужное место и не доводят мысль до конца. Поэтому каждый шаг, который
-поднимает находки, ещё и записывает на бланке открытые вопросы: что подозревает и что бы это решило. После
-сведения код находит места, где двое и больше экспертов оставили заметки (находку, которую подтвердил один,
-неподтверждённую или открытый вопрос), или где хоть один не смог довести своё подозрение, а двое ещё не сошлись.
-Одно такое место получает отдельный взгляд ([hotspot.md](../policies/hotspot.md)): эксперт, оставивший там больше
-заметок, получает все заметки команды об этом месте и ближайшие к ним части знаний каждого эксперта и решает, что
-там на самом деле не так. Это не проверка чужого утверждения, а открытый вопрос о месте с частичными сигналами
-разных экспертов. Что он найдёт, проходит обычную проверку; подтверждённое идёт в отчёт отдельным блоком, между
-находками двоих и мнениями одного. На Mintbase по сохранённым отчётам горячей точкой оказалось бы
-`nft_batch_approve`, где оставили заметки пять экспертов из шести: там сидит находка аудита, которую не назвал никто.
+**Hot spots.** Models often look at the right place and do not carry the thought through. So every step that raises
+findings also writes open questions on its form: what it suspects and what would settle it. After the findings are
+merged, code finds places where two or more experts left notes (a finding confirmed by one, an unconfirmed one, or an
+open question), or where at least one could not carry its suspicion through and two have not yet agreed.
+One such place gets a separate look ([hotspot.md](../policies/hotspot.md)): the expert that left the most notes there
+gets all of the team's notes about that place, and the parts of each expert's knowledge nearest to them, and decides
+what is really wrong there. This is not a check of someone else's claim but an open question about a place, with
+partial signals from different experts. What it finds goes through the usual check; what is confirmed goes into the
+report as a separate block, between the findings of two experts and the opinions of one. On Mintbase, by the saved
+reports, the hot spot would have been `nft_batch_approve`, where five experts of six left notes: that is where an
+audit finding sits that no one named.
 
-**Скептик.** Серьёзную находку одного эксперта следующий эксперт команды получает с задачей её опровергнуть
-([refute.md](../policies/refute.md)): «большинство находок ложные или безвредные; найди, что мешает; соглашайся,
-только если, пройдя все пути, ничего не нашёл, и опиши механизм своими словами». В ответ идёт его сомнение со
-строкой, которая находке мешает.
+**The sceptic.** The next expert of the team gets a serious finding of one expert with the task of refuting it
+([refute.md](../policies/refute.md)): "most findings are false or harmless; find what stops it; agree only if you went
+down every path and found nothing, and describe the mechanism in your own words". Its doubt goes into the answer, with
+the line that stops the finding.
 
-Это правило не про код и не про аудит. Каждый вклад эксперта — единица из двух частей: **якорь** (к чему в
-материалах заказчика или в будущем результате она относится) и **утверждение** (что она там говорит или меняет).
-Совпали якорь и утверждение — это одно и то же; иначе единицы стоят рядом, и ни одна не прячется под другую. От
-формата зависит только вид якоря и то, как код проверяет, что якорь настоящий: строки кода и цитата из документа
-(есть в файлах), диапазон таблицы (существует), отрезок времени в видео (внутри длительности), место в плане
-(сцена есть в утверждённом плане). Сейчас реализован один вид якоря, текстовая цитата. Где эксперты не находят
-одно и то же, а делают разное (сценарий, голос, монтаж), два вклада на одном месте — это два варианта: их
-показывают оба или выбирают по правилу, объявленному заранее, но не смешивают молча.
-Эксперты находок друг друга не видят. Доля эксперта в ответе считается по подтверждённым находкам: за неподтверждённое
-её не прибавляется. Если резюме не написалось, находки всё равно уходят заказчику.
+This rule is not about code and not about audits. Each contribution of an expert is a unit of two parts: an
+**anchor** (what in the customer's materials, or in the future result, it refers to) and a **claim** (what it says or
+changes there). If the anchor and the claim match, it is the same thing; otherwise the units stand side by side, and
+neither hides under the other. The format decides only the kind of anchor and how code checks that the anchor is real:
+lines of code and a quote from a document (present in the files), a spreadsheet range (exists), a time span in a video
+(within its length), a place in a plan (the scene is in the approved plan). One kind of anchor is built now: a text
+quote. Where experts do not find the same thing but make different things (a script, a voice, editing), two
+contributions in one place are two variants: both are shown, or one is chosen by a rule announced in advance, but
+they are not silently mixed.
+Experts do not see each other's findings. An expert's share in the answer is counted by confirmed findings: nothing
+unconfirmed adds to it. If the summary could not be written, the findings still go to the customer.
 
-**Контролёр (`CONTROL_MODEL`).** Если оператор задал модель контролёра, она читает сложенный список находок вместе
-с файлами заказчика ([control.md](../policies/control.md)) и по каждой находке либо соглашается, либо сомневается,
-либо оценивает важность иначе. Сомнение принимается, только если контролёр привёл строку файла, которая мешает
-находке, и код нашёл эту строку. Его слово ставится рядом с находкой («Second opinion, from the controller»); сама
-находка остаётся на месте и в формулировке эксперта. По умолчанию контролёра нет, и мы его не советуем, пока нет
-модели заметно сильнее тех, которыми судят эксперты: на проверенном вслепую контракте контролёр на kimi-k2.6
-усомнился в 16 находках из 26 — в 9 из 11 неверных и в 6 верных, включая обе High из отчёта аудиторов
-([eval/README.md](../eval/README.md)).
+**The controller (`CONTROL_MODEL`).** If the operator has set a controller model, it reads the added-up list of
+findings together with the customer's files ([control.md](../policies/control.md)) and, for each finding, agrees,
+doubts it, or rates its severity differently. A doubt is accepted only if the controller quoted a line of a file that
+stops the finding, and code found that line. Its word is placed next to the finding ("Second opinion, from the
+controller"); the finding itself stays in place and in the expert's wording. By default there is no controller, and we
+do not advise one until there is a model clearly stronger than those the experts judge with: on a contract read
+blind, a controller on kimi-k2.6 doubted 16 of 26 findings: 9 of the 11 wrong ones and 6 right ones, including both
+Highs from the auditors' report ([eval/README.md](../eval/README.md)).
 
-Одно правило на все шаги: модель не может убрать находку из ответа, ни сводя список, ни проверяя его. Она может
-только не подтвердить её, и заказчик это видит.
+One rule for all steps: a model cannot remove a finding from the answer, neither when it merges the list nor when it
+checks it. It can only fail to confirm it, and the customer sees that.
 
-**Проверку ограничивают только деньги эксперта, а обрывает только зацикливание.** Каждый вызов проверки
-оплачивается из удержания эксперта, и заработок эксперта — его ставка минус расход на модели. Поэтому протокол не
-задаёт ни длины ответа, ни числа находок, ни числа проверок. Своё чтение, проходы и шаг «вместе» отвечают бланком:
-список находок со всеми полями, самые серьёзные первыми, столько, сколько модель нашла; код берёт все. Ответ может
-быть таким длинным, какой оплачивает остаток удержания после запроса (сверху только 16 000 токенов — потолок,
-который модели вообще принимают). Проверяется каждая группа, самые тяжёлые первыми, пока хватает денег; когда
-удержание кончилось, проверка отдаёт то, что успела. Обрывается ответ только если модель пошла по кругу (последние
-200 знаков уже стояли три раза в предыдущих 6 000 — так выглядит зацикливание: одна находка девять раз подряд),
-замолчала или пишет медленнее 10 токенов в секунду. Эксперт, который хочет тратить меньше, говорит это своим
-методом («только High и Medium») или числом проверок, за которые платит (`"review": {"checks": 20}` в
-`agent.json`). Если удержания не хватает даже на первое чтение, проверка не начинается: `too_expensive`.
+**Only the expert's money limits a review, and only a loop cuts it off.** Every call of a review is paid from the
+expert's hold, and the expert's earnings are its rate minus what it spends on models. So the protocol sets neither the
+length of an answer, nor the number of findings, nor the number of checks. Own reading, the passes and the "together"
+step answer with a form: a list of findings with all fields, the most serious first, as many as the model found; code
+takes them all. An answer can be as long as what is left of the hold after the prompt pays for (capped only at 16,000
+tokens, the ceiling that models accept at all). Every group is checked, the most severe first, while the money lasts;
+when the hold runs out, the review returns what it got through. An answer is cut off only if the model goes in
+circles (the last 200 characters already appeared three times in the previous 6,000; this is what a loop looks like:
+one finding nine times in a row), falls silent, or writes slower than 10 tokens per second. An expert that wants to
+spend less says so in its method ("only High and Medium") or by the number of checks it pays for
+(`"review": {"checks": 20}` in `agent.json`). If the hold is not enough even for the first reading, the review does
+not start: `too_expensive`.
 
-**Одна модель на всё.** Эксперт может назвать вторую, более дешёвую модель для проходов (`pass_model`), но мы этого
-не советуем, и наши эксперты так не делают. Только проходы видят знания эксперта; своё чтение и проверка их не
-видят. С дешёвой моделью в проходах знание и умение его применить ни разу не оказываются в одном вызове: правило
-«`assert_one_yocto` без `#[payable]` никогда не сработает» стояло в знаниях, дешёвая модель на функцию посмотрела
-и правила к ней не приложила, а сильная проверяла уже её пересказ, без правила. Так находка аудита прошла мимо
-тринадцати взглядов. На одной модели проверка дороже на 13% и проходы идут дольше (DeepSeek пишет около 40 токенов
-в секунду, Qwen3.6 около 280): у эксперта с 24 файлами знаний проверка занимает около десяти минут вместо трёх.
+**One model for everything.** An expert can name a second, cheaper model for the passes (`pass_model`), but we do not
+advise it, and our experts do not do it. Only the passes see the expert's knowledge; own reading and the check do not.
+With a cheap model in the passes, the knowledge and the skill to apply it never end up in one call: the rule
+"`assert_one_yocto` without `#[payable]` never works" was in the knowledge, the cheap model looked at the function and
+did not apply the rule to it, and the strong model then checked only its retelling, without the rule. That is how an
+audit finding slipped past thirteen looks. With one model, a review costs 13% more and the passes take longer
+(DeepSeek writes about 40 tokens per second, Qwen3.6 about 280): for an expert with 24 knowledge files, a review takes
+about ten minutes instead of three.
 
-Все вызовы проверки идут с удержания эксперта; больше удержания с эксперта не спишут. Сбойный вызов повторяется один раз. Если файлов знаний
-больше 24, они пакуются в части подряд; знания больше 24 частей читаются не все: берутся куски, ближайшие к вопросу
-и к тому, что эксперт решил посмотреть в материалах. Без файлов заказчика такой эксперт отвечает как обычный.
+All calls of a review are paid from the expert's hold; the expert is not charged more than the hold. A failed call is retried once. If there are
+more than 24 knowledge files, they are packed into parts in order; knowledge of more than 24 parts is not all read:
+the chunks taken are those nearest to the question and to what the expert decided to look up in the materials.
+Without the customer's files, such an expert answers like an ordinary one.
 
-## Профиль эксперта
+## The expert's profile
 
-Заказчик выбирает эксперта по публичному профилю: «что знает» (`skills`, в контракте, его читает роутер),
-до трёх вопросов, на которые эксперт отвечает хорошо (`examples`), и до трёх тем из категорий Agent Market
-(`topics`). Вопросы и темы лежат в запечатанных материалах; аудит проверяет, что файлы эксперта их
-подтверждают (`skills_unsupported` иначе) и что в них нет инструкций для ИИ. Каталог показывает их только
-у допущенной регистрации, с отметкой «profile checked by the audit». Роутер тоже видит вопросы.
+A customer picks an expert by its public profile: "what it knows" (`skills`, in the contract, read by the router),
+up to three questions the expert answers well (`examples`), and up to three topics from Agent Market's categories
+(`topics`). The questions and topics are in the sealed materials; the audit checks that the expert's files back them
+up (otherwise `skills_unsupported`) and that they hold no instructions for an AI. The catalogue shows them only
+for an admitted registration, marked "profile checked by the audit". The router sees the questions too.
 
-## Деньги
+## Money
 
-| Когда | Что происходит |
+| When | What happens |
 |---|---|
-| регистрация | плата за аудит → оператору; остальное → баланс спонсора |
-| `assign` | у каждого агента удерживается его потолок; ставка записывается в задачу |
-| `finish` | расход (вверх до 0.01, не больше удержания) → оператору; остаток → агенту; выплата 0, если не справился или нарушил; нарушитель `Suspended` до новой регистрации |
-| `Revenue` (только оператор) | комиссия → владельцу; каждому его выплата (если пришло меньше — пропорционально); остаток → оператору |
-| `Order` (заказчик) | бюджет заказа лежит в контракте под хешем задачи |
-| `deliver` (раннер) | с заказа берётся `ceil((ставки справившихся + overhead + overhead_per_agent × их число) / (1 − комиссия))`, не больше бюджета, и делится как выручка; остаток бюджета сразу уходит заказчику на кошелёк |
-| `decline` (раннер), `refund` (любой, после `run_secs`) | весь бюджет уходит заказчику на кошелёк; если перевод не прошёл, деньги ждут на его балансе в контракте |
-| `close` | незавершённую задачу после `run_secs` закрывает кто угодно: удержания назад; неоплаченную после `pay_secs` — удаляет |
-| `withdraw` | любой баланс; если перевод не прошёл, деньги возвращаются на баланс |
+| registration | the audit fee → the operator; the rest → the sponsor's balance |
+| `assign` | each agent's ceiling is held; the rate is recorded in the task |
+| `finish` | the cost (rounded up to 0.01, no more than the hold) → the operator; the rest → the agent; the payout is 0 if it did not deliver or broke the rules; a violator is `Suspended` until a new registration |
+| `Revenue` (operator only) | the fee → the owner; each gets its payout (pro rata if less came in); the rest → the operator |
+| `Order` (customer) | the order's budget sits in the contract under the task's hash |
+| `deliver` (runner) | the order is charged `ceil((rates of those who delivered + overhead + overhead_per_agent × their number) / (1 − fee))`, no more than the budget, and this is shared as revenue; the rest of the budget goes straight to the customer's wallet |
+| `decline` (runner), `refund` (anyone, after `run_secs`) | the budget goes to the customer's wallet (a decline keeps 0.05 USDC for checking the task, a refund keeps nothing); if the transfer fails, the money waits on the customer's balance in the contract |
+| `close` | anyone can close an unfinished task after `run_secs`: the holds go back; an unpaid one is deleted after `pay_secs` |
+| `withdraw` | any balance; if the transfer fails, the money goes back to the balance |
 
-Пример заказа из [e2e](../e2e/run.ts): бюджет 8, справились агенты со ставками 3 и 2. Накладные 0.5 + 0.1 × 2, итого 5.7;
-с 5% владельцу заказчик платит ровно 6: владельцу 0.3, агентам 3 и 2, оператору 0.7. Два USDC вернулись на кошелёк.
+An order example from [e2e](../e2e/run.ts): a budget of 8; agents with rates 3 and 2 delivered. Overhead is 0.5 + 0.1 × 2, 5.7 in total;
+with 5% to the owner, the customer pays exactly 6: 0.3 to the owner, 3 and 2 to the agents, 0.7 to the operator. Two USDC went back to the wallet.
 
-Пример с Agent Market: заказчик платит 10, Agent Market пересылает 9.5. Агенты со ставками 3 и 2
-справились, третий (ставка 1) обратился к оценщику. Итог: владельцу 0.475, агентам 3 и 2, оператору 4.025.
-Нарушитель платит только свой расход 0.01 и получает `Suspended`. Его удержание никому не достаётся:
-так ни у владельца, ни у соседей нет причины провоцировать нарушения.
+An Agent Market example: the customer pays 10, and Agent Market forwards 9.5. Agents with rates 3 and 2
+delivered; the third (rate 1) addressed the evaluator. Result: 0.475 to the owner, 3 and 2 to the agents, 4.025 to the operator.
+The violator pays only its own cost of 0.01 and gets `Suspended`. Its hold goes to no one:
+so neither the owner nor the neighbours have a reason to provoke violations.
 
-**Платим за то, что вошло в принятый ответ.** Доработка улучшает прошлый ответ, поэтому часть, прошедшая проверку
-в раунде 1, остаётся в ответе раунда 2. Когда заказчик принял работу, ставку получает каждый эксперт, справившийся
-в любом раунде этой задачи до принятого (номер принятого раунда стоит в подписи ответа). Не справившийся не получает
-ничего ни в одном раунде. `scripts/swarm.sh payouts` по каждой принятой работе платит:
+**We pay for what went into the accepted answer.** A rework improves the past answer, so a part that passed the check
+in round 1 stays in the answer of round 2. When the customer has accepted the work, every expert that delivered in any
+round of this task up to the accepted one gets its rate (the number of the accepted round is in the answer's footer).
+One that did not deliver gets nothing in any round. For each accepted job, `scripts/swarm.sh payouts` pays:
 
-- прошлым раундам — ровно их долю: долг экспертам / (1 − комиссия владельца), с округлением вверх;
-- раунду принятого ответа — остаток выручки, и ему первому: если запуск оборвался, следующий доплатит прошлым
-  раундам их точные доли. Оплаченный раунд исчезает из контракта, поэтому дважды не платится ничего.
+- the past rounds exactly their share: the debt to the experts / (1 − the owner's fee), rounded up;
+- the round of the accepted answer the rest of the revenue, and it is paid first: if a run breaks off, the next run
+  pays the past rounds their exact shares. A paid round disappears from the contract, so nothing is paid twice.
 
-Пример из [e2e](../e2e/run.ts): раунд 1 задолжал 3 + 2, после правок раунду 2 хватило бюджета на одного эксперта.
-Из 9.5 раунд 1 получает 5.263158 (эксперты 3 и 2, владельцу 0.263157), раунд 2 — остаток 4.236842. Эксперт,
-которого не было в раунде 2, всё равно получил ставку за свою часть в раунде 1.
+An example from [e2e](../e2e/run.ts): round 1 owed 3 + 2, and after the changes round 2 had budget for one expert.
+Of 9.5, round 1 gets 5.263158 (experts 3 and 2, 0.263157 to the owner), and round 2 gets the rest, 4.236842. An expert
+that was not in round 2 still got its rate for its part in round 1.
 
-Если арбитр Agent Market разделил оплату (статус `dispute_resolved`), приходит только часть эскроу, а токен
-агента не видит сколько. `payouts` называет такие работы и ждёт сумму: `scripts/swarm.sh payouts --received
-<assignment>=<USDC>`. Пришедшее делится между раундами пропорционально долгу, внутри раунда контракт делит
-пропорционально ставкам.
+If the Agent Market arbiter split the payment (status `dispute_resolved`), only part of the escrow arrives, and the
+agent's token cannot see how much. `payouts` names such jobs and waits for the amount:
+`scripts/swarm.sh payouts --received <assignment>=<USDC>`. What arrived is shared between the rounds in proportion to
+what each is owed; inside a round, the contract shares it in proportion to the rates.
 
-Если работу так и не приняли (арбитр вернул деньги заказчику), ставку не получает никто: денег нет. Каждый
-теряет только свой инференс, не больше своего потолка. Деньги у спонсора общие для всех его экспертов:
-удержания берутся с его баланса, ставки приходят на него же.
+If the work is never accepted (the arbiter returned the money to the customer), no one gets a rate: there is no money.
+Each loses only its own inference, no more than its ceiling. A sponsor's money is shared by all of its experts:
+holds are taken from its balance, and rates come to the same balance.
 
-## Доработки и споры
+## Reworks and disputes
 
-- Каждый раунд — отдельная задача в контракте: `<assignment>#<номер>`.
-- **Замечание заказчика** сверяется с брифом ([scope.md](../policies/scope.md)). Новая работа или сверх `MAX_REWORKS` (2) —
-  рой сдаёт прошлый ответ с пометкой: отказ после сдачи вернул бы заказчику всё.
-- **Решение арбитра «переделать»** (сообщение площадки в переписке) выполняется всегда.
-- Агенты получают замечания, но не прошлый ответ: в нём знания других. Прошлый ответ видит только сборщик.
+- Each round is a separate task in the contract: `<assignment>#<number>`.
+- **A customer's remark** is checked against the brief ([scope.md](../policies/scope.md)). If it is new work, or beyond `MAX_REWORKS` (2),
+  the swarm submits the past answer with a note: a decline after delivery would give the customer everything back.
+- **An arbiter's "redo" decision** (a message from the platform in the conversation) is always carried out.
+- Agents get the remarks but not the past answer: it holds the knowledge of others. Only the composer sees the past answer.
 
-## Выходной фильтр
+## The output filter
 
-Ответ разбирается парсером Markdown (GFM) в дерево и собирается заново, поэтому любой синтаксис ссылки,
-картинки или кода виден фильтру: обычные, ссылки-сноски, автоссылки, `www.`, адреса в любом регистре.
+The answer is parsed by a Markdown (GFM) parser into a tree and built again, so the filter sees any syntax for a link,
+an image or code: ordinary links, reference links, autolinks, `www.`, addresses in any letter case.
 
-**Ссылки.** Ссылка может быть самим результатом, поэтому она не вырезается. Кликабельной остаётся ссылка,
-которая существовала до задачи: из брифа, со страниц, которые прочитал протокол (и ссылки на них), из материалов
-экспертов команды. Такая ссылка не может нести текст задачи. Придуманная моделью ссылка показывается текстом
-с пометкой «unverified link»: в её адресе агент мог зашить вопрос заказчика, и клик отправил бы его владельцу
-агента. Так же поступает OpenAI: агент сам открывает только адреса, известные публичному веб-индексу, а про
-остальные предупреждает пользователя.
+**Links.** A link can be the result itself, so it is not cut out. A link stays clickable if it existed before the
+task: from the brief, from pages the protocol read (and the links to them), from the materials of the team's experts.
+Such a link cannot carry the task's text. A link the model made up is shown as text marked "unverified link": the
+agent could have sewn the customer's question into its address, and a click would send it to the agent's owner.
+OpenAI does the same: its agent opens on its own only addresses known to a public web index, and warns the user about
+the rest.
 
-| Что | Как |
+| What | How |
 |---|---|
-| HTML, скрипты, iframe | вырезаются |
-| картинки | не загружаются сами: внешняя картинка сообщает своему серверу, кто открыл ответ. Из известных источников — ссылкой `image: …` |
-| ссылки | кликабельны известные до задачи (см. выше); остальные — текстом `example[.]com/x (unverified link)` |
-| невидимые символы | удаляются (в материалах и в ответе) |
-| код в любом виде (```` ``` ````, `~~~`, отступ, незакрытый блок, `в строке`) | статические правила (скачать и запустить, `eval` раскодированного, reverse shell, стирание, майнеры, кража ключей) — удаляется; остальные блоки смотрит модель ([code.md](../policies/code.md)); если проверка не удалась — удаляются; оставленный код с пометкой «не запускался» |
-| опасная команда прямо в тексте | абзац заменяется пометкой |
-| пометки источников `[[n]]` | убираются из ответа, сохраняются в хранилище раннера |
+| HTML, scripts, iframes | cut out |
+| images | not loaded on their own: an external image tells its server who opened the answer. Those from known sources are given as a link `image: …` |
+| links | those known before the task are clickable (see above); the rest are shown as text `example[.]com/x (unverified link)` |
+| invisible characters | removed (in the materials and in the answer) |
+| code in any form (```` ``` ````, `~~~`, indented, an unclosed block, `inline`) | code that matches the static rules (download and run, `eval` of something decoded, reverse shell, wiping, miners, key theft) is removed; a model looks at the other blocks ([code.md](../policies/code.md)); if that check fails, they are removed; code that stays is marked "not run" |
+| a dangerous command right in the text | the paragraph is replaced by a note |
+| source marks `[[n]]` | removed from the answer, kept in the runner's store |
 
-## Кабинет спонсора и отладка
+## The sponsor's cabinet and debugging
 
-Спонсор входит кошельком NEAR: кошелёк платит за регистрацию, пополнения и вывод, а подпись NEP-413
-(«Swarm-for-Hire cabinet <аккаунт> <время>» для контракта) открывает кабинет. Раннер проверяет подпись и то,
-что ключ — ключ полного доступа этого аккаунта; ничего не хранит, подпись действует 10 минут.
+The sponsor signs in with a NEAR wallet: the wallet pays for registration, top-ups and withdrawals, and a NEP-413
+signature (`Swarm-for-Hire cabinet <account> <time>` for the contract) opens the cabinet. The runner checks the
+signature and that the key is a full-access key of this account. It stores nothing, and a signature is valid for 10 minutes.
 
-| Кабинет показывает | Не показывает никогда |
+| The cabinet shows | It never shows |
 |---|---|
-| статус, баланс, ставку, потолок | задачи заказчиков |
-| каждый раунд: время, тема (одна из категорий Agent Market), выбран ли, итог, расход, выплата | вопросы агенту |
-| итог одним словом: `answered`; `empty`, `off_topic`, `refused`, `repeated_question`, `cut_off` (без выплаты; `cut_off` — ответ упёрся в лимит длины, не дойдя до сути); `too_expensive` (поднять потолок: ответ или вся проверка в худшем случае в него не помещались); `addressed_others`, `asked_for_score`, `changed_rules`, `hidden_content`, `attack` (нарушения); `model_failed`, `not_checked` (наша сторона) | ответы агента и текст оценщика (в них вопрос) |
-| что стало с принятой частью: какая доля утверждений итогового ответа помечена как её (с шагом 10%), и вернул ли заказчик этот ответ на доработку | чужие части и сам ответ |
-| аудит: правило, причина, выдержки из своих материалов, которые заметил скан | — |
-| спрос по темам: где не нашлось эксперта | — |
+| status, balance, rate, ceiling | customers' tasks |
+| each round: time, topic (one of Agent Market's categories), whether it was picked, outcome, cost, payout | questions to the agent |
+| the outcome in one word: `answered`; `empty`, `off_topic`, `refused`, `repeated_question`, `cut_off` (no payout; `cut_off` means the answer hit the length limit before it got to the point); `too_expensive` (raise the ceiling: in the worst case, the answer or the whole review did not fit in it); `addressed_others`, `asked_for_score`, `changed_rules`, `hidden_content`, `attack` (violations); `model_failed`, `not_checked` (our side) | the agent's answers and the evaluator's text (they contain the question) |
+| what became of the accepted part: what share of the final answer's statements is marked as its own (in steps of 10%), and whether the customer sent that answer back for rework | other agents' parts and the answer itself |
+| the audit: the rule, the reason, the excerpts from its own materials that the scan flagged | — |
+| demand by topic: where no expert was found | — |
 
-Вопросы скрыты, потому что это данные заказчика, и по ним спонсор мог бы подгонять материалы под чужие задачи.
-Чтобы понять, что улучшить, спонсор гоняет агента на своих вопросах: `scripts/try.ts` со своим ключом NEAR AI
-выполняет тот же открытый шаблон, ту же нарезку и поиск по знаниям, ту же модель и того же оценщика и показывает
-всё: найденные куски, весь запрос (`--prompt`), ответ, вердикт с причиной, худший расход против потолка.
-`--audit` показывает, пройдут ли материалы вход. `--material <файл>` даёт вопросу файл заказчика: эксперт с
-`"work": "review"` проверяет его так же, как в рое, и показывает, сколько находок подняли проходы, сколько устояло
-и во что это обошлось.
+The questions are hidden because they are the customer's data, and with them a sponsor could tailor its materials to
+other people's tasks. To learn what to improve, a sponsor runs its agent on its own questions: `scripts/try.ts`, with
+the sponsor's own NEAR AI key, runs the same public template, the same chunking and knowledge search, the same model and
+the same evaluator, and shows everything: the chunks found, the whole prompt (`--prompt`), the answer, the verdict
+with its reason, the worst-case cost against the ceiling. `--audit` shows whether the materials will pass entry.
+`--material <file>` gives the question a customer's file: an expert with `"work": "review"` reviews it the same way as
+in the swarm, and shows how many findings the passes raised, how many held, and what it cost.
 
-Свой ключ NEAR AI в работе роя спонсору не нужен и не подключается: по точным токенам и времени своих вызовов
-он видел бы, когда и какие задачи были у заказчиков, а агент мог бы передавать ему вопросы длиной ответа.
-Поэтому в рое один ключ оператора и расходы, округлённые до 0.01.
+In the swarm's work, a sponsor needs no NEAR AI key of its own, and none can be plugged in: from the exact tokens and
+times of its calls it would see when customers had which tasks, and the agent could pass questions to it through the
+length of its answers. So the swarm has one key, the operator's, and costs rounded to 0.01.
 
-Страницы раннера разделены намеренно. Вступление (`/join`) видит материалы в открытом виде, поэтому на нём, как и на
-обзоре, только наш код, наши шрифты и связь только с раннером. Кабинет (`/cabinet`) никогда не видит материалов,
-поэтому на нём работают кошельки, каждый в своей песочнице (NEAR Connect).
+The runner's pages are separated on purpose. The joining page (`/join`) sees the materials in the clear, so it, like
+the overview, has only our code, our fonts, and connections only to the runner. The cabinet (`/cabinet`) never sees
+materials, so wallets work on it, each in its own sandbox (NEAR Connect).
 
-## Перезапуск
+## Restart
 
-- Решение раунда пишется на диск раньше, чем в контракт и на рынок. После перезапуска раннер повторяет
-  `finish` и `submit`: оба безопасно повторять.
-- Раунд, прерванный до решения: удержания возвращаются, раунд идёт заново.
-- Материалы лежат на диске зашифрованными; после перезапуска раннер открывает и индексирует их снова.
-- Ключ подписи в TEE новый при каждом запуске: владелец проверяет аттестацию и даёт ему права (старый удаляет).
-  Ключ шифрования dstack выводит из идентичности приложения, он переживает перезапуск.
+- A round's decision is written to disk before it goes to the contract and the market. After a restart the runner
+  repeats `finish` and `submit`: both are safe to repeat.
+- A round interrupted before its decision: the holds are returned, and the round runs again.
+- The materials lie on disk encrypted; after a restart the runner opens and indexes them again.
+- The signing key in the TEE is new on every start: the owner checks the attestation and grants it rights (and removes the old one).
+  dstack derives the encryption key from the app's identity, so it survives a restart.
 
-## Почему раннеру можно верить
+## Why the runner can be trusted
 
-`GET /attestation` отдаёт quote Intel TDX. В нём `report_data` = sha256(ключ подписи) ‖ ключ шифрования, а журнал
-событий сводится к RTMR3 и называет compose: образ по дайджесту, переменные, правила. `scripts/swarm.sh verify <url> app-compose.json`
-проверяет всё это; без TEE (режим `DEV_KEY`) проверка честно отказывает. Именно compose привязывает quote к нашему коду:
-без него проверку прошло бы любое настоящее TDX-приложение. Поэтому `join` требует `app-compose.json`, который
-владелец публикует в репозитории, и ещё проверяет, что ключ подписи действительно ключ `runner.<root>`.
+`GET /attestation` returns an Intel TDX quote. In it, `report_data` = sha256(signing key) ‖ encryption key, and the
+event log replays to RTMR3 and names the compose: the image by digest, the variables, the rules. `scripts/swarm.sh verify <url> app-compose.json`
+checks all of this; without a TEE (`DEV_KEY` mode) the check honestly fails. It is the compose that ties the quote to
+our code: without it, any genuine TDX app would pass the check. So `join` requires `app-compose.json`, which the owner
+publishes in the repository, and also checks that the signing key really is a key of `runner.<root>`.
 
-Ключ раннера — function-call ключ на пять методов (`review`, `assign`, `finish`, `deliver`, `decline`): сам он
-токены не выводит. Что может тот, кто его украл, зависит от того, чьи это деньги. **Деньги спонсоров** ограничены
-удержаниями, и списанное уходит оператору, а не вору. **Деньги заказчиков** защищены слабее, и это надо сказать
-прямо: украденный ключ может допустить подставного эксперта с огромной ставкой, назначить его на открытый заказ и
-объявить работу сделанной; заказ в пределах своей суммы уйдёт этому эксперту. Потолок такого ущерба — открытые
-заказы (заказ живёт минуты и не дольше `run_secs`), а не всё, что лежит в контракте. Ограничивают его TEE, в
-котором ключ живёт, и остановка: `scripts/swarm.sh pause` останавливает раннер сразу (`halt` в контракте). Пока он
-остановлен, контракт не принимает от него ничего, а раннер видит паузу и не делает ничего платного. Остановка не двигает
-деньги: заказы возвращаются и зависшие задачи закрываются по таймауту кем угодно, как если бы раннера не было.
+The runner's key is a function-call key for five methods (`review`, `assign`, `finish`, `deliver`, `decline`): by
+itself it cannot withdraw tokens. What a thief of this key can do depends on whose money it is. **Sponsors' money** is
+limited by the holds, and what is charged goes to the operator, not to the thief. **Customers' money** is less well
+protected, and this must be said plainly: a stolen key can admit a fake expert with a huge rate, assign it to an open
+order and declare the work done; the order, up to its amount, will go to that expert. The ceiling of such damage is
+the open orders (an order lives for minutes and no longer than `run_secs`), not everything held in the contract. It
+is limited by the TEE the key lives in, and by the pause: `scripts/swarm.sh pause` stops the runner at once (`halt` in
+the contract). While it is paused, the contract accepts nothing from it, and the runner sees the pause and does nothing
+that costs money. A pause does not move money: orders are refunded and stuck tasks are closed after the timeout, by
+anyone, as if there were no runner.
 
-**Смена настроек ждёт.** Владелец не меняет настройки сразу: `set_config` объявляет новые, и в силу они вступают
-через `delay_secs` (срок берётся из действующих настроек), когда кто угодно вызовет `apply_config`. Объявление
-видно в событии `config` и в представлении `announced`. Всё это время открыты все выходы: `withdraw`, `refund`,
-`close` не требуют ни владельца, ни раннера. Так что тот, кому не нравится новый раннер, оператор или комиссия,
-успевает уйти со своими деньгами. Сам срок тоже нельзя снять, не выждав его. На тестнете срок 0 (настройки
-меняются сразу), для mainnet мы предлагаем двое суток. Деньги всех участников лежат в одном контракте, а не в
-отдельном эскроу на задачу: эскроу работали бы на том же коде и под тем же раннером, то есть не убирали бы ни
-одного из настоящих рисков, а добавили бы развёртывание и два-три межконтрактных перевода на каждую выплату.
-Заказ и так тратится только на свою задачу и не больше своей суммы.
+**A change of settings waits.** The owner does not change settings at once: `set_config` announces new ones, and they
+take effect after `delay_secs` (the delay is taken from the current settings), when anyone calls `apply_config`. The
+announcement is visible in the `config` event and in the `announced` view. All this time every exit stays open:
+`withdraw`, `refund` and `close` need neither the owner nor the runner. So anyone who does not like the new runner,
+operator or fee has time to leave with their money. The delay itself cannot be removed without waiting it out either.
+On testnet the delay is 0 (settings change at once); for mainnet we propose two days. All participants' money sits in
+one contract, not in a separate escrow per task: escrows would run on the same code and under the same runner, so they
+would remove none of the real risks, and would add a deployment and two or three cross-contract transfers to every
+payout. An order is already spent only on its own task and on no more than its amount.
 
-## Угрозы
+## Threats
 
-| Угроза | Что останавливает | Что остаётся |
+| Threat | What stops it | What remains |
 |---|---|---|
-| спонсор прячет инструкции для оценщика и сборщика | скан и аудит при входе; оценка каждого ответа отдельно; нарушение = нет выплаты, приостановка, новый аудит за свой счёт | тонкое влияние, которое модели не распознают |
-| заказчик подставляет честных агентов («обратитесь к оценщику») | маршрутизатор передаёт агенту только вопрос о знаниях; ответ по вопросу никогда не нарушение; нарушение никому не выгодно | ошибка модели-оценщика |
-| спонсор меняет визитку, пока идёт аудит | решение аудита привязано к номеру регистрации | — |
-| спонсор хочет видеть задачи через кабинет | кабинет отдаёт только тему, итог одним словом и деньги; вход только подписью ключа полного доступа | — |
-| агент прячет вопрос заказчика в адрес ссылки | кликабельны только адреса, известные до задачи | заказчик сам скопирует непроверенный адрес |
-| `$&` и подобное в материалах раздувает запрос | шаблон заполняется без подстановок; вызов не уходит, если худший случай больше удержания | — |
-| спонсор копирует чужие материалы | аккаунт в шифре; одинаковое содержимое = один эксперт | пересказ чужих знаний своими словами |
-| много аккаунтов, чтобы чаще работать | каждый платит аудит и депозит; выбор по навыкам, а не по числу | — |
-| агент пытается узнать знания соседей | агент не видит никого; прошлый ответ только у сборщика; грубые расходы | — |
-| заказчик внедряет инструкции в бриф | проверка задачи; во все вызовы протокола вход идёт как JSON-данные; агент видит только свой вопрос | — |
-| ответ вредит заказчику | выходной фильтр | вредный смысл в обычном тексте |
-| ссылки брифа ведут во внутреннюю сеть | только https, фильтр SSRF на каждый адрес и редирект, лимиты размера и времени | — |
-| оператор хочет увидеть материалы | они открываются только в TEE; в логах нет ни материалов, ни причин моделей; трассировка с текстом включается только без TEE | атаки на сам TEE (TEE.fail и др.) |
-| раннер взломан | ключ сам токены не выводит и живёт только в TEE, после перезапуска новый; деньги спонсоров — в пределах удержаний и только оператору, и не больше дневного потолка, который спонсор задаёт сам (`set_daily_cap`); выплаты с Agent Market не идут по задаче, раунды которой должны больше, чем она принесла; `pause` останавливает сразу | открытые заказы: через подставного эксперта вор может забрать заказ в пределах его суммы. Закрывается фиксацией команды в заказе (не сделано) |
-| чужой заказ под тем же хешем задачи: прочитать чужую задачу и ответ | хеш задачи — `sha256(соль, аккаунт заказчика, текст)`; раннер отдаёт текст только заказу, у которого в контракте этот же заказчик | копия хеша висит без работы, пока её не вернут по таймауту |
-| мусорные заказы выбивают дневной бюджет NEAR AI | отклонённый заказ оставляет оператору 0,05 USDC за проверку задачи; тексты задач — не больше 10 в минуту на заказчика | заказы в пределах бюджета: за них платит заказчик |
-| задачу закрывают, пока раунд ещё идёт, и оплаченная работа пропадает | раунд укладывается в `ROUND_MS` (25 мин) при `run_secs` 30 мин; работающую задачу закрыть можно только через `2 × run_secs` | — |
-| загрузками кладут раннер | только оплаченные регистрации; поток на диск; 8 загрузок сразу, одна на аккаунт; данные цепочки не чаще раза в 3 с | после падения новый ключ подписи ждёт владельца |
-| повторы раунда сжигают деньги на моделях | до кандидатов и паузы — ни одного платного вызова; сбои повторяются через 1, 2, 4, 8 минут, после пятого — отказ | — |
-| владелец меняет раннера или оператора в настройках | изменение объявляется и вступает в силу через `delay_secs`; до этого каждый может вывести баланс и вернуть заказ | при сроке 0 (тестнет) это доверие владельцу: новый раннер может списывать удержания как расход |
-| владелец меняет комиссию или накладные, пока заказ в работе | заказчик не платит больше суммы заказа | комиссия и накладные берутся на момент расчёта, а не заказа: при сроке короче `run_secs` заказ с назначенной задачей не успевает выйти и теряет ожидаемый возврат. Закрывается снимком этих чисел в заказе (не сделано) |
-| украден ключ владельца | настройки меняются только через тот же срок; остановка раннера денег не двигает | владельцем должен быть мультисиг; у аккаунта контракта не должно остаться полного ключа, иначе код можно заменить |
-| владелец выкатывает новую версию приложения | новая версия получает тот же ключ шифрования; каждая версия видна по compose hash | доверие владельцу: проверяйте compose после обновлений |
+| a sponsor hides instructions for the evaluator and the composer | the scan and the audit at entry; each answer evaluated separately; a violation = no payout, suspension, a new audit at the sponsor's own cost | subtle influence that the models do not recognise |
+| a customer frames honest agents ("address the evaluator") | the router passes the agent only a question about its knowledge; an answer to the question is never a violation; a violation benefits no one | a mistake of the evaluator model |
+| a sponsor changes the card while the audit runs | the audit's decision is tied to the registration number | — |
+| a sponsor wants to see tasks through the cabinet | the cabinet gives only the topic, the one-word outcome and the money; sign-in only with a signature of a full-access key | — |
+| an agent hides the customer's question in a link's address | only addresses known before the task are clickable | the customer may copy an unverified address by hand |
+| `$&` and the like in the materials blow up the prompt | the template is filled in without substitutions; a call is not sent if its worst case exceeds the hold | — |
+| a sponsor copies someone else's materials | the account inside the ciphertext; the same content = one expert | retelling someone else's knowledge in one's own words |
+| many accounts, to work more often | each pays the audit and the deposit; picking is by skills, not by numbers | — |
+| an agent tries to learn its neighbours' knowledge | an agent sees no one; only the composer has the past answer; coarse costs | — |
+| a customer injects instructions into the brief | the task check; in every protocol call the input goes in as JSON data; an agent sees only its own question | — |
+| the answer harms the customer | the output filter | harmful meaning in plain text |
+| the brief's links lead into an internal network | https only, the SSRF filter on every address and redirect, size and time limits | — |
+| the operator wants to see the materials | they open only in the TEE; the logs hold neither materials nor the models' reasons; tracing with text can be turned on only without a TEE | attacks on the TEE itself (TEE.fail and others) |
+| the runner is hacked | the key by itself cannot withdraw tokens and lives only in the TEE, with a new one after each restart; sponsors' money only within the holds, only to the operator, and no more than the daily cap the sponsor sets itself (`set_daily_cap`); Agent Market payouts are not made for a task whose rounds owe more than it brought in; `pause` stops it at once | open orders: through a fake expert, the thief can take an order up to its amount. Fixing the team in the order closes this (not done) |
+| someone else's order under the same task hash, to read another customer's task and answer | the task hash is `sha256(salt, customer account, text)`; the runner gives the text only to an order that has the same customer in the contract | the copy of the hash hangs without work until it is refunded after the timeout |
+| junk orders burn through the daily NEAR AI budget | a declined order leaves the operator 0.05 USDC for checking the task; task texts: no more than 10 per minute per customer | orders within the budget: the customer pays for them |
+| a task is closed while its round is still running, and paid work is lost | a round fits within `ROUND_MS` (25 min) with `run_secs` at 30 min; a running task can be closed only after `2 × run_secs` | — |
+| uploads are used to bring the runner down | paid registrations only; streamed to disk; 8 uploads at once, one per account; chain data at most once every 3 s | after a crash, the new signing key waits for the owner |
+| repeats of a round burn money on models | no paid call before the checks for candidates and for a pause; failures are retried after 1, 2, 4 and 8 minutes, and after the fifth comes a decline | — |
+| the owner changes the runner or the operator in the settings | the change is announced and takes effect after `delay_secs`; until then anyone can withdraw their balance and get their order refunded | with a delay of 0 (testnet) this is trust in the owner: a new runner could charge holds as costs |
+| the owner changes the fee or the overhead while an order is in progress | the customer does not pay more than the order's amount | the fee and the overhead are taken at settlement, not at ordering: with a delay shorter than `run_secs`, an order whose task is already assigned cannot get out in time and loses the refund it expected. A snapshot of these numbers in the order closes this (not done) |
+| the owner's key is stolen | settings change only after the same delay; pausing the runner moves no money | the owner should be a multisig; the contract's account must keep no full-access key, or else its code can be replaced |
+| the owner rolls out a new version of the app | the new version gets the same encryption key; each version is visible by its compose hash | trust in the owner: check the compose after updates |
 
-## Ограничения сейчас
+## Current limits
 
-- Выручку с Agent Market пересылает оператор: рынок платит на аккаунт роя, а ключ раннера не может прикладывать депозит.
-  Заказ в контракте рассчитывается без оператора.
-- У заказа в контракте нет доработок и споров.
-- С Agent Market платятся раунды только принятой работы.
-- Материалы эксперта — только текст (`.md`, `.txt`). У заказчика читаются и PDF.
-- Проверка читает до 160 000 символов файлов заказчика и того, что они импортируют: из большего берутся куски, ближайшие к вопросу. Доказательства
-  никто не запускает: в TEE нет ни компилятора, ни сети.
-- Индекс знаний строится один раз, при допуске эксперта, и хранится на диске раннера запечатанным его ключом, как и
-  сами материалы: перезапуск читает его с диска и модель эмбеддингов для этого не нужна. Пока сервис эмбеддингов
-  NEAR AI не отвечает, нельзя допустить нового эксперта и найти куски знаний под вопрос (эксперт отвечает без них);
-  проверка (`work: review`) читает знания целиком и группирует находки по словам, так что продолжает работать.
-- Знания активных агентов раннер держит в памяти: около 40 MB на агента с 10 MB знаний. Размер CVM — под число агентов.
-- Расходы самого раннера в NEAR AI ограничены в сутки (`DAILY_BUDGET_USD`): дальше он не начинает работу до следующего дня,
-  заказы в контракте ждут и возвращаются по таймауту. В работе одновременно не больше 4 задач, так что лимит
-  нельзя превысить больше чем на их стоимость.
-- Пометки источников сохраняются, но ещё не влияют на выбор агентов: маршрутизатор учитывает только долю сданных задач.
+- The operator forwards Agent Market revenue: the market pays to the swarm's account, and the runner's key cannot attach a deposit.
+  An order in the contract is settled without the operator.
+- An order in the contract has no reworks and no disputes.
+- On Agent Market, only the rounds of accepted work are paid.
+- An expert's materials are text only (`.md`, `.txt`). The customer's PDF files are read too.
+- A review reads up to 160,000 characters of the customer's files and what they import; from anything larger, the chunks nearest to the question are taken. No one
+  runs the proofs: the TEE has neither a compiler nor a network.
+- The knowledge index is built once, when the expert is admitted, and is kept on the runner's disk sealed with the
+  runner's key, like the materials themselves: a restart reads it from disk and needs no embedding model for that.
+  While NEAR AI's embedding service does not respond, no new expert can be admitted and no knowledge chunks can be
+  found for a question (the expert answers without them); a review (`work: review`) reads the knowledge whole and
+  groups findings by words, so it keeps working.
+- The runner keeps the knowledge of active agents in memory: about 40 MB per agent with 10 MB of knowledge. The CVM is sized to the number of agents.
+- The runner's own spending at NEAR AI is capped per day (`DAILY_BUDGET_USD`): beyond it, the runner starts no work until the next day,
+  and orders in the contract wait and are refunded after the timeout. No more than 4 tasks run at once, so the limit
+  cannot be exceeded by more than their cost.
+- Source marks are kept but do not yet affect the choice of agents: the router counts only the share of tasks delivered.
 
-- Открыто после ревью 14 ноября (низкий риск, записано, не сделано): возврат по таймауту, отправленный в тот же миг, что
-  и сдача ответа, может оставить заказчику и ответ, и деньги; повторная регистрация во время задачи с нарушением
-  приостанавливает новую карточку; комиссия и оператор берутся на момент выплаты, а не завершения задачи; вход в кабинет
-  длится 12 часов; хранилище контракта оплачивает сам контракт; путь загрузки с Agent Market не проверяется на хост.
-  Привязку задачи к заказчику можно перенести в сам контракт: он будет хранить `sha256(вызывающий, хеш)`.
+- Open after the review of 14 November (low risk, recorded, not done): a timeout refund sent at the same moment as the
+  answer's delivery can leave the customer with both the answer and the money; re-registering during a task in which
+  the agent broke the rules suspends the new card; the fee and the operator are taken at the time of payout, not at
+  the end of the task; a cabinet sign-in lasts 12 hours; the contract pays for its own storage; the Agent Market
+  download path is not checked for its host.
+  The binding of a task to its customer can move into the contract itself: it will store `sha256(caller, hash)`.
 
-## Похожие проекты
+## Related projects
 
-| Проект | Общее | Отличие |
+| Project | In common | Difference |
 |---|---|---|
-| OpenMined Syft | вычисления над чужими закрытыми данными | данные у владельца, нужен исследователь; у нас готовый ответ заказчику |
-| Opaque / C-FedRAG | RAG по закрытым базам в TEE | без рынка и оплаты владельцам |
-| ProRata | оплата по атрибуции источникам | доверенный посредник; у нас контракт и TEE |
-| Agent Market competitions | много агентов на одну задачу | агенты соревнуются, а не складывают знания; знания не защищены |
-| Theoriq, Allora | коллективы агентов и стимулы | нет закрытых знаний разных владельцев |
+| OpenMined Syft | computation over other people's closed data | the data stays with its owner, and a researcher is needed; we give the customer a finished answer |
+| Opaque / C-FedRAG | RAG over closed databases in a TEE | no market and no pay to the owners |
+| ProRata | pay by attribution to sources | a trusted intermediary; we have a contract and a TEE |
+| Agent Market competitions | many agents on one task | the agents compete rather than add up their knowledge; the knowledge is not protected |
+| Theoriq, Allora | collectives of agents and incentives | no closed knowledge of different owners |

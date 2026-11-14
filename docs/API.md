@@ -1,128 +1,128 @@
 # API
 
-Суммы — строки в базовых единицах USDC (6 знаков): `"1000000"` = 1 USDC.
+Amounts are strings in USDC base units (6 decimals): `"1000000"` = 1 USDC.
 
-## Контракт
+## Contract
 
-### Деньги в контракт: `ft_transfer_call` на USDC
+### Funds into the contract: `ft_transfer_call` on USDC
 
-`receiver_id` = контракт, `msg` — одна из строк JSON. Если вызов не прошёл, токен возвращает деньги отправителю.
+`receiver_id` = the contract, `msg` = one of the JSON strings below. If the call fails, the token returns the funds to the sender.
 
-| `msg` | Кто | Что |
+| `msg` | Who | What |
 |---|---|---|
-| `{"Register":{"name","skills","rate","max_cost","materials_hash","size_mb"}}` | спонсор | эксперт `<аккаунт>/<name>` (name: 1–32 из a-z, 0-9, -): визитка, `Pending`. Плата за аудит оператору, остальное на баланс спонсора. Повторная регистрация того же имени заменяет визитку и снова `Pending` |
-| `{"TopUp":{"agent"}}` | любой | пополнить баланс владельца эксперта `agent` (`<аккаунт>/<имя>`) |
-| `{"Revenue":{"job"}}` | оператор | выручка завершённого раунда: комиссия, выплаты, остаток оператору; раунд удаляется |
-| `{"Order":{"brief_hash"}}` | заказчик | заказ: бюджет и sha256 от `соль + "\n" + текст задачи`. Сам текст в контракте не хранится: заказчик отдаёт его раннеру (`POST /brief`). Id `order-<n>` в событии `order`; сумма лежит в контракте до расчёта. Кто хочет сделать задачу публичной, добавляет в то же сообщение `salt` и `brief`: контракт их не читает, они остаются в транзакции |
+| `{"Register":{"name","skills","rate","max_cost","materials_hash","size_mb"}}` | sponsor | expert `<account>/<name>` (name: 1–32 characters from a-z, 0-9, -): its card, `Pending`. The audit fee goes to the operator, the rest to the sponsor's balance. Registering the same name again replaces the card and sets it to `Pending` again |
+| `{"TopUp":{"agent"}}` | anyone | top up the balance of the owner of expert `agent` (`<account>/<name>`) |
+| `{"Revenue":{"job"}}` | operator | revenue of a finished round: fee, payouts, the remainder to the operator; the round is deleted |
+| `{"Order":{"brief_hash"}}` | customer | an order: the budget and the sha256 of `salt + "\n" + task text`. The text itself is not stored in the contract: the customer gives it to the runner (`POST /brief`). The id `order-<n>` is in the `order` event; the amount stays in the contract until settlement. A customer who wants to make the task public adds `salt` and `brief` to the same message: the contract does not read them, they stay in the transaction |
 
-Ограничения: `skills` 1–500 байт, `materials_hash` — sha256 в hex, `size_mb` 1–10, `max_cost` > 0, сумма ≥ плата за аудит + `min_deposit`.
-Заказ: сумма больше `overhead`, иначе она не оплатит ни одного эксперта.
+Limits: `skills` 1–500 bytes, `materials_hash` is a sha256 in hex, `size_mb` 1–10, `max_cost` > 0, amount ≥ audit fee + `min_deposit`.
+Order: the amount must be greater than `overhead`, otherwise it cannot pay any expert.
 
-### Методы
+### Methods
 
-| Метод | Кто | Что |
+| Method | Who | What |
 |---|---|---|
-| `review(agent, registration, allow)` | раннер | `Pending` с этим номером регистрации → `Active` или `Suspended` |
-| `assign(job, agents)` | раннер | новый раунд: id 1–64 символа, 1–32 разных эксперта (`<аккаунт>/<имя>`), каждый `Active`, у владельца баланс ≥ `max_cost`; удерживает `max_cost` с баланса владельца, записывает `rate` |
-| `finish(job, outcomes)` | раннер | `outcomes[i] = {cost, delivered, violation}` по порядку агентов; `cost` ≤ удержания и кратен 0.01 (или равен удержанию) |
-| `deliver(order, answer_hash)` | раннер | ответ на заказ у заказчика, `answer_hash` — его sha256. Раунд с id заказа говорит, кто справился. С заказа берётся `ceil((ставки справившихся + overhead + overhead_per_agent × их число) / (1 − fee_bps))`, но не больше бюджета: комиссия владельцу, ставки экспертам, остаток оператору. Что не потрачено, сразу уходит заказчику на кошелёк |
-| `decline(order)` | раннер | рой не берёт заказ: вся сумма уходит заказчику. Причину знает только заказчик (`POST /orders`): в цепочке она выдала бы, о чём задача |
-| `refund(order)` | любой | заказ без ответа после `run_secs`: вся сумма уходит заказчику |
-| `close(job)` | любой | незавершённый раунд после `run_secs` (удержания назад) или неоплаченный после `pay_secs` |
-| `withdraw(amount?)` | любой | вывести свой баланс, весь без `amount`. Возврат заказчику приходит сам; сюда он попадает, только если перевод не прошёл |
-| `set_config(cfg)` | владелец | `fee_bps` ≤ 2000, таймауты ≤ 90 дней |
+| `review(agent, registration, allow)` | runner | `Pending` with this registration number → `Active` or `Suspended` |
+| `assign(job, agents)` | runner | a new round: id of 1–64 characters, 1–32 distinct experts (`<account>/<name>`), each `Active`, each owner's balance ≥ `max_cost`; holds `max_cost` from the owner's balance, records `rate` |
+| `finish(job, outcomes)` | runner | `outcomes[i] = {cost, delivered, violation}` in the order of the agents; `cost` ≤ the hold and a multiple of 0.01 (or equal to the hold) |
+| `deliver(order, answer_hash)` | runner | the customer has the answer to the order; `answer_hash` is its sha256. The round with the order's id says who delivered. The order is charged `ceil((rates of those who delivered + overhead + overhead_per_agent × their number) / (1 − fee_bps))`, but no more than the budget: the fee to the contract owner, the rates to the experts, the remainder to the operator. What is not spent goes straight back to the customer's wallet |
+| `decline(order)` | runner | the swarm does not take the order: the whole amount goes to the customer. Only the customer sees the reason (`POST /orders`): on chain it would reveal what the task is about |
+| `refund(order)` | anyone | an order with no answer after `run_secs`: the whole amount goes to the customer |
+| `close(job)` | anyone | a round not finished after `run_secs` (the holds are returned) or not paid after `pay_secs` |
+| `withdraw(amount?)` | anyone | withdraw your own balance; all of it if `amount` is omitted. A refund to a customer arrives on its own; it lands here only if the transfer failed |
+| `set_config(cfg)` | owner | `fee_bps` ≤ 2000, timeouts ≤ 90 days |
 
-### Просмотр
+### Views
 
-| Метод | Возвращает |
+| Method | Returns |
 |---|---|
 | `config()` | `{owner, runner, operator, fee_bps, audit_base, audit_per_mb, min_deposit, overhead, overhead_per_agent, run_secs, pay_secs}` |
-| `token()` | аккаунт USDC |
-| `agent(id)` | `{id, sponsor, skills, rate, max_cost, materials_hash, size_mb, status, registration, balance}` или `null`; `balance` — спонсора |
-| `agents(from, limit)` | список, `limit` ≤ 100 |
-| `job(job)` | `{at, finished, slots: [{agent, sponsor, hold, pay}]}` или `null`; `finished` — удержания рассчитаны, задача ждёт денег заказчика |
-| `order(id)` | открытый заказ `{customer, amount, brief_hash, at}` или `null` |
-| `orders(from, limit)` | открытые заказы `{id, customer, amount, brief_hash, at}`, `limit` ≤ 100 |
-| `balance(account)` | свободный баланс |
-| `owed()` | всё, что контракт должен (балансы, удержания, открытые заказы); не больше его баланса USDC |
+| `token()` | the USDC account |
+| `agent(id)` | `{id, sponsor, skills, rate, max_cost, materials_hash, size_mb, status, registration, balance}` or `null`; `balance` is the sponsor's |
+| `agents(from, limit)` | a list, `limit` ≤ 100 |
+| `job(job)` | `{at, finished, slots: [{agent, sponsor, hold, pay}]}` or `null`; `finished` means the holds are settled and the job is waiting for the customer's money |
+| `order(id)` | an open order `{customer, amount, brief_hash, at}` or `null` |
+| `orders(from, limit)` | open orders `{id, customer, amount, brief_hash, at}`, `limit` ≤ 100 |
+| `balance(account)` | the free balance |
+| `owed()` | everything the contract owes (balances, holds, open orders); never more than its USDC balance |
 
-### События (NEP-297, `standard: "swarm"`, `version: "3.0.0"`)
+### Events (NEP-297, `standard: "swarm"`, `version: "3.0.0"`)
 
 `register {agent, materials_hash, rate, max_cost, audit_fee}`, `top_up`, `review {agent, registration, allow}`, `assign`, `finish {job, delivered}`,
 `revenue {job, amount, fee, paid, operator}`, `close`, `order {order, customer, amount, brief_hash}`,
 `deliver {order, customer, answer_hash, charge, refund}`, `refund {order, customer, amount, why: declined | timeout}`,
-`sent {to, amount, ok}` — токены ушли из контракта (вывод или возврат заказчику); `ok: false` — токен их не принял, они на балансе получателя.
+`sent {to, amount, ok}`: tokens left the contract (a withdrawal or a refund to a customer); `ok: false` means the token did not accept them, and they are on the recipient's balance.
 
-### Ошибки
+### Errors
 
 `wrong token`, `bad msg`, `skills empty or too long`, `bad materials`, `max_cost must be positive`, `deposit too small`,
 `no agent`, `stale review`, `bad job id`, `bad team size`, `duplicate agent`, `agent not ready`, `no job`, `bad outcomes`,
 `cost above hold`, `cost off the step`, `job not finished`, `revenue comes from the operator`, `too early`, `bad amount`,
 `not allowed`, `fee too high`, `timeout too long`, `bad brief hash`, `order too small`, `no order`, `bad answer hash`, `job running`.
 
-## HTTP API раннера
+## Runner HTTP API
 
-| Запрос | Ответ |
+| Request | Response |
 |---|---|
-| `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; без TEE `{dev: true, publicKey, sealKey, policies}` |
-| `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; цены моделей в USD за 1M токенов, живые из NEAR AI. `limits` — из чего считается худший расход: одного ответа (`template_bytes`, `knowledge_bytes`, `public_bytes`, `max_out`, `lookup_bytes`, `lookup_out`) и проверки (`review`: число шагов `passes`, `checks`, `proofs` и у каждого байты шаблона, сколько ему дают и предел ответа) |
-| `GET /agents` | открытый каталог: активные эксперты `{id, sponsor, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` и `examples` — публичный профиль из запечатанных материалов, `checked` — его подтвердил аудит этой регистрации |
-| `POST /upload/<account>/<name>` | тело — зашифрованные байты. `200 {ok, hash}` (и если такие байты уже есть); `409` нет `Pending`-агента (раннер видит новую регистрацию за секунды — повторить) или не тот хэш; `413` больше заявленного; `429` занято, повторить позже |
-| `POST /cabinet` | тело `{accountId, publicKey, signature, message, nonce, callbackUrl?}` — подпись NEP-413 кошелька, `message` = `Swarm-for-Hire cabinet <account> <ISO время>`, `recipient` = контракт. `200 {account, balance, agents: [{…визитка, audit, rounds}]}`; `401` подпись не подходит или старше 12 часов |
-| `POST /brief` | тело `{salt, brief}`: соль (32 hex-символа) и текст задачи до 10 000 символов, до оплаты. `200 {hash}` — sha256 от `salt + "\n" + brief`; этот хеш заказчик кладёт в заказ. Раннер берёт заказ в работу, только когда текст с таким хешем у него есть. Текст без заказа забывается через два часа. `400` не та форма, `429` слишком часто |
-| `POST /orders` | тело — та же подпись NEP-413, что у `/cabinet`. `200 {account, balance, orders}`: заказы этого аккаунта в контракте, новые сверху. Открытый: `{id, amount, briefHash, brief, placed, state}`, где `state` — `no_brief` (текст до раннера не дошёл), `waiting` или `working`. Закрытый: `state: delivered` с `answer`, `answerHash` и `receipt {charge, refund, fee, paid, operator}` или `state: declined` с `why`. Чужих заказов и ответов не отдаёт |
-| `GET /demand` | `{<тема>: {served, no_expert, over_budget, refused}}` |
-| `GET /` | лендинг: зачем, три шага, живые цифры, планы для заказчиков, проверка раннера |
-| `GET /experts` | каталог экспертов и помощник брифа с оценкой цены. Здесь и на `/` только наш код и связь только с раннером |
-| `GET /app` | приложение эксперта: кошелёк (NEAR Connect, `npm run ui`, каждый кошелёк в песочнице без доступа к странице), шифрование в браузере, дашборд |
-| `GET /order` | заказ через контракт: задача, бюджет, оплата кошельком; свои заказы, ответы и расчёт |
-| `GET /health` | `{ok, state}`: `starting`, `waiting_for_key`, `ready`, `paused`, `out_of_budget` (дневной лимит NEAR AI исчерпан) |
+| `GET /attestation` | `{publicKey, sealKey, quote, event_log, policies}`; without a TEE `{dev: true, publicKey, sealKey, policies}` |
+| `GET /info` | `{contract, token, network, sealKey, models: [{id, in, out}], fees: {audit_base, audit_per_mb, min_deposit, fee_bps}, limits, stats: {active, pending}}`; model prices are in USD per 1M tokens, live from NEAR AI. `limits` are the inputs for the worst-case cost: of one answer (`template_bytes`, `knowledge_bytes`, `public_bytes`, `max_out`, `lookup_bytes`, `lookup_out`) and of a review (`review`: the number of steps `passes`, `checks`, `proofs`, and for each its template bytes, how much input it gets and its output limit) |
+| `GET /agents` | the public catalog: active experts `{id, sponsor, skills, topics, examples, checked, rate, picked, delivered, earned, last}`; `topics` and `examples` are the public profile from the sealed materials; `checked` means the audit of this registration confirmed it |
+| `POST /upload/<account>/<name>` | body: the encrypted bytes. `200 {ok, hash}` (also when these bytes are already stored); `409` no `Pending` agent (the runner sees a new registration within seconds, so retry) or the hash does not match; `413` larger than declared; `429` busy, retry later |
+| `POST /cabinet` | body `{accountId, publicKey, signature, message, nonce, callbackUrl?}`: a NEP-413 wallet signature, `message` = `Swarm-for-Hire cabinet <account> <ISO time>`, `recipient` = the contract. `200 {account, balance, agents: [{…card, audit, rounds}]}`; `401` the signature does not match or is older than 12 hours |
+| `POST /brief` | body `{salt, brief}`: the salt (32 hex characters) and the task text, up to 10,000 characters, sent before payment. `200 {hash}`: the sha256 of `salt + "\n" + brief`; the customer puts this hash in the order. The runner starts work on an order only when it has the text with that hash. Text with no order is forgotten after two hours. `400` wrong shape, `429` too many requests |
+| `POST /orders` | body: the same NEP-413 signature as for `/cabinet`. `200 {account, balance, orders}`: this account's orders in the contract, newest first. Open: `{id, amount, briefHash, brief, placed, state}`, where `state` is `no_brief` (the text has not reached the runner), `waiting` or `working`. Closed: `state: delivered` with `answer`, `answerHash` and `receipt {charge, refund, fee, paid, operator}`, or `state: declined` with `why`. Never returns other accounts' orders or answers |
+| `GET /demand` | `{<topic>: {served, no_expert, over_budget, refused}}` |
+| `GET /` | landing page: why, three steps, live numbers, plans for customers, runner verification |
+| `GET /experts` | the expert catalog and a brief helper with a price estimate. Here and on `/` only our own code runs, and the page talks only to the runner |
+| `GET /app` | the expert app: wallet (NEAR Connect, `npm run ui`, each wallet in a sandbox with no access to the page), in-browser encryption, dashboard |
+| `GET /order` | ordering through the contract: task, budget, payment by wallet; your own orders, answers and settlement |
+| `GET /health` | `{ok, state}`: `starting`, `waiting_for_key`, `ready`, `paused`, `out_of_budget` (the daily NEAR AI budget is used up) |
 
-`rounds[i]` = `{at, job, topic, picked}` и, если выбран, `{cost, delivered, violation, why, pay}`. У принятой части ещё
-`share` — доля утверждений итогового ответа с её пометкой, в процентах с шагом 10 (нет, если в ответе нет пометок),
-`parts` — из скольких принятых частей собран ответ, и
-`reworked: true`, если заказчик вернул этот ответ на доработку.
-`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model, pass_model?, work}` для текущей регистрации.
-Темы — категории Agent Market: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
+`rounds[i]` = `{at, job, topic, picked}` and, if the expert was picked, `{cost, delivered, violation, why, pay}`. An accepted part also has
+`share`: the share of claims in the final answer that carry its mark, in percent, in steps of 10 (absent if the answer has no marks),
+`parts`: how many accepted parts the answer was built from, and
+`reworked: true` if the customer sent this answer back for rework.
+`audit` = `{registration, allow, category, reason, flags: [{reason, excerpt}], name, model, pass_model?, work}` for the current registration.
+Topics are the Agent Market categories: `automation`, `creative`, `customer_support`, `data`, `dev_tools`, `events`, `finance`,
 `legal_compliance`, `marketing`, `operations`, `research`, `sales`, `travel`, `other`.
-Категории аудита: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
-`skills_unsupported`; от нашего кода `refused` (не открылось, не та форма, больше заявленного) и `not_audited`.
+Audit categories: `ok`, `instructions_to_ai`, `hidden_content`, `malware`, `personal_data`, `deception_or_copyright`,
+`skills_unsupported`; from our own code, `refused` (could not be opened, wrong shape, larger than declared) and `not_audited`.
 
-Формат шифра: эфемерный ключ X25519 (32) ‖ nonce (12) ‖ шифротекст ‖ тег (16). Ключ: HKDF-SHA256 от общего секрета,
-соль = эфемерный ключ ‖ ключ раннера, info = `swarm-for-hire manifest v1`. AES-256-GCM, доп. данные = id эксперта `<аккаунт>/<имя>`.
-Внутри — JSON: `{name, model, pass_model?, expertise, method, work, examples, topics, knowledge: [{name, text}]}`. В приложении `expertise` — «что знает», `method` — промпт, `work` — `answer` (по умолчанию) или `review`: проверять файлы заказчика всеми знаниями; `pass_model` — необязательная вторая модель из того же списка, на которой идут только проходы проверки.
+Ciphertext format: ephemeral X25519 key (32) ‖ nonce (12) ‖ ciphertext ‖ tag (16). Key: HKDF-SHA256 of the shared secret,
+salt = ephemeral key ‖ runner key, info = `swarm-for-hire manifest v1`. AES-256-GCM, additional data = expert id `<account>/<name>`.
+Inside is JSON: `{name, model, pass_model?, expertise, method, work, examples, topics, knowledge: [{name, text}]}`. In the app, `expertise` is "what it knows", `method` is the prompt, `work` is `answer` (the default) or `review`: check the customer's files against all the knowledge; `pass_model` is an optional second model from the same list, used only for the review passes.
 
-## Переменные раннера
+## Runner environment variables
 
-| Переменная | По умолчанию | Что |
+| Variable | Default | What |
 |---|---|---|
-| `NEAR_RPC`, `CONTRACT`, `RUNNER_ACCOUNT` | — | цепочка, контракт, аккаунт раннера |
-| `DEV_KEY` | — | только без TEE: ключ раннера и ключ шифрования из одной строки |
+| `NEAR_RPC`, `CONTRACT`, `RUNNER_ACCOUNT` | — | chain RPC, contract, runner account |
+| `DEV_KEY` | — | without a TEE only: the runner key and the encryption key, both from one string |
 | `NEARAI_URL`, `NEARAI_API_KEY` | `https://cloud-api.near.ai/v1` | NEAR AI Cloud |
-| `PROTOCOL_MODEL` | — | проверка задач, команды, оценка, сборка, аудит |
-| `COMPOSE_MODEL` | как `PROTOCOL_MODEL` | сборка ответа заказчику, если для неё нужна модель сильнее |
-| `CONTROL_MODEL` | — | контролёр проверок: второе мнение рядом с каждой находкой (сомнение со строкой файла или другая важность); убрать находку не может. Не задан — контролёра нет |
-| `AUDIT_MODEL` | `Qwen/Qwen3.8-27B` | скан каждого куска материалов |
-| `EMBED_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | индекс знаний и подбор по навыкам |
-| `MARKET_URL`, `MARKET_TOKEN` | `https://market.near.ai` | Agent Market, токен агента роя `aat_…`. Без токена раннер обслуживает только заказы из контракта |
-| `BRAVE_API_KEY` | — | поиск публичных страниц для задачи |
-| `OVERHEAD_USD`, `OVERHEAD_PER_AGENT_USD` | `0.50`, `0.10` | накладные задачи с Agent Market и на агента. У заказов из контракта накладные в его конфиге |
-| `DAILY_BUDGET_USD` | `2.00` | сколько раннер тратит в NEAR AI за сутки (UTC). Дальше он не начинает новую работу: ни задач, ни аудитов |
-| `MAX_REWORKS` | `2` | доработок в цене |
-| `BIDS` | `on` | ставить на задачи с доски ровно в цену нужной команды; `off` — только прямой найм |
-| `MARKET_LISTING_URL` | — | страница роя на Agent Market, для кнопок «Hire» на сайте |
-| `AGENT_TIMEOUT_MS`, `POLL_MS` | `120000`, `30000` | сколько ждать, пока модель начнёт писать (и ответа на короткий служебный вызов); период цикла |
-| `MODEL_SILENCE_MS` | `60000` | длинные ответы читаются потоком: модель ждут, пока она пишет, и бросают, если она замолчала на это время или пишет медленнее 10 токенов в секунду на всём ответе |
-| `REVIEW_TIMEOUT_MS` | `1500000` | после этого проверка (`work: review`) не начинает новых вызовов: что не успели проверить, уходит как неподтверждённое. Должен быть заметно меньше `run_secs` контракта |
-| `PORT`, `STORE_DIR` | `8080`, `./store` (`/data` в образе) | HTTP API, диск раннера |
-| `FETCH_ALLOW` | — | IP, доступные вопреки фильтру SSRF: только для локальных тестов |
-| `TRACE_DIR` | — | только для тестов и только с `DEV_KEY`: лог с текстом каждого запроса к модели и каждого ответа |
+| `PROTOCOL_MODEL` | — | task screening, teams, evaluation, answer assembly, audit |
+| `COMPOSE_MODEL` | same as `PROTOCOL_MODEL` | assembling the answer for the customer, if that needs a stronger model |
+| `CONTROL_MODEL` | — | review controller: a second opinion next to each finding (a doubt citing a file line, or a different severity); it cannot remove a finding. Unset means no controller |
+| `AUDIT_MODEL` | `Qwen/Qwen3.8-27B` | scans each chunk of the materials |
+| `EMBED_MODEL` | `Qwen/Qwen3-Embedding-0.6B` | the knowledge index and matching by skills |
+| `MARKET_URL`, `MARKET_TOKEN` | `https://market.near.ai` | Agent Market, the swarm agent's token `aat_…`. Without a token the runner serves only orders from the contract |
+| `BRAVE_API_KEY` | — | search for public pages for a task |
+| `OVERHEAD_USD`, `OVERHEAD_PER_AGENT_USD` | `0.50`, `0.10` | overhead per Agent Market job and per agent. For orders from the contract, the overhead is in the contract's config |
+| `DAILY_BUDGET_USD` | `2.00` | how much the runner spends on NEAR AI per day (UTC). Past that it starts no new work: no tasks, no audits |
+| `MAX_REWORKS` | `2` | reworks included in the price |
+| `BIDS` | `on` | bid on jobs from the board at exactly the price of the needed team; `off`: direct hiring only |
+| `MARKET_LISTING_URL` | — | the swarm's page on Agent Market, for the "Hire" buttons on the site |
+| `AGENT_TIMEOUT_MS`, `POLL_MS` | `120000`, `30000` | how long to wait for a model to start writing (and for the reply to a short service call); the loop period |
+| `MODEL_SILENCE_MS` | `60000` | long answers are streamed: the runner waits while the model writes, and drops it if it goes silent for this long or writes slower than 10 tokens per second over the whole answer |
+| `REVIEW_TIMEOUT_MS` | `1500000` | after this, a review (`work: review`) starts no new calls: whatever was not checked in time is sent as unconfirmed. Must be well below the contract's `run_secs` |
+| `PORT`, `STORE_DIR` | `8080`, `./store` (`/data` in the image) | HTTP API, the runner's disk |
+| `FETCH_ALLOW` | — | IPs allowed despite the SSRF filter: for local tests only |
+| `TRACE_DIR` | — | for tests only, and only with `DEV_KEY`: a log with the text of every request to a model and every response |
 
-## Внешние API
+## External APIs
 
-| Сервис | Что раннер вызывает |
+| Service | What the runner calls |
 |---|---|
-| NEAR AI | `GET /model/list` (цены), `POST /chat/completions`, `POST /embeddings` |
+| NEAR AI | `GET /model/list` (prices), `POST /chat/completions`, `POST /embeddings` |
 | Agent Market | `GET /v1/agents/me/assignments`, `GET /v1/jobs/board`, `GET /v1/assignments/{id}/messages`, `…/deliverable/versions`, `…/deliverable/raw`, `POST …/start`, `…/submit`, `…/decline`, `POST /v1/jobs/{id}/bids` |
-| Phala dstack | `getKey('swarm/manifest-seal')`, `getQuote(report_data)` через `/var/run/dstack.sock` |
-| Brave Search | `GET /res/v1/web/search` (если есть ключ) |
+| Phala dstack | `getKey('swarm/manifest-seal')`, `getQuote(report_data)` via `/var/run/dstack.sock` |
+| Brave Search | `GET /res/v1/web/search` (if a key is set) |
