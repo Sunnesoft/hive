@@ -15,7 +15,7 @@
 //                with eval/claude-shim.ts in NEAR AI's place, a run on a Claude model (eval/claude.env)
 // EVAL_REPEATS=5 also asks the first expert's model alone that many times and keeps the answers as one: what a
 //                customer gets who spends on one model, asked again and again, what a swarm costs
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { docsOf, filesOf, linksOf } from '../node/src/audit.ts';
 import { allowedModels, cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
@@ -159,6 +159,22 @@ async function alone(t: ReviewTask, model: string, pages: Page[]) {
   keep(t.id, system, { text: r.text, usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model, ...(r.why ? { why: r.why } : {}) });
 }
 
+/** A model asked the task alone and at once, with the knowledge of the team's first expert in the same call: what
+ *  the knowledge adds to one call, without the passes, the checks and the trial (EVAL_ALONE_KNOWING=1). The parts
+ *  of the knowledge go in whole, in their order, up to KNOWING_CHARS. */
+const KNOWING_CHARS = 120_000;
+async function knowing(t: ReviewTask, model: string, pages: Page[]) {
+  const from = t.experts[0]!;
+  const system = `alone with the knowledge of ${from}: ${model.split('/').at(-1)}`;
+  if (kept[t.id]?.[system]) return;
+  let room = KNOWING_CHARS;
+  const found = partsOf(filesOf(cardOf(from).m)).filter((part) => (room -= part.length) >= 0);
+  const m = { ...cardOf(from).m, model };
+  const at = Date.now();
+  const r = await llm.answer(m, found, t.task, pages, usdc('2'), ALONE_ROOM);
+  keep(t.id, system, { text: r.text, usd: usd(r.cost), seconds: (Date.now() - at) / 1000, model, ...(r.why ? { why: r.why } : {}) });
+}
+
 /** One model asked the task alone several times, the answers one after another: the opponent at a swarm's budget. */
 async function repeated(t: ReviewTask, model: string, times: number, pages: Page[]) {
   const system = `alone, ${times} times: ${model.split('/').at(-1)}`;
@@ -175,7 +191,7 @@ async function repeated(t: ReviewTask, model: string, times: number, pages: Page
 async function billed() {
   const dir = process.env.TRACE_DIR;
   if (!dir) return;
-  const calls = readdirSync(dir).flatMap((f) => readFileSync(`${dir}/${f}`, 'utf8').split('\n').filter((l) => l.includes('"event":"llm"')).map((l) => JSON.parse(l))).filter((l) => l.t >= started);
+  const calls = readdirSync(dir).filter((f) => statSync(`${dir}/${f}`).size < 400_000_000).flatMap((f) => readFileSync(`${dir}/${f}`, 'utf8').split('\n').filter((l) => l.includes('"event":"llm"')).map((l) => JSON.parse(l))).filter((l) => l.t >= started);
   const numbered = calls.filter((l) => l.id).map((l) => l.id as string);
   const metered = calls.reduce((s, l) => s + (l.micro_usd ?? 0) / 1e6, 0);
   const headers = { authorization: `Bearer ${cfg.NEARAI_API_KEY}`, 'content-type': 'application/json' };
@@ -198,6 +214,7 @@ for (const t of tasks) {
   const needed = [...new Set([...asked, ...experts.flatMap(({ m }) => [m.model, ...(m.pass_model ? [m.pass_model] : [])]), ...(experts.length ? [cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL, ...(process.env.CONTROL_MODEL ? [process.env.CONTROL_MODEL] : [])] : [])])];
   if (!(await ready(t, pages, needed))) continue;
   if (spent < LIMIT) await Promise.all(asked.map((model) => alone(t, model, pages)));
+  if (process.env.EVAL_ALONE_KNOWING === '1' && spent < LIMIT) await Promise.all(asked.map((model) => knowing(t, model, pages)));
   const repeats = Number(process.env.EVAL_REPEATS ?? '0');
   if (repeats > 1 && spent < LIMIT) await repeated(t, cardOf(t.experts[0]!).m.model, repeats, pages);
   // One after another: a model's queue at NEAR AI is short. EVAL_TOGETHER=1 reviews them at once, where the queue is long (eval/claude-shim.ts).

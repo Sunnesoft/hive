@@ -1,0 +1,16 @@
+{
+  "name": "plain-near-contract-review",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "skills": "The same reviewer with no knowledge files: a control for what the knowledge adds. NEAR smart contracts in Rust: security review from a case-book of what audits of NEAR contracts have reported, NEAR's security guide and the NEP standards (141, 145, 148, 171, 178, 297): callbacks and failed transfers, accounting and rounding, access and ownership, storage and registration, token an",
+  "rate": "1.00",
+  "max_cost": "3.00",
+  "examples": [
+    "Review this NEAR contract before mainnet: what have audits of contracts like it found?",
+    "What breaks if a cross-contract call fails after my contract changed its state?",
+    "Does this token contract follow NEP-141 and NEP-145, and what breaks for wallets if not?"
+  ],
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
+}

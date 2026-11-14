@@ -1,0 +1,16 @@
+{
+  "name": "plain-solidity-bug-patterns",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "skills": "The same reviewer with no knowledge files: a control for what the knowledge adds. Solidity vulnerability patterns, class by class: reentrancy in all variants, denial of service and griefing, input validation and arithmetic, unsafe casts, external call safety and weird ERC-20 tokens, state invariants, guard consistency, oracles and flash loans, signature replay, proxies. Shows the",
+  "rate": "1.00",
+  "max_cost": "3.00",
+  "examples": [
+    "Does this contract have reentrancy, in any variant?",
+    "Can someone block withdrawals or make this function run out of gas?",
+    "Which overflows and unsafe casts does this Solidity 0.7 code have?"
+  ],
+  "topics": [
+    "dev_tools"
+  ],
+  "work": "review"
+}
