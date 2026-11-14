@@ -467,6 +467,10 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
     spend(t.id, r.cost);
     for (const p of r.proofs) if (part.some(({ k }) => k === p.id)) proofs.set(p.id, p);
   });
+  // A finding is withdrawn only on a line that stops it, found in the materials: that a case cannot happen is
+  // proved like anything else. Withdrawn on a doubt ("values never get that large"), four findings of the audits
+  // on eight contracts went down as taken back.
+  for (const [k, p] of proofs) if (p.withdrawn && !(p.stops && grounded(`\`${p.stops.trim()}\``, material))) proofs.set(k, { ...p, withdrawn: false });
   // The library files the proofs stand on, fetched by code from their public addresses.
   const sources = new Map<string, string>();
   const wanted = [...new Set([...proofs.values()].flatMap((p) => p.steps.map((s) => s.source?.trim() ?? '')).filter((u) => LIBRARY_HOSTS.test(u)))].slice(0, MAX_LIBRARY_FILES);
