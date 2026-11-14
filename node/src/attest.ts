@@ -16,18 +16,27 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 export const reportDataOf = (publicKey: string, sealKey: string) =>
   createHash('sha256').update(publicKey).digest('hex') + sealKey;
 
-/** Does a dstack runtime event's digest commit to its name and payload? v1 is binary, v2 canonical JSON. */
-export function digestMatches(e: Event): boolean {
+/** The digests a dstack runtime event's name and payload give: v1 binary, v2 canonical JSON. */
+const digestsOf = (e: Event) => {
   const type = Buffer.alloc(4);
   type.writeUInt32LE(RUNTIME_EVENT);
-  const v1 = sha384(Buffer.concat([type, Buffer.from(`:${e.event}:`), Buffer.from(e.event_payload, 'hex')]));
-  const v2 = sha384(Buffer.from(JSON.stringify({ name: e.event, payload: e.event_payload, type: RUNTIME_EVENT })));
-  return e.digest === v1 || e.digest === v2;
-}
+  return [
+    sha384(Buffer.concat([type, Buffer.from(`:${e.event}:`), Buffer.from(e.event_payload, 'hex')])),
+    sha384(Buffer.from(JSON.stringify({ name: e.event, payload: e.event_payload, type: RUNTIME_EVENT }))),
+  ];
+};
+
+/** Does a dstack runtime event's digest commit to its name and payload? A log that leaves the digest out (dstack
+ *  0.5.12 does) is checked by the replay alone: the digest is computed from what the event says. */
+export const digestMatches = (e: Event) => !e.digest || digestsOf(e).includes(e.digest);
+
+/** The digest an event extends RTMR3 with: the one it carries, or, where it carries none, the one its name and
+ *  payload give. A computed digest is the stricter check: nothing in the log is taken on trust. */
+const digestOf = (e: Event) => e.digest || digestsOf(e)[0]!;
 
 /** RTMR3 replayed from the event log: each runtime event extends it with its digest. */
 export const replayRtmr3 = (events: Event[]) =>
-  events.filter((e) => e.imr === 3).reduce((mr, e) => sha384(Buffer.from(mr + e.digest, 'hex')), '00'.repeat(48));
+  events.filter((e) => e.imr === 3).reduce((mr, e) => sha384(Buffer.from(mr + digestOf(e), 'hex')), '00'.repeat(48));
 
 /** Everything that can be checked offline against the TD report of an already verified quote. */
 export function inspect(a: Attestation, report: { reportData: Uint8Array; rtMr3: Uint8Array }) {

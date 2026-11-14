@@ -10,7 +10,7 @@ services:
       - /var/run/dstack.sock:/var/run/dstack.sock # keys and quotes from the TEE
       - store:/data # sealed uploads and round decisions, on the CVM's encrypted disk
     environment:
-      NEAR_RPC: https://rpc.testnet.fastnear.com # the demo runs on testnet, with test USDC
+      NEAR_RPC: https://near-testnet.drpc.org # the demo runs on testnet, with test USDC; fastnear and rpc.testnet.near.org refuse the TEE gateway (429)
       CONTRACT: swarm2.sfhnx9j68.testnet
       RUNNER_ACCOUNT: runner.sfhnx9j68.testnet
       PROTOCOL_MODEL: Qwen/Qwen3.8-27B
