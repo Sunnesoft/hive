@@ -1,4 +1,4 @@
-// A NEAR expert's tool: checks of a Rust contract that code can make with no model, each on the lines it found.
+// An expert's tool: checks of a contract that code can make with no model (NEAR's Rust, and Solidity), each on the lines it found.
 // What a model reading a contract knows and still does not apply is often a pattern: a method that asks for one
 // yoctoNEAR and cannot be paid, an integer JSON cannot carry, the predecessor read inside a callback. Found by
 // code, they are found every time, and they cost nothing. Each is a candidate: it is checked as any finding is.
@@ -29,7 +29,7 @@ const finding = (severity: Finding['severity'], where: string, title: string, ho
 
 /** The checks, each a rule NEAR's documentation or its audits state. */
 export function lint(pages: { url: string; text: string }[]): Finding[] {
-  const found: Finding[] = [];
+  const found: Finding[] = [...lintSolidity(pages)];
   const rs = pages.filter((p) => p.url.endsWith('.rs'));
   const all = rs.flatMap((p) => functionsOf(p.text).map((f) => ({ ...f, file: p.url.split('/').slice(-2).join('/') })));
   const checksDeposit = (body: string) => /(assert|require)!?\s*\([^;]*(attached_deposit|amount|deposit)[^;]*(>|>=|!=)\s*(0|\w)/i.test(body);
@@ -63,6 +63,41 @@ export function lint(pages: { url: string; text: string }[]): Finding[] {
       found.push(finding('Low', where, `${f.name} marks the work done only in the callback, after the transfer was scheduled`,
         `The state that says it is done is written when the callback lands, blocks after the call that scheduled the transfer: until then nothing stops the same transfer from being scheduled again.`,
         [done], `Record the state before scheduling the transfer, and undo it in the callback if the transfer failed.`));
+  }
+  return found;
+}
+
+/** The functions of Solidity files, with their bodies. */
+function solidityFunctions(text: string) {
+  const out: { name: string; head: string; body: string }[] = [];
+  for (const m of text.matchAll(/function\s+(\w+)\s*\(([^)]*)\)([^{;]*)\{/g)) {
+    let depth = 1, i = m.index! + m[0].length;
+    for (; i < text.length && depth; i++) depth += text[i] === '{' ? 1 : text[i] === '}' ? -1 : 0;
+    out.push({ name: m[1]!, head: m[0].replace(/\s+/g, ' ').trim(), body: text.slice(m.index! + m[0].length, i - 1) });
+  }
+  return out;
+}
+const firstLine = (body: string, re: RegExp) => body.split('\n').find((l) => re.test(l))?.trim() ?? '';
+
+/** Checks Solidity's own audits report again and again, each on the line it found. Kept are the ones that, read
+ *  blind against five audited projects, raised no false alarm; reentrancy, unchecked ERC-20 transfers, block values
+ *  and division order were dropped: nine false alarms, against nothing an audit had. */
+export function lintSolidity(pages: { url: string; text: string }[]): Finding[] {
+  const found: Finding[] = [];
+  for (const page of pages.filter((p) => p.url.endsWith('.sol'))) {
+    const file = page.url.split('/').slice(-1)[0]!;
+    if (/^\s*(interface|library)\s/m.test(page.text) && !/^\s*(abstract\s+)?contract\s/m.test(page.text)) continue;
+    for (const f of solidityFunctions(page.text)) {
+      const where = `${f.name} (${file})`;
+      const origin = firstLine(f.body, /tx\.origin/);
+      if (origin && /require|if\s*\(|==|!=/.test(origin))
+        found.push(finding('High', where, `${f.name} authorizes by tx.origin`, `tx.origin is the account that signed the transaction, not the caller: a contract the user is lured to call can call ${f.name} in the user's name and pass the check.`, [origin], 'Check msg.sender instead of tx.origin.'));
+      for (const line of f.body.split('\n').filter((l) => /\.call\s*\{[^}]*\}\s*\(|\.call\s*\(/.test(l) && !/=[^=]*\.call|require\s*\(|return\s/.test(l)))
+        found.push(finding('Medium', where, `${f.name} makes a low-level call and does not check that it succeeded`, `A low-level call returns false instead of reverting when the callee fails: ${f.name} carries on as if the call had gone through, and the funds or the action it stood for are lost.`, [line.trim()], 'Check the returned success flag and revert if it is false.'));
+      const rec = firstLine(f.body, /ecrecover\s*\(|ECDSA\.recover\s*\(/);
+      if (rec && !/nonce|nonces|block\.chainid|DOMAIN_SEPARATOR|_hashTypedData|used\w*\[/i.test(f.body))
+        found.push(finding('High', where, `${f.name} accepts a signature with no nonce or domain, so it can be replayed`, `Nothing in ${f.name} marks a signature as used or binds it to this chain and contract: the same signature can be submitted again, or on another chain or deployment.`, [rec], 'Bind the signed message to a nonce, the chain id and this contract (EIP-712), and mark it used.'));
+    }
   }
   return found;
 }
