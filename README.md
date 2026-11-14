@@ -1,105 +1,133 @@
-# Swarm-for-Hire
+# Hive
 
-> **A swarm is a way to put together the closed knowledge of different owners, with no one trusting anyone.**
+*A swarm of experts on NEAR.*
 
-An expert's owner (a sponsor) brings what they know into the swarm: a description of the expertise, a method,
-files up to 10 MB. The files are encrypted in the sponsor's browser to the key of a runner inside a TEE, so no one
-reads them: not the swarm's owner, not the other sponsors. A customer places an order in the contract (a budget
-in USDC and the hash of the task; only the runner gets the task's text) or hires the swarm on
-[Agent Market](https://market.near.ai) as one agent. The swarm picks the experts the task needs, asks each its
-own question, checks every answer, joins them into one, and pays each expert by what its part was worth. A NEAR
-contract holds the money.
+**Many minds. One answer. Nothing leaked.**
+*Hire a swarm. Pay for what it finds.*
 
-One agent can run a "swarm" of its own, but inside it holds only *its owner's* knowledge. Other owners' closed
-knowledge, and fair pay to each of them, come only when a contract and a TEE keep the rules, not people.
+The people who know a field best each hold a piece of it: a checklist built over years of audits, a case-book, a
+method of their own. None of them sees everything, and none wants to hand their piece to a competitor.
+Hive puts experts with different, closed knowledge together into one strong specialist for a concrete
+task. They can be in the same field or in neighbouring ones, deeper or more specialised. Their knowledge is never
+shown to each other or to us, and the customer's task does not leak. The answer is checked, and the customer pays
+for what holds.
 
-**Try it:** contract `swarm2.sfhnx9j68.testnet` on NEAR testnet; the runner's pages are `/` (landing and the
-check of the TEE), `/order` (place an order with a NEAR wallet), `/experts` (the catalogue) and `/app` (a
-sponsor's app).
+On 8 live NEAR contracts with published audits, one model stated 28 of the audits' 68 findings. The swarm stated
+**54 (79%)**, with about 2% of its items wrong. [The measurement ↓](#shown-on-near-smart-contracts-in-rust)
 
-## Who does what
+**Live and checkable.** The runner runs in a Phala TEE (Intel TDX) at
+<https://5e36ba819f716cc0401b140305124975dfd9254e-8080.dstack-pha1-prod5.phala.network>.
+`scripts/swarm.sh verify <url> app-compose.json` passes all of its checks. The contract is
+`swarm2.sfhnx9j68.testnet` on NEAR testnet. Pages: `/` (check this runner), `/order`, `/experts`, `/app`.
 
-| who | where | what they do | what they never have to do |
-|---|---|---|---|
-| **Customer** | `/order` with a NEAR wallet, or Agent Market | one transaction: the budget and the task's hash; the answer comes to `/order`, what is left goes back by itself | know the experts: the swarm picks them |
-| **Sponsor** | `/app` with a NEAR wallet | makes experts (name, what it knows, prompt, files, rate), sees earnings and each task's outcome and reason, tops up, withdraws | write code, see other people's tasks, trust us with the materials |
-| **Operator** | terminal | `scripts/swarm.sh payouts` forwards Agent Market revenue to every expert that delivered; `status` checks the books | count anyone's pay by hand |
-| **Owner** | terminal, Phala | deploys, checks the TEE and hands it the key, pauses | touch tasks or money |
-| **Anyone** | `/` ("Check this runner"), `scripts/swarm.sh verify` | checks the TEE's quote, the keys and the runner's code | take our word for it |
+## For experts: a NEAR wallet and what you know
 
-## A task, step by step
+- Describe what your expert knows, give it a method and files (text, up to 10 MB), and set its rate. You need no
+  server and no code.
+- Your files are sealed in your browser to a key that exists only inside the TEE. The swarm's owner, other experts
+  and customers never read them, and one expert's knowledge never reaches another.
+- You pay a deposit and an entry check from your wallet. The runner checks that your expert works.
+- Your expert pays for its own inference out of what it earns. You see what it earned and how each job ended,
+  never the customer's task. You can cap what jobs may hold of your balance in a day (`set_daily_cap`).
+- Pay follows the findings that held: what the delivered experts' rates add up to is shared by what each one's
+  findings were worth (Critical 27, High 9, Medium 3, Low 1; 70% to the finder, 30% to those who confirmed it).
+  Strong findings can earn you more than your rate. Sinking a neighbour gains you nothing.
+- Participants are NEAR accounts: pseudonymous, not anonymous.
 
-1. **Entry.** A sponsor encrypts the materials on the runner's page, pays a deposit and the entry check with
-   their own wallet, and uploads. The runner in the TEE checks the materials with models: the expert works or not.
-2. **Order.** The customer places an order in the contract or on Agent Market. The protocol's model checks the
-   task and picks a team within the budget. The contract holds each expert's spending ceiling.
-3. **Work.** Each expert sees only its own question, its share of the customer's materials and the parts of its
-   own knowledge closest to them. No network, no tools, no other experts.
-4. **Check.** One separate call per expert: delivered, failed, or broke the rules.
-5. **Answer.** The answer is put together; an output filter strips dangerous code, foreign links and images.
-6. **Money.** Each expert pays its inference out of what the contract holds for it. For an order in the
-   contract, the contract settles at delivery: 5% to the owner, the experts' pay, the operator's overhead, the
-   rest back to the customer's wallet.
+## For customers: describe a task, get a checked answer
 
-## Contract review: experts that check the customer's code
+- Describe the task and set a budget in USDC, on `/order` with a NEAR wallet (on Agent Market once our listing is live). Pick the experts
+  on `/experts`, or let the swarm pick a team the budget pays for. It adds a spare when the budget allows: the spare
+  does the part of a member that fails, and costs nothing if no one fails.
+- Only the task's hash goes on chain, and it is bound to your account. A copy of the hash in someone else's order
+  gets nothing.
+- Each expert sees only its own question and its share of your materials. In a review, the answer shows how far
+  each finding got: proved on lines of your code and tested by another expert, proved only, true but harmless, or
+  a lead. Nothing is hidden.
+- You pay for the experts whose work passed the check, plus an overhead of 0.50 and 0.10 per expert who delivered,
+  plus 5% to the owner. The rest goes back to your wallet at delivery. If the swarm declines the order, it keeps
+  0.05 USDC for checking the task. If no one answers, everything comes back after the timeout, and anyone can call
+  `refund`.
 
-The customer links the files of a contract (Rust for NEAR or Solidity) and asks for a review. An expert with
-checklists (`"work": "review"`) does not answer in one call. It reads the code with all of its knowledge
-([node/src/review.ts](node/src/review.ts)):
+Order-42 on testnet: a budget of 6.00 paid 1.00 to the expert who delivered, 0 to the one who did not, 0.60 in
+overhead and 0.08 to the owner. **4.32 went back.**
 
-1. **One pass per knowledge file**: what does this checklist find in the customer's code? Files the code imports
-   are read with it, so a step of a proof can follow a call into a library; a linter for NEAR adds what code can
-   tell for sure ([node/src/lint.ts](node/src/lint.ts)).
-2. **Code gathers the findings, not a model.** A model that sums up a long list drops the rare finding, and the
-   rare finding is the value.
-3. **Each finding is checked on its own** and must quote the lines it rests on. Code looks the lines up in the
-   customer's files: no line, no finding.
-4. **The team tries what it found** ([policies/prove.md](policies/prove.md), [mark.md](policies/mark.md),
-   [appeal.md](policies/appeal.md), [arbiter.md](policies/arbiter.md)). The expert that found a finding proves it
-   step by step, each step on a line code finds in the materials. The other experts test the proof and look for
-   the step that breaks. A refuted finding goes, with one appeal by its finder citing one rule of its knowledge,
-   to an arbiter that owes neither side.
-5. **A grave finding that stood gets a test**, written by its finder along the path that was upheld (marked:
-   written, not run).
-6. **Nothing is thrown away.** The answer is laid out by how far each finding got: proved and tested by the team;
-   proved, not yet backed by a second expert; true and harmless (notes); not proved (leads).
+**Not happy with the answer?** An order placed in the contract has one answer and no reworks: you pay only for the
+parts that passed the checks, and inside the answer every finding was already disputed by a second expert and,
+where they disagreed, an arbiter. Reworks and disputes for contract orders are first on the list below. On Agent
+Market, once listed, two rounds of changes are included and a dispute goes to the market's arbiter: the swarm
+redoes the work or is paid only what was ruled.
 
-Every auditor's method carries one rule: a finding has someone who gains, someone who loses, or a service that
-stops; otherwise it is not a finding. The experts are in [agents](agents) and [eval/agents](eval/agents): a NEAR
-reviewer (our checklist, a case-book of 87 kinds of findings from 47 public audits, NEAR's security guide, the
-NEPs) and Solidity auditors built from open material under MIT. Sources and licences:
-[eval/agents/SOURCES.md](eval/agents/SOURCES.md).
 
-## Does it find more? Measured against published audits
+## Why it works
 
-Eight NEAR contracts that none of the knowledge was written from, each with a public audit (68 findings in all).
-Each answer was read blind by a fresh reader that saw it under a neutral name and counted a finding of the audit
-only if the answer stated it as an item of its own, and judged every other item of the answer against the code.
-Details and every run: [eval/README.md](eval/README.md).
+Experts look at the same input through different knowledge, methods and context, and on different models if their
+owners choose. So they miss different things and make different mistakes. The swarm is built on that:
 
-On Claude Haiku 5.5, through [eval/claude-shim.ts](eval/claude-shim.ts) in NEAR AI's place, all eight contracts,
-the code as it is now:
+1. **Findings add up.** Each expert reads the code once per file of its knowledge. Code gathers what they raise,
+   not a model: a model that sums up a long list drops the rare item, and the rare item is the value.
+2. **Every finding is proved, then attacked.** Its finder proves it step by step. Each step quotes a line, and code
+   looks that line up in the customer's files: no line, no finding. Another expert tries to break the proof.
+3. **An arbiter settles disputes.** It owes neither side. The finder gets one appeal, citing one rule of its
+   knowledge.
+4. **A finding is withdrawn only on a line of code that stops it**, never on a doubt.
 
-| answer | findings of the audits stated, of 68 |
+Ensembles in machine learning, peer review and four-eyes audits work the same way: independent views, checked
+against each other. The measurement shows that both halves are needed. Knowledge poured into one call drowns the
+model (19 of 52). A swarm without knowledge looks from different angles but shares the same blind spots (33 of 68).
+Together they state 54 of 68.
+
+Code: [node/src/review.ts](node/src/review.ts), [node/src/round.ts](node/src/round.ts). Rules the models follow:
+[prove](policies/prove.md), [mark](policies/mark.md), [appeal](policies/appeal.md),
+[arbiter](policies/arbiter.md).
+
+## Shown on NEAR smart contracts in Rust
+
+We used eight live NEAR contracts with published audits: NearX, Mintbase, cNEAR, Potlock, a staking farm, an
+appchain registry, vote escrow and SWEAT. The audits list 68 findings, and none of those audits is in the experts'
+knowledge. Every answer was read blind. A fresh reader saw it under a neutral name and counted an audit finding only
+if the answer stated it as an item of its own. It judged every other item against the code.
+
+**On Claude Haiku 5.5**, with the code as it is now:
+
+| answer | audit findings stated, of 68 |
 |---|---|
 | one model, asked once | 28 (41%) |
-| one model with the experts' knowledge in the same call | 19 of 52 (37%) |
+| one model with the experts' knowledge in the same call | 19 of 52 ¹ |
 | the same experts as a swarm, without their knowledge | 33 (49%) |
-| **the swarm of experts with their knowledge** | **54 (79%)**, about 2% of its items wrong |
+| **the swarm with its knowledge** | **54 (79%)**, about 2% of its items wrong |
 
-The swarm with its knowledge leads on every one of the eight contracts. Knowledge alone does not do it, and
-neither does a swarm alone: the gain comes from different knowledge, put together and checked.
+The swarm with its knowledge leads on each of the eight contracts.
+¹ The call came back empty on staking farm, and vote escrow was not in that reading.
 
-On NEAR AI's own models (DeepSeek-V4.1-Flash for the experts, Qwen3.8-27B for the protocol), the same team on
-seven of the contracts (on Mintbase NEAR AI's DeepSeek failed the NEAR reviewer): **38 of 61 (62%)**, where the
-same seven gave 45 on Haiku; 12% of the items wrong and 6 false Critical or High of 15. A contract costs $1.00 to
-$1.90 by our meter, about $0.60 to $1.10 by NEAR AI's bill (it billed 59% of our meter for these runs). The swarm works on NEAR's models; the stronger the model that proves, tests
-and judges, the fewer wrong items reach the customer.
+**On NEAR AI's own models** (DeepSeek-V4.1-Flash for the experts, Qwen3.8-27B for the protocol), seven contracts.
+On Mintbase, NEAR AI's model failed the NEAR reviewer; a failed step is now retried on another model.
 
-At the same spend, knowledge adds what more effort does not. What reviewers without knowledge miss is NEAR's
-own: a method that is not `#[payable]` or asks no yoctoNEAR, a callback not given the token first, storage the
-contract pays for a new account, gas left for a callback. Of the findings the audits missed, the team states real
-ones too: about one item in four is a real flaw, of the audit or not; half are true and harmless notes, set apart.
+| answer | audit findings stated, of 61 | wrong items |
+|---|---|---|
+| one model, asked once | 22 (36%) | 16% |
+| **the swarm with its knowledge** | **38 (62%)** | 11% |
+
+NEAR AI's models are weaker (a flash model and a 27B one), and more wrong items get through. The swarm still nearly
+doubles what one model finds. By NEAR AI's bill, a contract costs about $0.60 to $1.10.
+
+The swarm finds things that reviewers without knowledge miss, and they are specific to NEAR. Examples: a method that
+is not `#[payable]` or asks for no yoctoNEAR, a callback not given the token first, storage the contract pays for a
+new account, and gas left for a callback.
+
+Other kinds of task use the same mechanism: tokenomics, legal and compliance, due diligence, grant review and
+research. **They are not measured yet.** Every run, per contract: [eval/README.md](eval/README.md).
+
+## Illia's brief → how we do it
+
+The AI Swarms track, as we read Illia Polosukhin's brief:
+
+| the brief | how Hive does it | evidence |
+|---|---|---|
+| Anyone adds an agent as data plus money, with no server of their own | An expert is a description, a method and files sealed in the browser, plus a deposit from a NEAR wallet, on `/app`. The runner in the TEE hosts every expert. | `/app` on the live runner; e2e: five sponsors join on a local chain |
+| Agents pay their own inference from what they earn | Each call an expert makes is paid from a hold the contract keeps on that expert's balance. Earnings follow its findings that held. Spending has a ceiling per job and a cap per day. | the contract's holds and `set_daily_cap`; order-42 on testnet |
+| Review and rules kept by code, not people | The contract holds the money and settles each order. The runner's key can only call `review`, `assign`, `finish`, `deliver` and `decline`. It is made in the TEE, a new one on each restart, and old ones are removed. Code looks up every line a finding quotes. The policies are public and part of the attestation. Payouts refuse a round that owes more than it earned. | `scripts/swarm.sh verify` passes on the live TEE; 60 contract tests, 64 unit tests, e2e on a local chain; exceptions in [Honest limits](#honest-limits) |
+| Agents together do more than alone | Different knowledge, findings added by code, every proof attacked by another expert, an arbiter for disputes | 54 against 28 of 68 on Haiku; 38 against 22 of 61 on NEAR AI's models |
 
 ## What the design guarantees, whatever the models do
 
@@ -121,6 +149,16 @@ ones too: about one item in four is a real flaw, of the audit or not; half are t
 - A sponsor can cap what jobs may hold of its balance in a day (`set_daily_cap`): a stolen runner key takes no more.
 - Nothing uploaded is run: materials are text, experts only write text.
 - One expert's knowledge never reaches another. Costs are rounded to 0.01 USDC so that no data can pass through them.
+
+## Who does what
+
+| who | where | what they do | what they never have to do |
+|---|---|---|---|
+| **Customer** | `/order` with a NEAR wallet, or Agent Market | one transaction: the budget and the task's hash; the answer comes to `/order`, what is left goes back by itself | know the experts: the swarm picks them |
+| **Sponsor** | `/app` with a NEAR wallet | makes experts (name, what it knows, prompt, files, rate), sees earnings and each task's outcome and reason, tops up, withdraws | write code, see other people's tasks, trust us with the materials |
+| **Operator** | terminal | `scripts/swarm.sh payouts` forwards Agent Market revenue to every expert that delivered; `status` checks the books | count anyone's pay by hand |
+| **Owner** | terminal, Phala | deploys, checks the TEE and hands it the key, pauses | touch tasks or money |
+| **Anyone** | `/` ("Check this runner"), `scripts/swarm.sh verify` | checks the TEE's quote, the keys and the runner's code | take our word for it |
 
 ## What it is made of
 
@@ -148,6 +186,41 @@ scripts/local.sh                                                                
 - [docs/GUIDE.md](docs/GUIDE.md): what to do, locally, on testnet, in a TEE on Phala, on Agent Market, on mainnet.
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): how it works: who sees what, money, threats, related projects.
 - [docs/API.md](docs/API.md): the contract, the runner's HTTP API, settings, log events.
+
+## Honest limits
+
+What is not done, or not as good as we would like:
+
+- On NEAR AI's own models the swarm lets more wrong items through (11%, against about 2% on Haiku); on Mintbase
+  NEAR AI's model failed the NEAR reviewer.
+- About a quarter of the swarm's items repeat an earlier one, and about half are true but harmless notes, set apart.
+- The Agent Market listing is not published yet, and the operator forwards its revenue with `scripts/swarm.sh payouts`.
+- An order placed in the contract has no reworks and no disputes.
+- Proofs and tests are written, not run: the TEE has no compiler and no network.
+- Experts' materials are text only; a review reads at most 160,000 characters of the customer's files and what they import.
+- `delay_secs` is 0 on testnet: a change of settings means trusting the owner, who should be a multisig.
+- Attacks on the TEE itself (TEE.fail and the like) are out of our hands.
+- Only audits are measured.
+- The low-risk items still open after the security reviews of 14 November are listed in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+## What's next
+
+The big items, in the order we would do them ([docs/TODO.md](docs/TODO.md) has the detail):
+
+1. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
+   the customer can call, before the money settles.
+2. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
+3. **A stronger protocol model on NEAR AI** for the arbiter and the sorting of repeats, and **fewer repeats** in an answer.
+4. **The Agent Market listing**, with bids on board tasks.
+5. **Measure other kinds of task**: tokenomics, legal and compliance, due diligence, grant review, research.
+6. **Mainnet**: a reproducible contract build, a multisig owner, `delay_secs` above zero, separate NEAR AI keys for
+   the runner and for measurements.
+
+## Where this goes
+
+Knowledge that is closed today stays closed, and it still adds up. Each expert keeps what is theirs, is paid for
+what it found, and makes the others better by testing them. A swarm is not a bigger model. It is many owners'
+understanding brought to one question, under rules that no one of them, and not we, can bend.
 
 ## Licence
 

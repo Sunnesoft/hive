@@ -846,6 +846,7 @@ whole list. Per contract, findings of the audit stated in the main list:
 | Haiku asked once | 4 | 2 | 4 | 5 | 2 | 4 | 3 | 5 | 29 | | |
 | the team before the trial (Haiku) | 6 | 5 | 6 | 7 | 2 | 7 | 10 | 9 | 52 | 18 of 487 | 4 |
 | **the team with the trial (Haiku)** | 8 | 6 | 6 | 8 | 1 | 7 | 8 | 7 | **51** | **16 of 620** | **2** |
+| DeepSeek-V4.1-Flash asked once (NEAR AI), read beside the team | 4 | — | 3 | 4 | 2 | 3 | 4 | 2 | 22 of 61 | 22 of 138 | |
 | the team with the trial (NEAR AI) | 5 | — | 6 | 5 | 2 | 7 | 8 | 5 | 38 of 61 | 67 of 544 | 6 |
 
 NearX and vote escrow on Haiku are of the run before the withdrawal rule (v3); the other six were run fresh and
