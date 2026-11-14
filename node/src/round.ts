@@ -11,7 +11,7 @@ import * as llm from './llm.ts';
 import { inJob, log } from './log.ts';
 import * as market from './market.ts';
 import type { Door } from './market.ts';
-import { controlled, digestOf, join, listOf, reportOf, review, tried, weightsOf, type Review } from './review.ts';
+import { controlled, digestOf, join, listOf, reportOf, review, tested, tried, weightsOf, type Review } from './review.ts';
 import { budget, ceiling, coarse, fit, lineOf, provenance, quote, ready, rivals, sharesOf, usdc, usedOf, type Agent, type Outcome } from './rules.ts';
 import * as store from './store.ts';
 import { head, shelve, type Shelf } from './shelf.ts';
@@ -260,6 +260,10 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const judge = { ...members[reviews[0]?.id ?? 0]!.expert.m, name: 'arbiter', expertise: 'The arbiter of a swarm of reviewers: it owes neither side.', method: '', knowledge: [], model: cfg.PROTOCOL_MODEL };
   const trial = await tried(all.findings, triers, task, theirs, judge);
   trial.cost.forEach((c, id) => extra.set(id, c));
+  // What stood and is grave gets a test, written by its finder along the path the trial upheld.
+  const tests = await tested(trial.findings, triers.map((t) => ({ ...t, money: t.money - (extra.get(t.id) ?? 0n) })), task, theirs);
+  tests.cost.forEach((c, id) => extra.set(id, (extra.get(id) ?? 0n) + c));
+  trial.findings = tests.findings;
   for (const [id, more] of extra) outcomes[id] = { ...outcomes[id]!, cost: coarse(parts[id]!.spent + more, BigInt(members[id]!.agent.max_cost)).toString() };
   // Each reviewer is paid for what its part was worth: the findings the swarm stood behind, weighed by severity.
   if (trial.findings.some((f) => f.trial)) {

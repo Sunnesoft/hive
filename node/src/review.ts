@@ -129,7 +129,13 @@ const verbatim = (items: Item[]) => {
  *  by how close their words are, an overflow and a rounding in one fee check became one finding. */
 async function byPlace(model: string, groups: Item[][], cap?: bigint): Promise<{ groups: Item[][][]; cost: bigint }> {
   const places = new Map<string, Item[][]>();
-  for (const g of groups) { const at = placeOf(headOf(g).where) || '?'; places.set(at, [...(places.get(at) ?? []), g]); }
+  // One function written two ways ("withdraw", "internal_withdraw") is one place.
+  const same = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 5 && (a.includes(b) || b.includes(a)));
+  for (const g of groups) {
+    const at = placeOf(headOf(g).where) || '?';
+    const key = [...places.keys()].find((k) => k !== '?' && at !== '?' && same(k, at)) ?? at;
+    places.set(key, [...(places.get(key) ?? []), g]);
+  }
   const sorted = await each([...places.values()], async (here) => (here.length < 2 ? { groups: here.map((g) => [g]), cost: 0n } : sortedBy(model, here, cap)));
   return { groups: sorted.flatMap((r) => r.groups), cost: sorted.reduce((c, r) => c + r.cost, 0n) };
 }
@@ -297,26 +303,32 @@ const some = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one
  *  A finding that stands beside another as the same is given briefly: what it says, how, and the lines it rests on.
  *  The fix and the proof are with the finding it stands beside; if it is not the same after all, it is all there
  *  to be read. */
-const entry = (f: Checked, n: number, marks = '', note = '') =>
+/** How a finding happens, step by step, each step on a line of the materials: the proof its finder gave, which
+ *  code checked line by line and other experts tested. */
+const pathOf = (p: llm.Proof) => `**How it happens**, step by step:\n\n${p.steps.map((s, i) => `${i + 1}. ${s.does}  \n   \`${s.line.split('\n')[0]!.trim().replace(/`/g, "'")}\`${s.source ? ` (in ${s.source})` : ''}`).join('\n')}\n\n*End:* ${p.end}`;
+const entry = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
     f.sortedWith && `*Sorted with "${f.sortedWith}" above as the same finding; kept apart in case it is not.*`,
     f.how,
+    f.path && pathOf(f.path),
     !f.sortedWith && f.also?.length && `*The same was raised as:* ${f.also.slice(0, 4).join('; ')}${f.also.length > 4 ? `; and ${f.also.length - 4} more` : ''}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
-    f.evidence && `**Evidence:** ${f.evidence}`,
+    !f.path && f.evidence && `**Evidence:** ${f.evidence}`,
     !f.sortedWith && f.fix && `**Fix:** ${f.fix}`,
-    !f.sortedWith && f.proof && `**Proof** (written, not run):\n\n${f.proof}`,
+    !f.sortedWith && f.proof && `**Test** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
 /** A minor finding in brief: what is wrong, where, how in a sentence or two, and the line it rests on. */
-const briefly = (f: Checked, n: number, marks = '', note = '') =>
+const briefly = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
-    clip(f.how, 300),
+    clip(f.how, 400),
+    f.path && `*End:* ${f.path.end}`,
     f.second && `*Second opinion, from the controller:* ${f.second}`,
     f.evidence && `**Evidence:** ${f.evidence.split('\n')[0]}`,
+    f.fix && `**Fix:** ${f.fix}`,
   ].filter(Boolean).join('\n\n');
 /** A grave finding that was not confirmed, whole: what was raised, in its own words, and what its check said. */
 const unconfirmed = (f: Raised, n: number, note = '') =>
@@ -361,7 +373,7 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
  *  code not shown), how many other experts confirmed or refuted it with a line code found, and, if it was
  *  refuted, whether the arbiter upheld the finder's appeal. */
 export type Trial = { proved: boolean; withdrawn: boolean; confirm: number; note: number; refute: number; confirmedBy: number[]; upheld?: boolean };
-export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial };
+export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial; path?: llm.Proof };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list. Which findings are one is the protocol's model's answer to one
  *  narrow question (policies/same.md): the same flaw, the same cause in the same place, so that one fix closes
@@ -492,9 +504,29 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const out = findings.map((f, k) => {
     const on = marks.filter((x) => x.k === k).map((x) => x.mark.mark);
     const trial: Trial = { proved: proved.has(k), withdrawn: !!proofs.get(k)?.withdrawn, confirm: on.filter((m) => m === 'confirm').length, note: on.filter((m) => m === 'note').length, refute: on.filter((m) => m === 'refute').length, confirmedBy: marks.filter((x) => x.k === k && x.mark.mark === 'confirm').map((x) => x.by), ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
-    return { ...f, trial };
+    const path = proofs.get(k);
+    return { ...f, trial, ...(path && proved.has(k) ? { path } : {}) };
   });
   return { findings: out, cost };
+}
+
+export const MAX_TESTS = 8; // tests written in one answer, for the gravest findings that stood
+
+/** The grave findings that stood, each with a test its finder writes along the path the trial upheld
+ *  (policies/proof.md): written, not run. A finding whose review gave it a test keeps that one. */
+export async function tested<T extends Joined>(findings: T[], team: { id: number; m: Expert['m']; money: bigint }[], question: string, pages: Page[]): Promise<{ findings: T[]; cost: Map<number, bigint> }> {
+  const cost = new Map<number, bigint>();
+  const due = findings.filter((f) => standsTried(f) && grave(f) && f.path && !f.proof).slice(0, MAX_TESTS);
+  const written = await each(due, async (f) => {
+    const t = team.find((x) => x.id === Math.min(...(f.by.length ? f.by : f.seen)));
+    if (!t) return undefined;
+    const path = f.path!.steps.map((s, i) => `${i + 1}. ${s.does}\n   ${s.line}`).join('\n');
+    const r = await llm.step('proof', t.m, '', question, pages, section('Finding to prove', `${showFinding(f)}\n\nHow it happens:\n${path}\nEnd: ${f.path!.end}`, PROOF_IN * 2), t.money - (cost.get(t.id) ?? 0n));
+    cost.set(t.id, (cost.get(t.id) ?? 0n) + r.cost);
+    return r.why ? undefined : codeOf(r);
+  });
+  const proof = new Map(due.map((f, i) => [f, written[i]]));
+  return { findings: findings.map((f) => (proof.get(f) ? { ...f, proof: proof.get(f)! } : f)), cost };
 }
 
 /** A grave finding only one expert confirmed, given to another expert of the team to refute (policies/refute.md):

@@ -13,7 +13,7 @@ test('a review as one contribution: the count by severity, then every finding wi
   assert.match(text, /^Checked findings: 2 \(1 High, 1 Low\)\./);
   assert.match(text, /### 1\. High: Anyone can withdraw the pool\n\n\*Where:\* withdraw\(\)\.\n\nwithdraw\(\) sends/);
   assert.match(text, /\*\*Evidence:\*\* `payable\(msg\.sender\)/);
-  assert.match(text, /\*\*Proof\*\* \(written, not run\):\n\n```solidity\nfunction test_drain/);
+  assert.match(text, /\*\*Test\*\* \(written, not run\):\n\n```solidity\nfunction test_drain/);
   assert.ok(text.indexOf('### 2. Low: The fee rounds to zero') > text.indexOf('**Fix:** Add onlyOwner.'));
 });
 

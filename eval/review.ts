@@ -21,7 +21,7 @@ import { allowedModels, cfg } from '../node/src/config.ts';
 import { index } from '../node/src/library.ts';
 import * as llm from '../node/src/llm.ts';
 import { Materials } from '../node/src/materials.ts';
-import { closerLook, controlled, hotSpots, join, listOf, powersOf, reportOf, review, tried, type Review } from '../node/src/review.ts';
+import { closerLook, controlled, hotSpots, join, listOf, powersOf, reportOf, review, tested, tried, type Review } from '../node/src/review.ts';
 import { MAX_PASSES, partsOf, READ_OUT, usdc } from '../node/src/rules.ts';
 import { referred } from '../node/src/deps.ts';
 import { PUBLIC_CHARS } from '../node/src/web.ts';
@@ -131,6 +131,9 @@ async function joined(t: ReviewTask, pages: Page[]) {
   add(new Map([[parts[0]!.id, powers.cost]]));
   const trial = await tried([...joinedAll.findings, ...powers.findings], team(), t.task, pages, judge);
   add(trial.cost);
+  const tests = await tested(trial.findings, team(), t.task, pages);
+  add(tests.cost);
+  trial.findings = tests.findings;
   // EVAL_CLOSER=1 also gives the hot spots a closer look, as the round no longer does
   const spots = process.env.EVAL_CLOSER === '1' ? hotSpots(parts.map((p) => ({ id: p.id, findings: p.r!.review!.findings, unsure: p.r!.review!.unsure, open: p.r!.review!.open })), trial.findings) : [];
   const closer = await closerLook(spots, team(), t.task, pages);
