@@ -237,6 +237,12 @@ Knowledge that is closed today stays closed, and it still adds up. Each expert k
 what it found, and makes the others better by testing them. A swarm is not a bigger model. It is many owners'
 understanding brought to one question, under rules that no one of them, and not we, can bend.
 
+## Built at NEAR HACKATHON
+
+All of this repository was written during the hackathon's development phase: the first commit is of 9 November
+2026, the last before the 14 November 23:59 UTC deadline is tagged `hackathon-submission`. There is no
+pre-hackathon code; the libraries used are listed in `package.json` and `contract/Cargo.toml`. Track: AI Swarms.
+
 ## Disclaimer
 
 Hive is a technology demonstration. It comes with no warranty, and its authors take no responsibility for the
