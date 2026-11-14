@@ -106,7 +106,9 @@ type Item = { f: Checked; held: boolean; id?: number };
 const headOf = (g: Item[]) => middleOf((g.some((x) => x.held) ? g.filter((x) => x.held) : g).map((x) => x.f));
 /** Groups that code could not join because they are worded differently, joined by a model's answer to one narrow
  *  question (policies/same.md): which of these say the same thing? The gravest are asked about first, as many as
- *  fit the question. Returns each joined group as the groups it was made of. */
+ *  fit the question. Returns each joined group as the groups it was made of. The model sees the whole list: on
+ *  NearX, sorting by the place each finding named left as many repeats as the whole list did (85 findings, 87),
+ *  with tens of calls for one; under the strict rule neither joined an overflow with a rounding of one fee check. */
 async function sortedBy(model: string, groups: Item[][], cap?: bigint): Promise<{ groups: Item[][][]; cost: bigint }> {
   const byRank = [...groups].sort((a, b) => rank(headOf(a)) - rank(headOf(b)));
   const lines = byRank.map((g) => clip(lineOf(headOf(g)), 240));
@@ -124,21 +126,6 @@ const verbatim = (items: Item[]) => {
   }
   return [...by.values()];
 };
-/** Groups sorted into the same flaw place by place: findings about one function among themselves, a short list the
- *  model reads closely; findings about different places are never one. Asked about a long list at once, or joined
- *  by how close their words are, an overflow and a rounding in one fee check became one finding. */
-async function byPlace(model: string, groups: Item[][], cap?: bigint): Promise<{ groups: Item[][][]; cost: bigint }> {
-  const places = new Map<string, Item[][]>();
-  // One function written two ways ("withdraw", "internal_withdraw") is one place.
-  const same = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 5 && (a.includes(b) || b.includes(a)));
-  for (const g of groups) {
-    const at = placeOf(headOf(g).where) || '?';
-    const key = [...places.keys()].find((k) => k !== '?' && at !== '?' && same(k, at)) ?? at;
-    places.set(key, [...(places.get(key) ?? []), g]);
-  }
-  const sorted = await each([...places.values()], async (here) => (here.length < 2 ? { groups: here.map((g) => [g]), cost: 0n } : sortedBy(model, here, cap)));
-  return { groups: sorted.flatMap((r) => r.groups), cost: sorted.reduce((c, r) => c + r.cost, 0n) };
-}
 /** A finding with the other wordings it was joined from, none of them twice and none its own. */
 const withAlso = <T extends Raised>(f: T, wordings: string[]): T => {
   const seen = new Set([f.title.toLowerCase()]);
@@ -283,10 +270,10 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   // is the finding. The model's answer joins findings with findings and leads with leads, never a lead into a
   // finding: joined there once, a finding the check had wrongly refused became "another wording" of a different one.
   const items: Item[] = [...[...held.flat(), ...combined].map((f) => ({ f, held: true })), ...open.map((f) => ({ f, held: false }))];
-  // What held is sorted by the same rule as a team's findings are: word for word by code, the rest by the model,
-  // place by place. Joined by how close their words were, two flaws of one check became one finding.
+  // What held is sorted by the same rule as a team's findings are: word for word by code, the rest by the model
+  // (policies/same.md). Joined by how close their words were, two flaws of one check became one finding.
   const byCode = verbatim(items);
-  const [sure, unsure] = [await byPlace(m.model, byCode.filter((g) => g.some((x) => x.held)), left()), await byPlace(m.model, byCode.filter((g) => !g.some((x) => x.held)), left())];
+  const [sure, unsure] = [await sortedBy(m.model, byCode.filter((g) => g.some((x) => x.held)), left()), await sortedBy(m.model, byCode.filter((g) => !g.some((x) => x.held)), left())];
   cost += sure.cost + unsure.cost;
   const [confirmed, open2] = [unfolded(sure.groups, oneOf), unfolded(unsure.groups, oneOf)];
   const findings: Checked[] = confirmed.all;
@@ -391,7 +378,7 @@ export async function join(reviews: { id: number; findings: Checked[]; leads: Ra
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
   const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
   const [held, unheld] = [verbatim(all.filter((x) => x.held)), verbatim(all.filter((x) => !x.held))];
-  const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await byPlace(model, held)).groups, ...(await byPlace(model, unheld)).groups])
+  const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await sortedBy(model, held)).groups, ...(await sortedBy(model, unheld)).groups])
     .map((joined) => [joined.flat()]);
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
   const wordings = (g: Item[]) => withAlso(headOf(g), g.flatMap((x) => [x.f.title, ...(x.f.also ?? [])]));
@@ -561,7 +548,6 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
   return { findings: out, cost };
 }
 
-/** The function or place a finding or a note is about, as code can tell it: the longest name in its "where". */
 /** The place a finding is about: the first name in its "where", past file paths and a type's prefix. An expert
  *  names the function first and what it calls after; taken as the longest name, one fee check written by three
  *  experts was three places, and its overflow stood three times in one answer. */
