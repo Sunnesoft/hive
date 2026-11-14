@@ -176,7 +176,7 @@ function renderDashboard() {
     h('div', { class: 'banners' }, attention(data.agents, data.balance)),
     h('section', { class: 'tiles', 'aria-label': 'Totals' },
       tile('Balance', money(data.balance), actions),
-      tile('Earned', money(s.earned), h('span', { class: 's' }, 'paid when customers accept')),
+      tile('Earned', money(s.earned), h('span', { class: 's' }, 'paid when the contract settles')),
       tile('Tasks delivered', `${s.delivered}`, h('span', { class: 's' }, `of ${s.picked} the swarm gave them`)),
       tile('Success', s.rate, h('span', { class: 's' }, 'delivered of picked'))),
     h('div', { id: 'moneyForm' }),
@@ -209,7 +209,7 @@ function agentsTable() {
           h('td', { class: 'num', 'data-label': 'Earned' }, usd(done.reduce((s, r) => s + BigInt(r.pay), 0n))),
           h('td', { class: 'nowrap muted' }, last ? ago(last.at) : a.status === 'Pending' ? 'audit running' : '–'));
       })))),
-    h('p', { class: 'faint' }, 'Your pay lands on the balance once the customer accepts the work on Agent Market. Withdraw to your wallet any time.'));
+    h('p', { class: 'faint' }, 'Your pay lands on the balance when the contract settles the task. Withdraw to your wallet any time.'));
 }
 
 function moneyForm(kind) {
@@ -368,7 +368,7 @@ function renderNew() {
   const stage = (n, title, tag, ...body) => h('section', { class: 'card', 'aria-labelledby': `s${n}` },
     h('div', { class: 'stage-h' }, h('span', { class: 'n' }, n), h('h2', { id: `s${n}` }, title), tag ?? ''), ...body);
 
-  const name = h('input', { id: 'name', class: 'mono', value: old ? nameOf(old) : '', placeholder: 'solidity-auditor', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none' });
+  const name = h('input', { id: 'name', class: 'mono', value: old ? nameOf(old) : '', placeholder: 'near-security', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'none' });
   const idLine = h('span', { class: 'hint' });
   const skills = h('textarea', { id: 'skills', maxlength: '500', rows: '2', placeholder: 'EVM smart contract audits: reentrancy, access control, oracle manipulation, upgrade safety' });
   skills.value = old?.skills ?? '';
@@ -502,18 +502,18 @@ function renderNew() {
     spend.classList.toggle('warn', low);
     net.className = `netline${low || loss ? ' warn' : ''}${loss ? ' bad' : ''}`;
     net.replaceChildren(h('b', {}, 'Each delivered task'),
-      h('span', { class: 'sum' }, `+${r === null ? '…' : usd(r)} rate − at most ${m === null ? '…' : usd(m)} model = `, h('b', {}, left === null ? '…' : `${sign(left)} USDC to you, at least`)),
+      h('span', { class: 'sum' }, `your share − at most ${m === null ? '…' : usd(m)} model; at a share equal to your rate: +${r === null ? '…' : usd(r)} − ${m === null ? '…' : usd(m)} = `, h('b', {}, left === null ? '…' : `${sign(left)} USDC`)),
       h('span', { class: 'hint' }, low && m >= costs.answer ? `A review of the largest files a customer can give may cost up to ${usd(w)} USDC. Below that your expert still answers questions, but a review that may not fit is not started.`
         : low ? `One call with this model and prompt can cost up to ${usd(w)} USDC. Below that, the swarm will not pick your expert.`
         : loss ? 'Your rate is below what the model may cost: raise the rate or pick a cheaper model.'
-        : 'A task your expert misses earns nothing; you pay only what its model used.'));
+        : 'Your share of the team\'s rates, by what your findings that held were worth: it may be more or less than your rate. A finding that did not hold earns nothing; a missed task costs only what its model used.'));
 
     payNow.replaceChildren(`${d === null ? '…' : usd(d)} `, h('small', {}, 'USDC'));
     now.replaceChildren(h('dt', {}, `Audit of your files, ${mb} MB`), h('dd', {}, usd(fee(mb))),
       h('dt', {}, 'Stays on your balance, pays the model'), h('dd', {}, d === null ? '…' : usd(d > fee(mb) ? d - fee(mb) : 0n)));
-    pays.replaceChildren(h('dt', {}, 'Your rate'), h('dd', { class: 'ok' }, r === null ? '…' : `+${usd(r)}`),
+    pays.replaceChildren(h('dt', {}, 'Your rate, as a share'), h('dd', { class: 'ok' }, r === null ? '…' : `+${usd(r)}`),
       h('dt', {}, 'Model, at most'), h('dd', {}, m === null ? '…' : `−${usd(m)}`),
-      h('dt', { class: 'total' }, 'To you, at least'), h('dd', {}, left === null ? '…' : sign(left)));
+      h('dt', { class: 'total' }, 'To you, at that share'), h('dd', {}, left === null ? '…' : sign(left)));
     create.disabled = problems.length > 0;
     need.textContent = problems.length ? `Needs ${problems.join(', ')}.` : 'One wallet confirmation.';
   }
@@ -583,7 +583,7 @@ function renderNew() {
         stage(3, 'Your files', vis('sealed'), drop, fileList),
         stage(4, 'Your price', null,
           h('div', { class: 'pair' },
-            field('rate', 'Your rate per task', h('div', { class: 'with-unit' }, rate), 'You earn it for each task your expert delivers. It is part of the customer\'s price: lower rates get picked more often.'),
+            field('rate', 'Your rate per task', h('div', { class: 'with-unit' }, rate), 'It goes into the team\'s rates, which the contract shares by what each expert\'s findings that held were worth: your share may be more or less than it. It is part of the customer\'s price: lower rates get picked more often.'),
             field('spend', 'Max spend per task', h('div', { class: 'with-unit' }, spend), 'Your budget for one task: the most the model may cost. Paid from your balance; what is not used comes back.', h('span', { class: 'pill plain' }, 'set for you'))),
           net),
         h('details', { class: 'more' }, h('summary', {}, 'Model and deposit', h('span', { class: 'faint' }, 'set for you')),

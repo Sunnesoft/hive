@@ -531,7 +531,7 @@ have (22 of 22 facts against 0 or 1).
 ## The second NEAR contract: the reviews lose, and why
 
 A vesting contract of the same project, audited by BlockSec the same year, reviewed this time as a customer would
-have it: an order placed in the contract on testnet (order-38), three NEAR reviewers named, the controller on. It
+have it: an order placed in the contract on testnet, three NEAR reviewers named, the controller on. It
 went through in five minutes: 4.00 of 5.00 USDC charged, 1.00 to each expert, 1.00 back to the customer, 0.39 USD
 of models. Read blind against the report's 11 findings ([BLIND.md](BLIND.md)):
 

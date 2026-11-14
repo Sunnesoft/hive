@@ -1,6 +1,6 @@
-// Hiring, the customer's way: write the task, pick experts if you like, see the price, then hire the swarm on
-// Agent Market with the brief copied and the steps spelled out. Payment and acceptance happen there.
-// Or the same brief goes to /order: the customer pays into the contract from a wallet and the contract settles.
+// Hiring, the customer's way: write the task, pick experts if you like, see the price, then the brief goes to
+// /order: the customer pays into the contract from a wallet and the contract settles. Once the swarm is listed on
+// Agent Market (info.pricing.listing), a second way opens: hire it there with the brief copied and the steps spelled out.
 import { $, account, ago, askList, getJSON, h, icon, quote, topicChips, topicName, units, usd } from '/ui.js';
 
 const [info, experts] = await Promise.all([getJSON('/info'), getJSON('/agents')]);
@@ -8,7 +8,7 @@ const { pricing } = info;
 const picked = new Set();
 const listing = pricing.listing; // the swarm's own page on Agent Market, when the runner knows it
 $('open').href = listing ?? 'https://market.near.ai';
-$('openHint').textContent = listing ? 'Its page opens in a new tab.' : 'Agent Market opens in a new tab: search for “Swarm-for-Hire” there.';
+$('openHint').textContent = listing ? 'Its page opens in a new tab.' : 'Agent Market opens in a new tab: search for “Hive” there.';
 
 /** The ✕ on a picked expert: SVG needs its own namespace, so not h(). */
 function cross() {
@@ -67,7 +67,7 @@ function list() {
     .sort((a, b) => b.hits.length - a.hits.length); // stable: most delivered first among equals
   $('count').textContent = `${shown.length} of ${experts.length} expert${experts.length === 1 ? '' : 's'} · ${asked.size ? 'best fit for your task first' : 'most delivered first'}`;
   $('list').replaceChildren(...(shown.length ? shown.map(({ e, hits }) => card(e, hits)) : [h('li', { class: 'muted' },
-    experts.length ? 'No expert knows that yet. Hire anyway: the swarm tells builders what customers need.' : 'No experts yet. ', experts.length ? '' : h('a', { href: '/builders' }, 'Be the first'))]));
+    experts.length ? 'No expert knows that yet. A task nobody can take is declined, keeping 0.05 USDC; the swarm tells builders what customers need.' : 'No experts yet. ', experts.length ? '' : h('a', { href: '/builders' }, 'Be the first'))]));
 }
 
 function task() {
@@ -82,7 +82,14 @@ const briefText = () => {
   if (chosen.length) parts.push(`Experts: ${chosen.map((e) => e.id).join(', ')}`);
   return parts.join('\n\n');
 };
-let plan = null; // the plan the brief fits, once experts are picked
+let plan = null; // the Agent Market plan the brief fits, once experts are picked: for hiring there, once listed
+const terms = pricing.order; // the contract's own numbers, in units
+const fee = BigInt(info.fees.fee_bps);
+/** What an order of these experts costs, as the contract charges it when all of them deliver. */
+const charge = (chosen) => {
+  const cost = chosen.reduce((s, e) => s + BigInt(e.rate) + BigInt(terms.per_agent), BigInt(terms.overhead));
+  return (cost * 10_000n + 9_999n - fee) / (10_000n - fee);
+};
 
 function compose() {
   const chosen = experts.filter((e) => picked.has(e.id));
@@ -96,26 +103,24 @@ function compose() {
 
   if (!chosen.length) {
     plan = null;
-    $('barPrice').replaceChildren(h('span', {}, 'Plans from '), h('b', {}, `${Number(pricing.plans[0].usd)} USDC`));
-    $('estimate').replaceChildren(h('b', {}, 'Choose a plan on Agent Market'),
-      h('span', { class: 'muted' }, `${pricing.plans.map((p) => `${p.name} ${Number(p.usd)} USDC`).join(' · ')}. The swarm builds the best team the plan pays for, or bids on a task you post on the board.`));
+    $('barPrice').replaceChildren(h('span', {}, 'From about '), h('b', {}, `${Number(pricing.plans[0].usd)} USDC`));
+    $('estimate').replaceChildren(h('b', {}, 'The swarm picks the team your budget pays for'),
+      h('span', { class: 'muted' }, `You set the budget when you order: ${Number(pricing.plans[0].usd)} USDC is a start. You pay the rates of the experts that delivered, the swarm's overhead and its owner's fee; the rest returns. An unused spare costs nothing.`));
     return;
   }
   const rates = chosen.reduce((s, e) => s + BigInt(e.rate), 0n);
-  const overhead = BigInt(units(pricing.overhead)) + BigInt(units(pricing.per_agent)) * BigInt(chosen.length);
-  const price = quote(chosen.map((e) => e.rate), pricing, info.fees.fee_bps);
-  plan = pricing.plans.find((p) => BigInt(units(p.usd)) >= price) ?? null;
-  const pct = (bps) => `${bps / 100}%`;
-  $('barPrice').replaceChildren(h('span', {}, 'About '), h('b', {}, `${usd(price)} USDC`), h('span', { class: 'faint' }, plan ? ` · ${plan.name}` : ' · a bid'));
+  const overhead = BigInt(terms.overhead) + BigInt(terms.per_agent) * BigInt(chosen.length);
+  const price = charge(chosen);
+  plan = pricing.plans.find((p) => BigInt(units(p.usd)) >= quote(chosen.map((e) => e.rate), pricing, info.fees.fee_bps)) ?? null;
+  $('barPrice').replaceChildren(h('span', {}, 'At most '), h('b', {}, `${usd(price)} USDC`));
   $('estimate').replaceChildren(
     h('dl', { class: 'sum-list' },
       h('dt', {}, 'Experts\' rates'), h('dd', {}, usd(rates)),
-      h('dt', {}, `Swarm, ${pricing.overhead} + ${pricing.per_agent} per expert`), h('dd', {}, usd(overhead)),
-      h('dt', {}, `Fees, ${pct(info.fees.fee_bps)} runner + ${pct(pricing.market_fee_bps)} market`), h('dd', {}, usd(price - rates - overhead))),
+      h('dt', {}, `Swarm, ${usd(terms.overhead)} + ${usd(terms.per_agent)} per expert`), h('dd', {}, usd(overhead)),
+      h('dt', {}, `Its owner, ${info.fees.fee_bps / 100}%`), h('dd', {}, usd(price - rates - overhead))),
     h('hr'),
-    h('div', { class: 'total' }, h('span', {}, 'About'), h('span', { class: 'num-big' }, `${usd(price)} `, h('small', {}, 'USDC')),
-      h('span', { class: `pill ${plan ? 'ok' : 'honey'}` }, plan ? `fits ${plan.name}, ${Number(plan.usd)}` : 'post for a bid')),
-    h('span', { class: 'faint' }, `The swarm may add an expert your task needs, within the plan. ${['No', 'One', 'Two', 'Three', 'Four', 'Five'][pricing.reworks] ?? pricing.reworks} round${pricing.reworks === 1 ? '' : 's'} of changes included.`),
+    h('div', { class: 'total' }, h('span', {}, 'At most'), h('span', { class: 'num-big' }, `${usd(price)} `, h('small', {}, 'USDC'))),
+    h('span', { class: 'faint' }, 'If all of them deliver. You pay only for the experts that delivered; the rest returns to your wallet.'),
   );
 }
 
@@ -163,7 +168,7 @@ async function hire() {
   $('hireTitle').focus({ preventScroll: true });
 }
 
-/** The same brief as an order in the contract: its budget covers the picked experts, or the smallest plan. */
+/** The brief as an order in the contract: its budget covers the picked experts, or a starting budget. */
 function orderOnChain() {
   if (!task()) {
     $('need').textContent = 'Write your task first: it is what the swarm answers.';
@@ -171,19 +176,19 @@ function orderOnChain() {
     return;
   }
   const chosen = experts.filter((e) => picked.has(e.id));
-  const cost = chosen.reduce((s, e) => s + BigInt(e.rate) + BigInt(pricing.order.per_agent), BigInt(pricing.order.overhead));
-  const cents = (cost * 10_000n / BigInt(10_000 - info.fees.fee_bps) + 9_999n) / 10_000n; // with the owner's fee on top, up to a cent
+  const cents = (charge(chosen) + 9_999n) / 10_000n; // with the owner's fee on top, up to a cent
   const amount = chosen.length ? `${cents / 100n}.${`${cents % 100n}`.padStart(2, '0')}` : Number(pricing.plans[0].usd).toFixed(2);
   sessionStorage.setItem('swarm.order', JSON.stringify({ brief: briefText(), amount }));
   location.href = '/order';
 }
-$('chainHint').textContent = 'The contract pays the experts and returns the rest, and keeps only a hash of your task. No marketplace fee; one answer, no changes or disputes.';
-$('chain').addEventListener('click', orderOnChain);
+$('chainHint').textContent = `The contract pays the experts and returns the rest, and keeps only a hash of your task. One answer, no reworks or disputes: inside it every finding was already disputed by a second expert and an arbiter.${listing ? '' : ' Coming soon on Agent Market.'}`;
+$('chain').hidden = !listing; // Agent Market, once the swarm is listed there
+$('chain').addEventListener('click', hire);
 $('search').addEventListener('input', list);
 $('task').addEventListener('input', () => (compose(), list()));
 $('links').addEventListener('input', compose);
-$('next').addEventListener('click', hire);
-$('barNext').addEventListener('click', hire);
+$('next').addEventListener('click', orderOnChain);
+$('barNext').addEventListener('click', orderOnChain);
 $('back').addEventListener('click', () => {
   $('hire').hidden = true;
   $('compose').hidden = false;

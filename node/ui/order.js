@@ -21,7 +21,7 @@ const status = (text, kind) => say($('status'), text, kind);
 Object.assign($('network'), { textContent: info.network, className: `pill ${info.network === 'mainnet' ? 'ok' : 'info'}` });
 const connector = new nc.NearConnector({ network: info.network === 'mainnet' ? 'mainnet' : 'testnet' });
 const minutes = Math.round(terms.run_secs / 60);
-$('timeout').textContent = `Not answered in ${minutes >= 1 ? `${minutes} minutes` : `${terms.run_secs} seconds`}: anyone can send it back to you.`;
+$('timeout').textContent = `Not answered in ${minutes >= 1 ? `${minutes} minutes` : `${terms.run_secs} seconds`}: anyone can call refund, and all of it comes back.`;
 
 // ---- the draft: from the experts page, or typed here ----
 const DRAFT = 'swarm.order';
@@ -96,7 +96,7 @@ function form() {
   const [size, a] = [brief().length, amount()];
   $('size').textContent = size > MAX_BRIEF ? `${size} of ${MAX_BRIEF} characters: too long` : size > MAX_BRIEF / 2 ? `${size} of ${MAX_BRIEF} characters` : '';
   $('place').textContent = me ? (a ? `Place order: ${usd(a)} USDC` : 'Place order') : 'Connect wallet';
-  $('amountHint').textContent = `The most this task may cost. You pay the rates of the experts that delivered, ${usd(terms.overhead)} + ${usd(terms.per_agent)} per expert for the swarm and ${info.fees.fee_bps / 100}% to its owner; the rest returns to your wallet by itself.`;
+  $('amountHint').textContent = `The most this task may cost. You pay the rates of the experts that delivered, shared among them by what their findings that held were worth, ${usd(terms.overhead)} + ${usd(terms.per_agent)} per expert for the swarm and ${info.fees.fee_bps / 100}% to its owner; the rest returns to your wallet by itself.`;
   $('teamHint').textContent = a ? advice(fits(a)) : '';
 }
 async function place() {
@@ -158,7 +158,7 @@ function card(o) {
       h('span', {}, sent()[o.briefHash] ? 'Sending it again from this browser…' : `It was placed from another browser or device. Open this page there, or get all ${usd(o.amount)} USDC back ${Math.round(terms.run_secs / 60)} minutes after it was placed.`)) : '',
     o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All but 0.05 of its ${usd(o.amount)} USDC went back to your wallet: 0.05 paid for the check of the task.`)) : '',
     o.state === 'waiting' ? h('span', { class: 'muted' }, 'The swarm reads the task and picks the experts it needs.') : '',
-    o.state === 'working' ? h('span', { class: 'muted' }, 'Each expert is answering its own question; then each answer is checked and one answer is composed.') : '');
+    o.state === 'working' ? h('span', { class: 'muted' }, 'Experts are reviewing; a second expert tests each finding, then one answer is composed.') : '');
 }
 
 let timer = 0;

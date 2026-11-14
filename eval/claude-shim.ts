@@ -160,7 +160,11 @@ const NAMES = ['deepseek-ai/DeepSeek-V4.1-Flash-1017', 'Qwen/Qwen3.8-27B', 'Qwen
 const cost = (perMillion: number) => ({ amount: Math.round(perMillion * 1e3), scale: 9 });
 const catalog = { models: NAMES.map((modelId) => ({ modelId, inputCostPerToken: cost(PRICE.in), outputCostPerToken: cost(PRICE.out) })) };
 
+// A caller that went away (a run stopped mid-call) closes its socket: writing to it must not stop the stand-in for all.
+process.on('uncaughtException', (e) => console.log(`${new Date().toISOString().slice(11, 19)} ignored: ${String(e).slice(0, 120)}`));
 createServer((req, res) => {
+  res.on('error', () => {});
+  req.on('error', () => {});
   const path = (req.url ?? '').replace(/^\/v1/, '').split('?')[0];
   if (req.method === 'GET' && path === '/model/list') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(catalog)); return; }
   let raw = '';
