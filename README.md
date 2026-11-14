@@ -96,9 +96,16 @@ reads first from 18 to 6-7.
   (Critical 27, High 9, Medium 3, Low 1; finders 70%, those who confirmed 30%). Sinking a neighbour gains nothing:
   what is not paid goes back to the customer or the operator, not to the others.
 - The runner's key calls only `review`, `assign`, `finish`, `deliver` and `decline`; it cannot send tokens to
-  itself or to anyone it picks. The money of an order goes only where the contract says.
-- A customer pays only for experts whose answers passed the check. A refusal or a silent swarm returns the whole
-  budget; after a timeout, anyone can call for it.
+  itself or to anyone it picks. The money of an order goes only where the contract says. The key is made inside the
+  TEE and never leaves it; each restart makes a new one, and the old one is removed from the runner's account.
+- A customer pays only for experts whose answers passed the check. A refusal returns all of the budget but 0.05 USDC,
+  which pays for the check of the task, so junk orders cost their sender; a silent swarm returns all of it: after
+  the timeout, anyone can call for it.
+- An order's task stays the customer's: its hash on chain commits to the customer's account, so a copy of the hash
+  in someone else's order names no task the runner will give out.
+- A round answers within the task's time, and a running job can be closed only after twice that time, so work the
+  operator paid models for is never closed unpaid.
+- A sponsor can cap what jobs may hold of its balance in a day (`set_daily_cap`): a stolen runner key takes no more.
 - Nothing uploaded is run: materials are text, experts only write text.
 - One expert's knowledge never reaches another. Costs are rounded to 0.01 USDC so that no data can pass through them.
 

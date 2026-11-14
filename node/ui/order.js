@@ -8,6 +8,15 @@ import { $, account, busy, getJSON, h, hex, icon, markdown, say, short, units, u
 const MAX_BRIEF = 10_000; // characters, as the runner takes it
 const info = await getJSON('/info');
 const terms = info.pricing.order; // the contract's own numbers: overhead, per_agent, run_secs
+// What an expert costs here, for telling the customer how many fit the budget: the middle rate of those who can work now.
+const rates = (await getJSON('/agents').catch(() => [])).map((x) => BigInt(x.rate)).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+const rate = rates.length ? rates[Math.floor(rates.length / 2)] : 1_000_000n;
+/** How many experts of the middle rate a budget pays for, with the swarm's overhead and the owner's fee on top. */
+const fits = (a) => { const net = (a * 10_000n) / BigInt(10_000 + info.fees.fee_bps) - BigInt(terms.overhead); return net > 0n ? Number(net / (rate + BigInt(terms.per_agent))) : 0; };
+/** Why a bigger team, in plain words, for the budget the customer typed. */
+const advice = (n) => n >= 3
+  ? `About ${n} experts fit this budget: each finding is proved by one and tested by another, one that fails is covered by the rest, and more gets found.`
+  : `Only about ${n} expert${n === 1 ? '' : 's'} fit${n === 1 ? 's' : ''} this budget. Give room for 3 (about ${usd(BigInt(Math.ceil(Number((BigInt(terms.overhead) + 3n * (rate + BigInt(terms.per_agent))) * BigInt(10_000 + info.fees.fee_bps) / 10_000n / 10_000n)) * 10_000))} USDC): with two or more, each finding is proved by one expert and tested by another, so fewer false alarms reach you; if one fails, the others still answer; and more experts find more. You pay only for those who deliver.`;
 const status = (text, kind) => say($('status'), text, kind);
 Object.assign($('network'), { textContent: info.network, className: `pill ${info.network === 'mainnet' ? 'ok' : 'info'}` });
 const connector = new nc.NearConnector({ network: info.network === 'mainnet' ? 'mainnet' : 'testnet' });
@@ -88,6 +97,7 @@ function form() {
   $('size').textContent = size > MAX_BRIEF ? `${size} of ${MAX_BRIEF} characters: too long` : size > MAX_BRIEF / 2 ? `${size} of ${MAX_BRIEF} characters` : '';
   $('place').textContent = me ? (a ? `Place order: ${usd(a)} USDC` : 'Place order') : 'Connect wallet';
   $('amountHint').textContent = `The most this task may cost. You pay the rates of the experts that delivered, ${usd(terms.overhead)} + ${usd(terms.per_agent)} per expert for the swarm and ${info.fees.fee_bps / 100}% to its owner; the rest returns to your wallet by itself.`;
+  $('teamHint').textContent = a ? advice(fits(a)) : '';
 }
 async function place() {
   if (!me) return connect($('place'));
