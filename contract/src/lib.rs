@@ -41,6 +41,8 @@ const MAX_SIZE_MB: u32 = 10; // sealed materials a sponsor may upload
 const MAX_FEE_BPS: u16 = 2_000;
 const MAX_TIMEOUT_SECS: u64 = 90 * 86_400;
 const COST_STEP: u128 = 10_000; // 0.01 USDC: coarse costs carry almost no hidden bits
+const SCREEN_FEE: u128 = 50_000; // 0.05 USDC an order the swarm declines leaves to the operator: the check of the task cost models
+const DAY_SECS: u64 = 86_400;
 const TRANSFER_GAS: Gas = Gas::from_tgas(10); // for a token transfer, and as much for its callback
 
 #[near(serializers = [borsh, json])]
@@ -295,6 +297,7 @@ impl Contract {
             let (sponsor, hold, pay) = (a.sponsor.clone(), a.max_cost, a.rate);
             let balance = self.balance_of(&sponsor);
             require!(a.status == Status::Active && balance >= hold.0, "agent not ready");
+            spend_today(&sponsor, hold.0);
             self.set_balance(&sponsor, balance - hold.0);
             slots.push(Slot { agent, sponsor, hold, pay });
         }
@@ -367,7 +370,11 @@ impl Contract {
     /// team, or the work failed. All of it is sent back to the customer.
     pub fn decline(&mut self, order: String) {
         self.runner();
-        self.send_back(order, "declined");
+        let o = self.orders.get(&order).expect("no order");
+        let fee = SCREEN_FEE.min(o.amount.0);
+        let operator = self.cfg.operator.clone();
+        self.send_back_less(order, "declined", fee);
+        self.set_balance(&operator, self.balance_of(&operator) + fee);
     }
 
     // ---- anyone ----
@@ -387,6 +394,23 @@ impl Contract {
             self.credit(&s.sponsor, s.hold.0);
         }
         emit("close", json!({ "job": job }));
+    }
+
+    /// The most of the caller's balance the runner may hold for jobs in one UTC day, summed over all its agents;
+    /// none: no limit. A stolen runner key can then take from a sponsor no more than this a day.
+    pub fn set_daily_cap(&mut self, cap: Option<U128>) {
+        let me = env::predecessor_account_id();
+        let mut c = cap_of(&me).unwrap_or(Cap { per_day: 0, day: 0, used: 0 });
+        match cap {
+            None => {
+                env::storage_remove(&cap_key(&me));
+            }
+            Some(v) => {
+                c.per_day = v.0;
+                env::storage_write(&cap_key(&me), &near_sdk::borsh::to_vec(&c).expect("cap"));
+            }
+        }
+        emit("daily_cap", json!({ "account": me, "cap": cap }));
     }
 
     /// Sends `amount` (all if omitted) of the caller's balance to the caller. Held money is not in the balance.
@@ -485,6 +509,11 @@ impl Contract {
         page.map(|(id, o)| OrderView { id: id.clone(), order: o.clone() }).collect()
     }
     /// An account's free money here: what `withdraw` would send.
+    /// A sponsor's daily cap and what of it today's jobs hold; none if it set no cap.
+    pub fn daily_cap(&self, account: AccountId) -> Option<Value> {
+        cap_of(&account).map(|c| json!({ "per_day": U128(c.per_day), "used_today": U128(if c.day == now() / DAY_SECS { c.used } else { 0 }) }))
+    }
+
     pub fn balance(&self, account: AccountId) -> U128 {
         U128(self.balance_of(&account))
     }
@@ -554,13 +583,18 @@ impl Contract {
 
     /// Ends an order with all its money sent back to the customer. Its job, if one finished, is dropped unpaid.
     fn send_back(&mut self, order: String, why: &str) {
+        self.send_back_less(order, why, 0);
+    }
+
+    /// Sends an order back to its customer, less `kept` (which the caller credits to someone here).
+    fn send_back_less(&mut self, order: String, why: &str, kept: u128) {
         let o = self.orders.remove(&order).expect("no order");
         if let Some(j) = self.jobs.get(&order) {
             require!(j.finished, "job running"); // its holds are still out: finish or close it first
             self.jobs.remove(&order);
         }
-        self.send(&o.customer, o.amount.0);
-        emit("refund", json!({ "order": order, "customer": o.customer, "amount": o.amount, "why": why }));
+        self.send(&o.customer, o.amount.0 - kept);
+        emit("refund", json!({ "order": order, "customer": o.customer, "amount": U128(o.amount.0 - kept), "kept": U128(kept), "why": why }));
     }
 
     /// Sends tokens out of the contract. What the token contract does not take, `on_sent` keeps in the
@@ -657,6 +691,31 @@ fn split(amount: u128, weights: &[u128]) -> Vec<u128> {
 fn emit(event: &str, data: Value) {
     let e = json!({ "standard": "swarm", "version": "3.1.0", "event": event, "data": data });
     env::log_str(&format!("EVENT_JSON:{e}"));
+}
+
+/// A sponsor's daily cap, kept apart from the contract's state (prefix "c"), so adding it needed no migration.
+#[near(serializers = [borsh])]
+struct Cap {
+    per_day: u128,
+    day: u64,
+    used: u128,
+}
+fn cap_key(account: &AccountId) -> Vec<u8> {
+    [b"c".as_slice(), account.as_bytes()].concat()
+}
+fn cap_of(account: &AccountId) -> Option<Cap> {
+    env::storage_read(&cap_key(account)).map(|b| near_sdk::borsh::from_slice(&b).expect("cap"))
+}
+/// Counts `hold` against the sponsor's cap for today, if it set one: refuses what would go past it.
+fn spend_today(sponsor: &AccountId, hold: u128) {
+    let Some(mut c) = cap_of(sponsor) else { return };
+    let today = now() / DAY_SECS;
+    if c.day != today {
+        (c.day, c.used) = (today, 0);
+    }
+    require!(c.used + hold <= c.per_day, "daily cap reached");
+    c.used += hold;
+    env::storage_write(&cap_key(sponsor), &near_sdk::borsh::to_vec(&c).expect("cap"));
 }
 
 fn now() -> u64 {

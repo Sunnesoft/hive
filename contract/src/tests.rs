@@ -501,14 +501,63 @@ fn an_order_too_small_for_its_team_is_shared_pro_rata() {
 }
 
 #[test]
-fn a_declined_order_is_sent_back_in_full() {
+fn a_declined_order_is_sent_back_less_the_check_of_its_task() {
     let mut c = setup();
     deposit(&mut c, BUYER, 8 * U, order('d'));
     call(RUNNER, 1);
     c.decline(O1.into());
     assert!(c.order(O1.into()).is_none());
-    assert_eq!((bal(&c, BUYER), c.owed().0), (0, 20 * U));
+    // 0.05 stays with the operator, which paid the models that checked the task; 7.95 go back to the customer.
+    assert_eq!((bal(&c, BUYER), bal(&c, OP), c.owed().0), (0, 5 * CENT, 20 * U + 5 * CENT));
     assert_books(&c, &[]);
+}
+
+#[test]
+fn an_order_nobody_answered_goes_back_in_full() {
+    let mut c = setup();
+    deposit(&mut c, BUYER, 8 * U, order('d'));
+    call(BUYER, 601);
+    c.refund(O1.into());
+    assert_eq!((bal(&c, OP), c.owed().0), (0, 20 * U)); // the swarm did not answer: the customer pays nothing
+    assert_books(&c, &[]);
+}
+
+#[test]
+fn a_sponsor_caps_what_jobs_may_hold_of_it_in_a_day() {
+    let mut c = setup();
+    call(A, 0);
+    c.set_daily_cap(Some(U128(U))); // A's agent holds U a job: one job a day
+    assert_eq!(c.daily_cap(acc(A)).unwrap()["per_day"], json!(U128(U)));
+    call(RUNNER, 1);
+    c.assign("j1".into(), vec![ag(A)]);
+    assert_eq!(c.daily_cap(acc(A)).unwrap()["used_today"], json!(U128(U)));
+    call(RUNNER, 86_401); // the next day
+    c.assign("j2".into(), vec![ag(A)]);
+    assert_books(&c, &["j1", "j2"]);
+}
+
+#[test]
+#[should_panic(expected = "daily cap reached")]
+fn a_job_past_the_sponsors_daily_cap_is_refused() {
+    let mut c = setup();
+    call(A, 0);
+    c.set_daily_cap(Some(U128(U)));
+    call(RUNNER, 1);
+    c.assign("j1".into(), vec![ag(A)]);
+    c.assign("j2".into(), vec![ag(A)]);
+}
+
+#[test]
+fn a_sponsor_without_a_cap_is_not_limited() {
+    let mut c = setup();
+    call(A, 0);
+    c.set_daily_cap(Some(U128(U)));
+    c.set_daily_cap(None);
+    assert!(c.daily_cap(acc(A)).is_none());
+    call(RUNNER, 1);
+    c.assign("j1".into(), vec![ag(A)]);
+    c.assign("j2".into(), vec![ag(A)]);
+    assert_books(&c, &["j1", "j2"]);
 }
 
 #[test]
@@ -517,7 +566,7 @@ fn a_declined_order_drops_its_finished_job_unpaid() {
     c.decline(O1.into());
     assert!(c.job(O1.into()).is_none());
     assert_eq!((bal(&c, A), bal(&c, B), bal(&c, DAO)), (10 * U - CENT, 10 * U - CENT, 0));
-    assert_eq!(c.owed().0, 20 * U);
+    assert_eq!(c.owed().0, 20 * U + 5 * CENT); // the check of the task stays with the operator
     assert_books(&c, &[]);
 }
 
@@ -558,8 +607,8 @@ fn a_refund_that_bounces_waits_in_the_customers_balance() {
     call(RUNNER, 1);
     c.decline(O1.into());
     callback_failed(); // the customer left the token meanwhile
-    c.on_sent(acc(BUYER), U128(8 * U));
-    assert_eq!((bal(&c, BUYER), c.owed().0), (8 * U, 28 * U));
+    c.on_sent(acc(BUYER), U128(8 * U - 5 * CENT));
+    assert_eq!((bal(&c, BUYER), c.owed().0), (8 * U - 5 * CENT, 28 * U));
 }
 
 #[test]
