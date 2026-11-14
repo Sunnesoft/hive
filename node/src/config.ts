@@ -37,6 +37,7 @@ const Env = z.object({
   // The whole round, the trial and the tests with it: under the contract's run_secs (1,800 s), so the answer is in
   // before anyone may close the job, and the work done is paid.
   ROUND_MS: z.coerce.number().int().positive().default(1_500_000),
+  SPARE_MODEL: z.string().default('Qwen/Qwen3.6-35B-A3B-FP8'), // a step whose model failed is tried once more on this one
   POLL_MS: z.coerce.number().int().min(1_000).default(30_000),
   PORT: z.coerce.number().int().min(0).default(8080), // GET /attestation, POST /upload, GET / (the sealing page)
   STORE_DIR: z.string().default('./store'), // sealed uploads; an encrypted volume in the TEE

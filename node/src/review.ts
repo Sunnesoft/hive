@@ -99,6 +99,13 @@ export async function same<T>(items: T[], findingOf: (item: T) => Finding): Prom
 }
 
 const gravest = <T extends Finding>(group: T[]) => bySeverity(group)[0]!;
+/** The expert on another model, for the one try after its own model failed: the same knowledge, method and
+ *  question. When DeepSeek at NEAR AI fell silent, the step tried again on it failed the same way, and the expert
+ *  delivered nothing; the swarm lost its part and, with one expert left, its trial. */
+const spare = <M extends { model: string; pass_model?: string }>(m: M): M => {
+  const other = [m.pass_model, cfg.SPARE_MODEL].find((x) => x && x !== m.model && llm.priceOf(x));
+  return other ? { ...m, model: other } : m;
+};
 
 type Item = { f: Checked; held: boolean; id?: number };
 /** What a group of items that say the same is known by: of its confirmed wordings, or of all of them if none is
@@ -182,7 +189,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const found = async (kind: 'read' | 'pass' | 'combine', knowledge: string, about: string) => {
     if (Date.now() > deadline) return { findings: [] as Finding[], open: [] as llm.Open[], cost: 0n, why: 'model_failed' as const };
     const first = await llm.raise(kind, m, knowledge, question, pages, about, left());
-    const r = paid(first.why === 'model_failed' && Date.now() < deadline ? await llm.raise(kind, m, knowledge, question, pages, about, left()) : first);
+    const r = paid(first.why === 'model_failed' && Date.now() < deadline ? await llm.raise(kind, spare(m), knowledge, question, pages, about, left()) : first);
     opens.push(...r.open);
     return r;
   };
@@ -236,7 +243,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     const about = section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN);
     const knowledge = [...new Set(group.map((f) => partOf.get(f)).filter((k): k is string => !!k))].join('\n\n');
     const once = await llm.check(m, question, pages, about, left(), knowledge);
-    const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(m, question, pages, about, left(), knowledge) : once);
+    const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(spare(m), question, pages, about, left(), knowledge) : once);
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
     const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n');
     const held = r.verdicts.filter((v) => v.holds && grounded(v.quote, material));
