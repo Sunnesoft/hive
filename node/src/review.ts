@@ -107,6 +107,23 @@ const spare = <M extends { model: string; pass_model?: string }>(m: M): M => {
   const other = [m.pass_model, cfg.SPARE_MODEL].find((x) => x && x !== m.model && llm.priceOf(x));
   return other ? { ...m, model: other } : m;
 };
+/** A step that failed, tried again: on its own model, warmer, then on the spare, warmer. At temperature 0 a model
+ *  that went round in a loop goes round the same loop on the same prompt: on SWEAT (15 November) DeepSeek and then
+ *  Qwen looped on one pass at 0, and the part of the method it read was lost. Of six prompts models looped on that
+ *  day, sent again at 0.6, DeepSeek looped on none, Qwen on two. The spare stays for a model that does not answer.
+ *  Failed, a pass loses a part of the method, a check its group, a proof its finding's place, a mark its count. */
+async function retried<M extends { model: string; pass_model?: string; temperature?: number }, R extends { why?: llm.Why; cost: bigint }>(m: M, call: (m: M) => Promise<R>, may: () => boolean = () => true): Promise<R> {
+  const warm = (x: M): M => ({ ...x, temperature: Math.max(x.temperature ?? 0, AGAIN_TEMPERATURE) });
+  const tries = [warm(m), ...(spare(m).model !== m.model ? [warm(spare(m))] : [])];
+  let r = await call(m);
+  for (const next of tries) {
+    if (r.why !== 'model_failed' || !may()) break;
+    const again = await call(next);
+    r = { ...again, cost: r.cost + again.cost };
+  }
+  return r;
+}
+const AGAIN_TEMPERATURE = 0.6;
 
 type Item = { f: Checked; held: boolean; id?: number };
 /** What a group of items that say the same is known by: of its confirmed wordings, or of all of them if none is
@@ -203,8 +220,7 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   };
   const found = async (kind: 'read' | 'pass' | 'combine', knowledge: string, about: string) => {
     if (Date.now() > deadline) return { findings: [] as Finding[], open: [] as llm.Open[], cost: 0n, why: 'model_failed' as const };
-    const first = await llm.raise(kind, m, knowledge, question, pages, about, left());
-    const r = paid(first.why === 'model_failed' && Date.now() < deadline ? await llm.raise(kind, spare(m), knowledge, question, pages, about, left()) : first);
+    const r = paid(await retried(m, (x) => llm.raise(kind, x, knowledge, question, pages, about, left()), () => Date.now() < deadline));
     opens.push(...r.open);
     return r;
   };
@@ -257,9 +273,8 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
     // findings about that very function never saw it.
     const about = section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN);
     const knowledge = [...new Set(group.map((f) => partOf.get(f)).filter((k): k is string => !!k))].join('\n\n');
-    const asked = await withNeeded(pages, (ps) => llm.check(m, question, ps, about, left(), knowledge));
-    const once = asked.r;
-    const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(spare(m), question, [...pages, ...asked.more], about, left(), knowledge) : once);
+    const asked = await withNeeded(pages, (ps) => retried(m, (x) => llm.check(x, question, ps, about, left(), knowledge), () => Date.now() < deadline));
+    const r = paid(asked.r);
     const seen = plus(material, asked.more);
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
     const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n');
@@ -576,7 +591,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const proofs = new Map<number, llm.Proof>();
   await each(team.flatMap((t) => chunks(findings.map((f, k) => ({ f, k })).filter(({ f }) => finder(f)?.id === t.id), PROVE_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
     if (late()) return;
-    const r = await llm.prove(t.m, question, pages, `# Your findings\n\n${part.map(({ f, k }) => shown(f, k)).join('\n\n')}`, left(t));
+    const r = await retried(t.m, (m) => llm.prove(m, question, pages, `# Your findings\n\n${part.map(({ f, k }) => shown(f, k)).join('\n\n')}`, left(t)));
     spend(t.id, r.cost);
     for (const p of r.proofs) if (part.some(({ k }) => k === p.id)) proofs.set(p.id, p);
   });
@@ -609,7 +624,7 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const marks: { k: number; by: number; mark: llm.Mark }[] = [];
   await each(team.flatMap((t) => chunks([...proved].filter((k) => !findings[k]!.by.includes(t.id) && finder(findings[k]!)?.id !== t.id), TEST_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
     if (late()) return;
-    const { r, more } = await withNeeded(pages, (ps) => llm.mark(t.m, question, ps, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}${standIn(part)}`, left(t)));
+    const { r, more } = await withNeeded(pages, (ps) => retried(t.m, (m) => llm.mark(m, question, ps, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}${standIn(part)}`, left(t))));
     spend(t.id, r.cost);
     const seen = plus(material, more);
     for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', seen)) marks.push({ k: m.id, by: t.id, mark: m });
@@ -621,12 +636,12 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
     const f = findings[k]!, t = finder(f), said = `${f.where} ${f.title} ${f.how}`;
     const knowledge = partsOf(filesOf(t.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
     const against = marks.filter((x) => x.k === k && x.mark.mark === 'refute').map((x) => `- step ${x.mark.step ?? 0}: ${x.mark.why ?? ''} The line: \`${x.mark.quote}\``).join('\n');
-    const a = await llm.appeal(t.m, knowledge, question, pages, `# Your finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutation\n\n${against}`, left(t));
+    const a = await retried(t.m, (m) => llm.appeal(m, knowledge, question, pages, `# Your finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutation\n\n${against}`, left(t)));
     spend(t.id, a.cost);
     const appeal = a.appeal;
     if (!appeal || appeal.withdrawn) return upheld.set(k, false);
     const rule = appeal.rule.trim() && knowledge.replace(/\s+/g, ' ').includes(appeal.rule.trim().replace(/\s+/g, ' ')) ? appeal.rule.trim() : ''; // a rule counts only if it is in the finder's knowledge
-    const v = (await withNeeded(pages, (ps) => llm.check(judge, question, ps, `# The finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutations\n\n${against}\n\n# The finder's appeal\n\n${rule ? `The rule of its knowledge it rests on: "${rule}"\n\n` : ''}${appeal.answer}`, usdc('1'), '', 'arbiter'))).r;
+    const v = (await withNeeded(pages, (ps) => retried(judge, (j) => llm.check(j, question, ps, `# The finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutations\n\n${against}\n\n# The finder's appeal\n\n${rule ? `The rule of its knowledge it rests on: "${rule}"\n\n` : ''}${appeal.answer}`, usdc('1'), '', 'arbiter')))).r;
     upheld.set(k, v.verdicts[0]?.holds ?? false);
   });
   const out = findings.map((f, k) => {
