@@ -9,7 +9,23 @@ const MAX_BRIEF = 10_000; // characters, as the runner takes it
 const info = await getJSON('/info');
 const terms = info.pricing.order; // the contract's own numbers: overhead, per_agent, run_secs
 // What an expert costs here, for telling the customer how many fit the budget: the middle rate of those who can work now.
-const rates = (await getJSON('/agents').catch(() => [])).map((x) => BigInt(x.rate)).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+const experts = await getJSON('/agents').catch(() => []);
+const rates = experts.map((x) => BigInt(x.rate)).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+// Who is in the swarm now: the public card of each expert, so a customer sees what it knows before paying.
+{
+  const who = $('who');
+  if (who && experts.length) {
+    const head = document.createElement('b'); head.textContent = `In the swarm now: ${experts.length} expert${experts.length === 1 ? '' : 's'}`;
+    const list = document.createElement('ul');
+    for (const x of experts) {
+      const li = document.createElement('li');
+      const name = document.createElement('b'); name.textContent = x.id.split('/').pop();
+      const what = document.createElement('span'); what.textContent = ` · ${usd(BigInt(x.rate))} USDC · ${String(x.skills).split(/[.:]/)[0]}`;
+      li.append(name, what); list.append(li);
+    }
+    who.append(head, list);
+  }
+}
 const rate = rates.length ? rates[Math.floor(rates.length / 2)] : 1_000_000n;
 /** How many experts of the middle rate a budget pays for, with the swarm's overhead and the owner's fee on top. */
 const fits = (a) => { const net = (a * 10_000n) / BigInt(10_000 + info.fees.fee_bps) - BigInt(terms.overhead); return net > 0n ? Number(net / (rate + BigInt(terms.per_agent))) : 0; };
