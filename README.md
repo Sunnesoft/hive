@@ -85,7 +85,8 @@ owners choose. So they miss different things and make different mistakes. The sw
 1. **Findings add up.** Each expert reads the code once per file of its knowledge. Code gathers what they raise,
    not a model: a model that sums up a long list drops the rare item, and the rare item is the value.
 2. **Every finding is proved, then attacked.** Its finder proves it step by step. Each step quotes a line, and code
-   looks that line up in the customer's files: no line, no finding. Another expert tries to break the proof.
+   looks that line up in the customer's files or in the libraries they use: no line, no finding. Another expert
+   tries to break the proof, reading each step in the whole function it stands in.
 3. **An arbiter settles disputes.** It owes neither side. The finder gets one appeal, citing one rule of its
    knowledge.
 4. **A finding is withdrawn only on a line of code that stops it**, never on a doubt.
@@ -106,7 +107,8 @@ appchain registry, vote escrow and SWEAT. The audits list 68 findings, and none 
 knowledge. Every answer was read blind. A fresh reader saw it under a neutral name and counted an audit finding only
 if the answer stated it as an item of its own. It judged every other item against the code.
 
-**On Claude Haiku 5.5**, with the code as it is now:
+**On Claude Haiku 5.5**, with the trial as it was at submission, on 14 November (what changed after it is told under
+[the mainnet orders](#real-orders-on-mainnet-the-sweat-callback-exploit)):
 
 | answer | audit findings stated, of 68 |
 |---|---|
@@ -119,7 +121,8 @@ The swarm with its knowledge leads on each of the eight contracts.
 ¹ The call came back empty on staking farm, and vote escrow was not in that reading.
 
 **On NEAR AI's own models** (DeepSeek-V4.1-Flash for the experts, Qwen3.8-27B for the protocol), seven contracts.
-On Mintbase, NEAR AI's model failed the NEAR reviewer; a failed step is now retried on another model.
+On Mintbase, NEAR AI's model failed the NEAR reviewer; a failed step is now tried again on its own model, warmer, and
+then on another model.
 
 | answer | audit findings stated, of 61 | wrong items |
 |---|---|---|
@@ -233,7 +236,8 @@ the line above) did not reach the proved list. It stands among the leads, with t
   what is not paid goes back to the customer or the operator, not to the others.
 - The runner's key calls only `review`, `assign`, `finish`, `deliver` and `decline`; it cannot send tokens to
   itself or to anyone it picks. The money of an order goes only where the contract says. The key is made inside the
-  TEE and never leaves it; each restart makes a new one, and the old one is removed from the runner's account.
+  TEE and never leaves it; each new deployment of the runner makes a new one, and the old one is removed from the
+  runner's account.
 - A customer pays only for experts whose answers passed the check. A refusal returns all of the budget but 0.05 USDC,
   which pays for the check of the task, so junk orders cost their sender; a silent swarm returns all of it: after
   the timeout, anyone can call for it.
@@ -293,7 +297,10 @@ What is not done, or not as good as we would like:
 - An order placed in the contract has no reworks and no disputes.
 - Proofs and tests are written, not run: the TEE has no compiler and no network.
 - Experts' materials are text only; a review reads at most 160,000 characters of the customer's files and what they import.
-- `delay_secs` is 0 on testnet: a change of settings means trusting the owner, who should be a multisig.
+- `delay_secs` is 0, on mainnet as on testnet: a change of settings means trusting the owner, who should be a
+  multisig.
+- On NEAR AI's models a step now and then goes round in a loop (7 of 199 calls on one review of SWEAT). It is tried
+  again, warmer; a step that fails again loses its part of the answer.
 - Attacks on the TEE itself (TEE.fail and the like) are out of our hands.
 - Only audits are measured.
 - The low-risk items still open after the security reviews of 14 November are listed in [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -304,9 +311,9 @@ The big items, in the order we would do them ([docs/TODO.md](docs/TODO.md) has t
 
 1. **Fewer repeats in an answer.** In `order-2` the exploited callback stands first, and then three more times in
    other words (findings 2, 7 and 8). A finding the trial proved should take in the other wordings of its flaw.
-2. **Read the new trial blind on all eight contracts.** Before testers got whole functions, the new rules stated one
-   more finding of the audits than the old ones (52 of 68 against 51) and made more mistakes (20 against 13), most
-   of them among the leads. The tables above are for the old trial.
+2. **Read the new trial blind on all eight contracts.** The tables above are for the old trial. Read side by side
+   with it by the same blind reader, before testers got whole functions, the new rules stated one more finding of
+   the audits (52 of 68 against 51) and let through more wrong items (20 against 13), most of them among the leads.
 3. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
    the customer can call, before the money settles.
 4. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
