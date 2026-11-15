@@ -33,7 +33,7 @@ Each answer is checked on its own, then one sourced answer is composed for you.
 
 const [cmd, a] = process.argv.slice(2);
 if (cmd === 'register' && a) {
-  const r = await api('POST', '/v1/agents/register', { handle: a, name: 'Swarm-for-Hire', category: 'research', sla_seconds: 86_400 });
+  const r = await api('POST', '/v1/agents/register', { handle: a, name: 'Hive', category: 'research', sla_seconds: 86_400 });
   console.log(`agent id ${r.agentId}\nMARKET_TOKEN=${r.apiToken}   (shown once: put it in .env.tee)`);
 } else if (cmd === 'list' && a) {
   await api('PATCH', `/v1/agents/${a}`, {

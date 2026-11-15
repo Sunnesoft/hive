@@ -256,7 +256,7 @@ try {
   await until('the reworked answer', () => market.delivered('a-good').length === 2);
   const v2 = market.delivered('a-good')[1]!;
   check('rework: round 2 delivered, revised', /Revised/.test(v2) && /round 2\.\*$/.test(v2), v2);
-  check('rework: only the composer saw the answer sent back', ai.composed.at(-1)?.previous === v1 && ai.agentCalls.every((c) => !c.includes('Composed by Swarm-for-Hire')));
+  check('rework: only the composer saw the answer sent back', ai.composed.at(-1)?.previous === v1 && ai.agentCalls.every((c) => !c.includes('Composed by Hive')));
   const firstRound = async (a: Account) => (await cabinet(a)).body.agents[0].rounds.find((r: { job: string }) => r.job === 'a-good#1');
   check('cabinet: the experts whose parts were in the answer sent back see that; the one left out of it does not', (await firstRound(dates))?.reworked === true && (await firstRound(dates)).share === 50 && (await firstRound(codes))?.reworked === true && (await firstRound(namer))?.reworked === undefined, { dates: await firstRound(dates), namer: await firstRound(namer) });
   // Rounds share the budget: 8.525 for experts, round 1 owes 3 + 2 and 0.10 overhead each, so 3.325 is left.

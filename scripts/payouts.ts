@@ -42,7 +42,7 @@ async function settled(status: 'accepted' | 'dispute_resolved'): Promise<Row[]> 
  *  A note added later ("Round 4: ...") keeps an earlier round's answer, so the last "Composed ... round N" is it. */
 async function owedRounds(id: string) {
   const text = await (await market(`/v1/assignments/${encodeURIComponent(id)}/deliverable/raw`)).text();
-  const last = Number([...text.matchAll(/Composed by Swarm-for-Hire[^\n]*round (\d+)/g)].at(-1)?.[1] ?? 0);
+  const last = Number([...text.matchAll(/Composed by (?:Swarm-for-Hire|Hive)[^\n]*round (\d+)/g)].at(-1)?.[1] ?? 0);
   const rounds: { job: string; due: bigint; last: boolean }[] = [];
   for (let k = 1; k <= last; k++) {
     const j = await view<Job | null>('job', { job: `${id}#${k}` });
