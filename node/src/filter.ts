@@ -21,6 +21,19 @@ const note = (value: string): Node => ({ type: 'blockquote', children: [{ type: 
 const URLISH = /\b[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?<![\w/:])\/\/[^\s<>()]+|\bwww\.[^\s<>()]+/gi;
 const plain = (s: string) => s.replace(URLISH, defang);
 
+/** An address the answer may link to: one known before the task, or that very file at a line, as code links a
+ *  proof's step to its line (review.ts, linkOf): the known address with a `#L<n>` fragment, or a known raw file
+ *  on GitHub as GitHub shows it (blob, same owner, repository, revision and path) with one. A fragment never
+ *  leaves the browser, so such a link tells no server more than the known address does. */
+export function knownLink(url: string, allowed: Set<string>) {
+  if (allowed.has(url)) return true;
+  const at = /^(https:\/\/[^#\s]+)#L\d+$/.exec(url);
+  if (!at) return false;
+  if (allowed.has(at[1]!)) return true;
+  const blob = /^https:\/\/github\.com\/([^/?#]+)\/([^/?#]+)\/blob\/([^/?#]+)\/([^?#]+)$/.exec(at[1]!);
+  return !!blob && allowed.has(`https://raw.githubusercontent.com/${blob[1]}/${blob[2]}/${blob[3]}/${blob[4]}`);
+}
+
 /** The tree again, with only what may reach a customer. `removed`: code blocks to replace, with the reason.
  *  Inside a known link (`linked`) the label is left as written: the address it shows is the one it opens. */
 function rebuild(nodes: Node[], allowed: Set<string>, removed: Map<Code, string>, linked = false): Node[] {
@@ -34,7 +47,7 @@ function rebuild(nodes: Node[], allowed: Set<string>, removed: Map<Code, string>
       case 'image': // never loaded by itself: a remote image tells its server who opened the answer
         return allowed.has(n.url) ? [{ type: 'link', url: n.url, children: [{ type: 'text', value: `image: ${plain(n.alt || n.url)}` }] }] : [];
       case 'link': {
-        if (allowed.has(n.url)) return [{ ...n, children: again(n, true) as typeof n.children }];
+        if (knownLink(n.url, allowed)) return [{ ...n, children: again(n, true) as typeof n.children }];
         const [label, shown] = [toString(n), defang(n.url)];
         return [text(defang(label) === shown ? `${shown} (unverified link)` : `${plain(label)} (unverified link: ${shown})`)];
       }

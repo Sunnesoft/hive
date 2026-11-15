@@ -52,6 +52,19 @@ test('a link that existed before the task stays clickable; an invented one is ma
   assert.match(await out('![chart](https://docs.example/a)'), /\[image: chart\]\(https:\/\/docs\.example\/a\)/);
 });
 
+test('a link to a line of a known file stays clickable: the same file, with a fragment the browser keeps', async () => {
+  const raw = 'https://raw.githubusercontent.com/o/r/abc123/src/core.rs';
+  const crate = 'https://docs.rs/crate/near-sdk/5.30.2/source/src/lib.rs';
+  const known = new Set([raw, crate]);
+  const kept = async (url: string) => (await gate(`See [the line](${url}).`, known)).includes(`](${url})`);
+  assert.ok(await kept('https://github.com/o/r/blob/abc123/src/core.rs#L68')); // the raw file as GitHub shows it
+  assert.ok(await kept(`${crate}#L479`));
+  assert.ok(!(await kept('https://github.com/o/r/blob/abc123/src/other.rs#L68'))); // another file
+  assert.ok(!(await kept('https://github.com/evil/r/blob/abc123/src/core.rs#L68'))); // another owner
+  assert.ok(!(await kept(`${crate}?q=secret#L1`))); // a query reaches the server
+  assert.ok(!(await kept(`${raw}#Lsecret`))); // only a line number
+});
+
 test('what is cut leaves no stray spaces', async () => {
   assert.equal((await out('More at the docs. ![pixel](https://track.example/p.png)')).trim(), 'More at the docs.');
 });
