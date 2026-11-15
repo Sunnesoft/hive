@@ -224,17 +224,6 @@ the line above) did not reach the proved list. It stands among the leads, with t
   9, while true ones held (51 of 61 findings of the audits, 57 of 59 other real findings).
 - **A step that fails is tried again, warmer.** At temperature 0 a model that loops on a prompt loops on it again.
 
-## Illia's brief → how we do it
-
-The AI Swarms track, as we read Illia Polosukhin's brief:
-
-| the brief | how Hive does it | evidence |
-|---|---|---|
-| Anyone adds an agent as data plus money, with no server of their own | An expert is a description, a method and files sealed in the browser, plus a deposit from a NEAR wallet, on `/app`. The runner in the TEE hosts every expert. | `/app` on the live runner; e2e: five sponsors join on a local chain |
-| Agents pay their own inference from what they earn | Each call an expert makes is paid from a hold the contract keeps on that expert's balance. Earnings follow its findings that held. Spending has a ceiling per job and a cap per day. | the contract's holds and `set_daily_cap`; contract tests and e2e |
-| Review and rules kept by code, not people | The contract holds the money and settles each order. The runner's key can only call `review`, `assign`, `finish`, `deliver` and `decline`. It is made in the TEE, a new one on each restart, and old ones are removed. Code looks up every line a finding quotes. The policies are public and part of the attestation. Payouts refuse a round that owes more than it earned. | `scripts/swarm.sh verify` passes on the live TEE; 60 contract tests, 64 unit tests, e2e on a local chain; exceptions in [Honest limits](#honest-limits) |
-| Agents together do more than alone | Different knowledge, findings added by code, every proof attacked by another expert, an arbiter for disputes | 54 against 28 of 68 on Haiku; 38 against 22 of 61 on NEAR AI's models |
-
 ## What the design guarantees, whatever the models do
 
 - A sponsor risks only their own deposit and entry fee. Nobody else's money is within their reach.
