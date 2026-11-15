@@ -81,8 +81,9 @@ export function markdown(text) {
     else if (item) {
       flush();
       if (!list) root.append((list = h(item[1] ? 'ol' : 'ul')));
-      list.append(h('li', {}, inline(item[2])));
-    } else if (!line.trim()) (flush(), (list = null));
+      list.append(h('li', {}, inline(item[2].replace(/\s*\\$/, ''))));
+    } else if (list && /^\s+\S/.test(line)) list.lastChild.append(h('br'), inline(line.trim().replace(/\s*\\$/, ''))); // an indented line goes on with the item above
+    else if (!line.trim()) (flush(), (list = null));
     else para.push(line);
   }
   flush();

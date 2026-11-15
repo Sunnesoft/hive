@@ -335,7 +335,7 @@ async function work(row: market.Row, round: number, feeBps: number, giveUp: bool
   const answer = await gate(provenance(marked).text, known);
   log('composed', { from: good.length, findings: joined.findings.length, leads: joined.leads.length, second: joined.findings.filter((f) => f.second).length, chars: answer.length }, { marked, answer });
   const experts = good.map((g) => members[g.id]!.agent.id).join(', '); // public ids, as in the catalog: the customer may name them next time
-  const footer = `---\n*Composed by Swarm-for-Hire from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
+  const footer = `---\n*Composed by Hive from ${good.length} independent expert${good.length > 1 ? 's' : ''} (${experts}), round ${round}.*`;
   const label = (url: string) => url.replace(/^attachment: /, '');
   const read = [...given].map(label);
   const materials = read.length || unread.length
