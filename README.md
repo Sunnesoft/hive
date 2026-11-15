@@ -30,7 +30,7 @@ On 8 live NEAR contracts with published audits, one model stated 28 of the audit
   [BGyRwdgA…](https://nearblocks.io/txns/BGyRwdgA2CZNSWevLzJHKkd1MPFMyVP9jLq5d6YNZYQv), answered and settled 15
   minutes later in [E2FyfaZJ…](https://nearblocks.io/txns/E2FyfaZJFNcCsVhkE1UTdnMhonrQKhC7B7jNP9HaCazH): 4.00
   charged, 0.50 back. The exploited callback is the answer's first finding, Critical.
-  [The order ↓](#real-orders-on-mainnet-the-sweat-callback-exploit)
+  [The order ↓](#a-real-order-on-mainnet-the-sweat-callback-exploit)
 - **Check it yourself:** `scripts/swarm.sh verify <demo url> app-compose.json` checks the Intel quote, the keys, the
   event log, the compose (image digest, env, policies) of the running TEE; it passes all of its checks.
 - **Testnet:** the same contract is on testnet at `swarm2.sfhnx9j68.testnet` with test USDC; its history of test
@@ -108,7 +108,7 @@ knowledge. Every answer was read blind. A fresh reader saw it under a neutral na
 if the answer stated it as an item of its own. It judged every other item against the code.
 
 **On Claude Haiku 5.5**, with the trial as it was at submission, on 14 November (what changed after it is told under
-[the mainnet orders](#real-orders-on-mainnet-the-sweat-callback-exploit)):
+[the mainnet order](#a-real-order-on-mainnet-the-sweat-callback-exploit)):
 
 | answer | audit findings stated, of 68 |
 |---|---|
@@ -143,7 +143,7 @@ new account, and gas left for a callback.
 Other kinds of task use the same mechanism: tokenomics, legal and compliance, due diligence, grant review and
 research. **They are not measured yet.** Every run, per contract: [eval/README.md](eval/README.md).
 
-## Real orders on mainnet: the SWEAT callback exploit
+## A real order on mainnet: the SWEAT callback exploit
 
 The swarm was hired on mainnet, through `/order`, with real USDC, on code that was really exploited. On 24 April
 2026 a commit of the SWEAT token ([`b9febf7`](https://github.com/Sweat-Foundation/sweat-token/commit/b9febf7e039352c08ee90f1425e1dc32cecdb7e9))
@@ -154,73 +154,48 @@ source files of that commit. Neither the exploit nor its report is in the expert
 
 | step | transaction |
 |---|---|
-| the customer `sunnesoft.near` places `order-1`, 4.50 USDC | in the `ft_transfer_call` to `swarm.hiveswarm.near` |
-| the runner in the TEE assigns three experts and holds their spend | [9gs5mcwj…](https://nearblocks.io/txns/9gs5mcwjrXvgNvBvbUtM3GGabyXpqwYNQTEU8NaWPQoj) |
-| all three deliver, 17 minutes later | [F8EZgXGA…](https://nearblocks.io/txns/F8EZgXGApGVhRHf6Fp7AqXmpR6yeutz7Y6DW5BMKck7F) |
-| the contract settles: 4.00 charged, **0.50 back** to the customer | [CxnwP2vM…](https://nearblocks.io/txns/CxnwP2vMNe9rZdwvxYyCDtribPUEjJ1MhoA3YHoJ45ry) |
+| the customer `sunnesoft.near` places `order-2`, 4.50 USDC | [4hEUjEsN…](https://nearblocks.io/txns/4hEUjEsNjav8xzUq9FNGFfhzcMDD9FvfyrRhfw3goPNf) |
+| the runner in the TEE assigns three experts and holds their spend | [BGyRwdgA…](https://nearblocks.io/txns/BGyRwdgA2CZNSWevLzJHKkd1MPFMyVP9jLq5d6YNZYQv) |
+| all three deliver, 15 minutes later | [CpU2Qhx5…](https://nearblocks.io/txns/CpU2Qhx5jStDLAu93hkzhHNDCDWmsBwSnbzvssdrypfd) |
+| the contract settles: 4.00 charged, **0.50 back** to the customer; the answer's sha256 `9f643d4f…` on chain | [E2FyfaZJ…](https://nearblocks.io/txns/E2FyfaZJFNcCsVhkE1UTdnMhonrQKhC7B7jNP9HaCazH) |
 
-Of the 4.00: the experts' rates, 3.00, shared by what their findings that held were worth (near-incidents 1.39,
-near-contract-review 1.05, rust-contract-review 0.56); 0.80 overhead to the operator; 0.20 to the owner. The experts
-paid their own models out of their holds: 0.55 in all. The contract keeps only the sha256 of the answer
-(`d4dba902…`); the customer reads it on `/order` after signing in.
+Of the 4.00: the experts' rates, 3.00, shared by what their findings that held were worth (near-contract-review
+1.19, rust-contract-review 0.94, near-incidents 0.87); 0.80 overhead to the operator; 0.20 to the owner. The experts
+paid their own models out of their holds: 0.56 in all. The contract keeps only the sha256 of the answer; the
+customer reads the answer on `/order` after signing in.
 
-**What the answer says.** 38 findings (11 Medium, 27 Low), 12 of them proved on lines of the code and tested by
-another expert. The exploited callback is there, as finding 13: "`ft_resolve_transfer` is publicly callable instead
-of `#[private]`", with the right fix. But it is graded Low: one expert found it, two refuted its impact, and the
-arbiter turned down the appeal, writing that "the caller gains nothing directly". That is wrong: the caller names
-itself as `sender_id`. The swarm found the hole and its own trial played it down.
+**What the answer says.** 35 findings, 12 of them proved on lines of the code and tested by another expert. The
+first one is **Critical: "`ft_resolve_transfer` is public and not `#[private]`, so anyone can drive the refund path
+with a chosen sender, receiver and amount"**. Two of the three experts found it, the third tested the proof and
+confirmed it. The proof goes step by step down to the lines of `near-contract-standards` that move the victim's
+balance to the attacker, and comes with a test. The answer's summary opens with it: "unsafe to deploy due to a
+critical flaw in `ft_resolve_transfer`". A false grave finding the experts also raised ("`on_record` is not
+`#[private]`": it is, on the line above) did not reach the proved list. It stands among the leads, with the check
+that refutes it.
 
 **The same files, asked another way** (NEAR AI's DeepSeek-V4.1-Flash, the experts' own model):
 
 | answer | states the exploited callback | at what severity | cost of models |
 |---|---|---|---|
 | one model, asked once | no | — | $0.013 |
-| one model with the NEAR reviewer's knowledge in the call | yes | High, first item, impact right | $0.023 |
-| the swarm of three experts (the order above) | yes | Low: the trial played it down | $0.55 |
+| one model with the NEAR reviewer's knowledge in the call | yes | High, first item | $0.023 |
+| **the swarm of three experts (the order above)** | **yes, two of the three on their own** | **Critical, first item, proved and tested** | $0.56 |
 
-**The same files on Claude Haiku** (read the same way):
+Without the knowledge the model does not see the hole. With it, one call sees it; the swarm also proves it on the
+lines of the code and the library, and tests the proof.
 
-| answer | states the exploited callback | at what severity |
-|---|---|---|
-| one model, asked once | it notices the missing `#[private]` but decides "a direct call cannot move tokens" | Low |
-| one model with the NEAR reviewer's knowledge in the call | no | — |
-| **the swarm of the same three experts** | **yes, each of the three on its own** | **Critical, first item**: a contract the attacker deploys chains `ft_resolve_transfer(sender_id = attacker, receiver_id = victim)` after a failing call |
-
-One task, so no rate; but it says two things plainly. Without the knowledge the model does not see the hole, or sees it and
-dismisses it. And on Haiku the swarm's trial found the real path of the attack, while on NEAR AI's models it
-refuted the finder's path, a direct call that indeed cannot work, and with it a hole that is real: the trial judged
-the wording, not the flaw.
-
-**The same order after the fix: `order-2`.** We changed what the trial does, not its models (the experts and the
-protocol run on the same NEAR AI models), and placed the same order again: the same five files, the same 4.50 USDC.
-
-| step | transaction |
-|---|---|
-| the customer `sunnesoft.near` places `order-2`, 4.50 USDC | [4hEUjEsN…](https://nearblocks.io/txns/4hEUjEsNjav8xzUq9FNGFfhzcMDD9FvfyrRhfw3goPNf) |
-| the runner in the TEE assigns the same three experts and holds their spend | [BGyRwdgA…](https://nearblocks.io/txns/BGyRwdgA2CZNSWevLzJHKkd1MPFMyVP9jLq5d6YNZYQv) |
-| all three deliver, 15 minutes later | [CpU2Qhx5…](https://nearblocks.io/txns/CpU2Qhx5jStDLAu93hkzhHNDCDWmsBwSnbzvssdrypfd) |
-| the contract settles: 4.00 charged, **0.50 back** to the customer; the answer's sha256 `9f643d4f…` on chain | [E2FyfaZJ…](https://nearblocks.io/txns/E2FyfaZJFNcCsVhkE1UTdnMhonrQKhC7B7jNP9HaCazH) |
-
-Of the 4.00: the experts' rates, 3.00, shared by what their findings that held were worth (near-contract-review
-1.19, rust-contract-review 0.94, near-incidents 0.87); 0.80 to the operator; 0.20 to the owner. Models: 0.56.
-
-**What it says now.** 35 findings, 12 of them proved and tested by the team. The first one is **Critical:
-"`ft_resolve_transfer` is public and not `#[private]`, so anyone can drive the refund path with a chosen sender,
-receiver and amount"**. Two of the three experts found it, the third tested the proof and confirmed it. The proof
-goes step by step down to the lines of `near-contract-standards` that move the victim's balance to the attacker, and
-comes with a test. The answer's summary opens with it: "unsafe to deploy due to a critical flaw in
-`ft_resolve_transfer`". A false grave finding the experts also raised ("`on_record` is not `#[private]`": it is, on
-the line above) did not reach the proved list. It stands among the leads, with the check that refutes it.
-
-**What changed between the two orders.**
+**An order before it got this wrong, and what we changed.** The first order of the same task
+([`order-1`](https://nearblocks.io/txns/CxnwP2vMNe9rZdwvxYyCDtribPUEjJ1MhoA3YHoJ45ry), on the trial as submitted)
+also stated the callback, but graded it Low: two experts refuted the finder's path, a direct call that indeed
+cannot work, and the hole went down with it. The models stayed the same; the trial changed:
 
 - **The libraries' code is in the materials.** The runner reads the sources of the crates the code imports from
   crates.io, at the version its `Cargo.lock` names. A step that turns on `near-contract-standards` is checked against
   that crate's lines, not against a model's memory of it. A step that needs a file it lacks names it, and is asked
   again with it.
 - **The trial judges the flaw, not the wording.** A tester refutes a finding only if no way reaches the flaw, not
-  when the finder's own path fails. On `order-1` the direct call was refuted, and the hole with it. The finder
-  states the gravest harm it can show on the lines, and nothing it cannot show.
+  when the finder's own path fails. The finder states the gravest harm it can show on the lines, and nothing it
+  cannot show.
 - **Testers read each step in its place.** Code finds every line a proof quotes, at its file and line number, and
   gives the testers the whole function it stands in. The answer links each step to its line on GitHub. Replayed on
   eight contracts read blind, wrong items that kept a majority of the testers' confirmations fell from 14 of 21 to
