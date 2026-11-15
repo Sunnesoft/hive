@@ -23,7 +23,9 @@ another account names a different order.
 
 ## 3. A stronger protocol model on NEAR AI, and fewer repeats
 
-**Why.** On NEAR AI's own models the swarm lets 11% wrong items through (about 2% on Haiku), and about a quarter of
+**Why.** On the first mainnet order (the SWEAT callback exploit, see the README) one expert found the exploited
+`ft_resolve_transfer`, and the trial on Qwen3.8-27B graded it Low: the arbiter wrote that the caller gains nothing.
+On NEAR AI's own models the swarm lets 11% wrong items through (about 2% on Haiku), and about a quarter of
 an answer's items repeat an earlier one. The protocol's steps (sorting repeats, the arbiter) run on Qwen3.8-27B.
 
 **What.** The arbiter and the sorting on the strongest model NEAR AI offers; repeats sorted once more after the

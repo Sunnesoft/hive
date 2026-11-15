@@ -133,6 +133,46 @@ new account, and gas left for a callback.
 Other kinds of task use the same mechanism: tokenomics, legal and compliance, due diligence, grant review and
 research. **They are not measured yet.** Every run, per contract: [eval/README.md](eval/README.md).
 
+## A real order on mainnet: the SWEAT callback exploit
+
+The swarm was hired on mainnet, through `/order`, with real USDC, on code that was really exploited. On 24 April
+2026 a commit of the SWEAT token ([`b9febf7`](https://github.com/Sweat-Foundation/sweat-token/commit/b9febf7e039352c08ee90f1425e1dc32cecdb7e9))
+replaced the standard `ft_resolve_transfer` with its own and lost `#[private]`. Anyone could call the callback
+directly, name themselves as `sender_id` and take a receiver's tokens; the token was drained days later and fixed on
+29 April (Fireblocks' report). The order asked: "Audit this NEAR smart contract before we deploy it", with the five
+source files of that commit. Neither the exploit nor its report is in the experts' knowledge.
+
+| step | transaction |
+|---|---|
+| the customer `sunnesoft.near` places `order-1`, 4.50 USDC | in the `ft_transfer_call` to `swarm.hiveswarm.near` |
+| the runner in the TEE assigns three experts and holds their spend | [9gs5mcwj…](https://nearblocks.io/txns/9gs5mcwjrXvgNvBvbUtM3GGabyXpqwYNQTEU8NaWPQoj) |
+| all three deliver, 17 minutes later | [F8EZgXGA…](https://nearblocks.io/txns/F8EZgXGApGVhRHf6Fp7AqXmpR6yeutz7Y6DW5BMKck7F) |
+| the contract settles: 4.00 charged, **0.50 back** to the customer | [CxnwP2vM…](https://nearblocks.io/txns/CxnwP2vMNe9rZdwvxYyCDtribPUEjJ1MhoA3YHoJ45ry) |
+
+Of the 4.00: the experts' rates, 3.00, shared by what their findings that held were worth (near-incidents 1.39,
+near-contract-review 1.05, rust-contract-review 0.56); 0.80 overhead to the operator; 0.20 to the owner. The experts
+paid their own models out of their holds: 0.55 in all. The contract keeps only the sha256 of the answer
+(`d4dba902…`); the customer reads it on `/order` after signing in.
+
+**What the answer says.** 38 findings (11 Medium, 27 Low), 12 of them proved on lines of the code and tested by
+another expert. The exploited callback is there, as finding 13: "`ft_resolve_transfer` is publicly callable instead
+of `#[private]`", with the right fix. But it is graded Low: one expert found it, two refuted its impact, and the
+arbiter turned down the appeal, writing that "the caller gains nothing directly". That is wrong: the caller names
+itself as `sender_id`. The swarm found the hole and its own trial played it down.
+
+**The same files, asked another way** (NEAR AI's DeepSeek-V4.1-Flash, the experts' own model):
+
+| answer | states the exploited callback | at what severity | cost of models |
+|---|---|---|---|
+| one model, asked once | no | — | $0.013 |
+| one model with the NEAR reviewer's knowledge in the call | yes | High, first item, impact right | $0.023 |
+| the swarm of three experts (the order above) | yes | Low: the trial played it down | $0.55 |
+| the same on Claude Haiku: one model / with the knowledge / the swarm | *running* | | |
+
+One task, so no rate; but it says two things plainly. Without the knowledge the model does not see the hole. And
+the trial is only as good as the protocol's model: on NEAR AI's Qwen3.8-27B it overruled a true finding here. That
+is the first item of [What's next](#whats-next).
+
 ## Illia's brief → how we do it
 
 The AI Swarms track, as we read Illia Polosukhin's brief:
@@ -196,7 +236,7 @@ npm ci
 scripts/local.sh                                                                 # build, all tests, e2e
 ```
 
-## Documents (in Russian)
+## Documents
 
 - [docs/GUIDE.md](docs/GUIDE.md): what to do, locally, on testnet, in a TEE on Phala, on Agent Market, on mainnet.
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): how it works: who sees what, money, threats, related projects.
@@ -222,14 +262,15 @@ What is not done, or not as good as we would like:
 
 The big items, in the order we would do them ([docs/TODO.md](docs/TODO.md) has the detail):
 
-1. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
+1. **A stronger protocol model on NEAR AI** for the trial, the arbiter and the sorting of repeats, and **fewer
+   repeats** in an answer: on the mainnet order above, the arbiter on Qwen3.8-27B played down the exploited callback.
+2. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
    the customer can call, before the money settles.
-2. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
-3. **A stronger protocol model on NEAR AI** for the arbiter and the sorting of repeats, and **fewer repeats** in an answer.
+3. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
 4. **The Agent Market listing**, with bids on board tasks.
 5. **Measure other kinds of task**: tokenomics, legal and compliance, due diligence, grant review, research.
-6. **Mainnet**: a reproducible contract build, a multisig owner, `delay_secs` above zero, separate NEAR AI keys for
-   the runner and for measurements.
+6. **Mainnet, hardened**: Hive runs on mainnet; next come a reproducible contract build, a multisig owner,
+   `delay_secs` above zero, separate NEAR AI keys for the runner and for measurements.
 
 ## Where this goes
 
