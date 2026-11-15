@@ -158,7 +158,20 @@ function attention(agents, balance, { onAgentPage = false } = {}) {
     if (a.status === 'Active' && BigInt(balance) < BigInt(a.max_cost)) out.push(banner('', `${label(a)} cannot be picked: your balance is too low`,
       `Each task holds its max spend of ${usd(a.max_cost)} USDC from your balance, which is ${usd(balance)} USDC. Top up to get tasks again.`, ''));
     return out;
-  });
+  }).concat(onAgentPage ? [] : together(agents, balance, banner));
+}
+
+/** One balance holds for all of a builder's experts: when it covers each alone but not all of them in one team,
+ *  the swarm can put only some of them on the same task. Say how many, and what would cover them all. */
+function together(agents, balance, banner) {
+  const active = agents.filter((a) => a.status === 'Active');
+  const all = active.reduce((t, a) => t + BigInt(a.max_cost), 0n);
+  if (active.length < 2 || BigInt(balance) >= all) return [];
+  const sorted = active.map((a) => BigInt(a.max_cost)).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  let n = 0, sum = 0n;
+  for (const c of sorted) { if (sum + c > BigInt(balance)) break; sum += c; n++; }
+  return [banner('', `Your balance covers ${n} of your ${active.length} experts on one task`,
+    `Each expert on a task holds its max spend from your one balance: ${usd(all)} USDC for all of them at once, and you have ${usd(balance)} USDC. Top up ${usd(all - BigInt(balance))} USDC so the swarm can put them all on the same task.`, '')];
 }
 
 // ---- the dashboard ----

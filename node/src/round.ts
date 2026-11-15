@@ -85,6 +85,17 @@ const names = (task: string, id: string) => new RegExp(`(^|[^\\w.-])${id.replace
 
 /** The team for a task within a budget: the router's picks, most important first, as many as the money covers.
  *  Experts the customer asked for come first and are marked: the router takes them unless they cannot help. */
+/** Whether one sponsor's balance covers the holds of all of its experts in a team at once. */
+function funded(members: { agent: Agent }[]) {
+  const held = new Map<string, bigint>();
+  for (const { agent } of members) {
+    const sum = (held.get(agent.sponsor) ?? 0n) + BigInt(agent.max_cost);
+    if (sum > BigInt(agent.balance)) return false;
+    held.set(agent.sponsor, sum);
+  }
+  return true;
+}
+
 async function team(task: string, pool: Member[], net: bigint, perAgent: bigint) {
   const asked = new Set(pool.filter((c) => names(task, c.agent.id)).map((c) => c.agent.id));
   const list = [...pool.filter((c) => asked.has(c.agent.id)), ...(await shortlist(task, pool.filter((c) => !asked.has(c.agent.id))))];
@@ -106,13 +117,23 @@ async function team(task: string, pool: Member[], net: bigint, perAgent: bigint)
     if (id !== p.id) (taken.delete(p.id), taken.add(id), replaced.push([list[p.id]!.agent.id, list[id]!.agent.id]));
     chosen.push({ ...p, id });
   }
-  const picks = chosen.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
+  // The holds of one sponsor's experts come out of one balance (the contract checks each hold as it takes it). A pick
+  // whose hold no longer fits its sponsor's balance is replaced by the next expert in the list whose sponsor has
+  // room, on the same question; the customer still gets the team the budget pays for, if the swarm has it.
+  const wanted = chosen.map((p) => ({ ...list[p.id]!, question: p.question, rate: BigInt(list[p.id]!.agent.rate) }));
+  const picks: typeof wanted = [];
+  for (const p of wanted) {
+    if (funded([...picks, p])) { picks.push(p); continue; }
+    const inUse = new Set([...wanted, ...picks].map((m) => m.agent.id));
+    const alt = list.find((c) => !inUse.has(c.agent.id) && funded([...picks, c]));
+    if (alt) (picks.push({ ...alt, question: p.question, rate: BigInt(alt.agent.rate) }), replaced.push([p.agent.id, alt.agent.id]));
+  }
   const members = fit(picks, net, perAgent);
   // A spare: the closest expert left out, if the budget pays for it too. It works only if a member fails, on that
   // member's question; otherwise its hold comes back whole and the customer pays nothing for it (the contract
   // charges the overhead per expert that delivered). A model that falls silent costs the swarm a part no more.
   const inTeam = new Set(members.map((m) => m.agent.id));
-  const spare = members.length ? list.map((c) => ({ ...c, question: members[0]!.question, rate: BigInt(c.agent.rate) })).find((c) => !inTeam.has(c.agent.id) && fit([...members, c], net, perAgent).length === members.length + 1) : undefined;
+  const spare = members.length ? list.map((c) => ({ ...c, question: members[0]!.question, rate: BigInt(c.agent.rate) })).find((c) => !inTeam.has(c.agent.id) && funded([...members, c]) && fit([...members, c], net, perAgent).length === members.length + 1) : undefined;
   return { considered: list, picked: picks.length, members, spare, search: plan.search, replaced };
 }
 
@@ -180,7 +201,17 @@ async function noteRework(key: string) {
 async function commit(key: string, members: (Member & { question: string })[]) {
   for (let i = 0; i < 3 && members.length; i++) {
     const now = await Promise.all(members.map((t) => chain.agent(t.agent.id)));
-    members = members.filter((t, j) => now[j]?.registration === t.agent.registration && ready([now[j]!]).length === 1);
+    // The holds of one sponsor's agents come out of one balance: an agent whose hold no longer fits after its
+    // sponsor's earlier members is left out here, or the contract refuses the whole team ("agent not ready").
+    const held = new Map<string, bigint>();
+    members = members.filter((t, j) => {
+      const a = now[j];
+      if (!a || a.registration !== t.agent.registration || ready([a]).length !== 1) return false;
+      const sum = (held.get(a.sponsor) ?? 0n) + BigInt(a.max_cost);
+      if (sum > BigInt(a.balance)) return false;
+      held.set(a.sponsor, sum);
+      return true;
+    });
     if (!members.length) break;
     const ok = await chain.assign(key, members.map((t) => t.agent.id)).then(() => true, (e) => (/agent not ready/.test(String(e)) ? false : Promise.reject(e)));
     if (ok) return members;
