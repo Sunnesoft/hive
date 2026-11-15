@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { cfg } from './config.ts';
 
 const dir = (sub: string) => join(cfg.STORE_DIR, sub);
-await Promise.all(['uploads', 'rounds', 'agents', 'orders'].map((d) => mkdir(dir(d), { recursive: true })));
+// Rounds, orders and demand belong to one contract: a runner moved to another contract (testnet to mainnet) starts
+// them afresh, since that contract numbers its orders and jobs from the start again. Uploads (by hash) and the
+// agents' files (by account) are the same on any contract.
+const mine = (sub: string) => join(cfg.STORE_DIR, 'contracts', encodeURIComponent(cfg.CONTRACT), sub);
+await Promise.all([dir('uploads'), dir('agents'), mine('rounds'), mine('orders'), mine('demand')].map((d) => mkdir(d, { recursive: true })));
 
 /** An upload is written to a draft first and becomes `uploads/<hash>` only once its hash is checked. */
 export const draft = () => join(dir('uploads'), `.part-${randomUUID()}`);
@@ -35,7 +39,7 @@ export const historyOf = async (agent: string, last = 500) => {
 };
 
 /** Demand by topic, over all tasks: public, so sponsors see what knowledge the swarm lacks. */
-const demandFile = () => join(dir('agents'), 'demand.json');
+const demandFile = () => join(mine('demand'), 'demand.json');
 // Loaded once, as a promise, so tasks that count at the same moment share one object; writes go one after another.
 let demand: Promise<Record<string, Record<string, number>>> | undefined;
 let saved = Promise.resolve();
@@ -47,14 +51,14 @@ export async function count(topic: string, outcome: 'served' | 'no_expert' | 'ov
   await (saved = saved.catch(() => {}).then(() => writeFile(demandFile(), JSON.stringify(d))));
 }
 
-const round = (key: string) => join(dir('rounds'), `${encodeURIComponent(key)}.json`);
+const round = (key: string) => join(mine('rounds'), `${encodeURIComponent(key)}.json`);
 export const remember = (key: string, decision: object) => writeFile(round(key), JSON.stringify(decision));
 export const recall = async <T>(key: string): Promise<T | null> =>
   readFile(round(key), 'utf8').then((s) => JSON.parse(s) as T, () => null);
 
 /** Orders placed in the contract, once the swarm answered or declined: what the customer reads. Listed by customer. */
-const orderFile = (id: string) => join(dir('orders'), `${encodeURIComponent(id)}.json`);
-const ordersBy = (customer: string) => join(dir('orders'), `by-${encodeURIComponent(customer)}.jsonl`);
+const orderFile = (id: string) => join(mine('orders'), `${encodeURIComponent(id)}.json`);
+const ordersBy = (customer: string) => join(mine('orders'), `by-${encodeURIComponent(customer)}.jsonl`);
 export const orderOf = <T>(id: string) => readFile(orderFile(id), 'utf8').then((s) => JSON.parse(s) as T, () => null);
 export async function keepOrder<T extends { id: string; customer: string }>(record: T) {
   const isNew = !(await orderOf(record.id));
@@ -66,15 +70,15 @@ export const ordersOf = async (customer: string, last = 50) =>
 
 /** Descriptions of orders, by the hash the order names them with, from the moment the customer hands one over
  *  until its order is settled. The contract holds only the hash. */
-const briefFile = (hash: string) => join(dir('orders'), `brief-${hash}.json`);
+const briefFile = (hash: string) => join(mine('orders'), `brief-${hash}.json`);
 export const keepBrief = (hash: string, brief: object) => writeFile(briefFile(hash), JSON.stringify(brief));
 export const briefOf = <T>(hash: string) => readFile(briefFile(hash), 'utf8').then((s) => JSON.parse(s) as T, () => null);
 export const dropBrief = (hash: string) => rm(briefFile(hash), { force: true });
 export async function sweepBriefs(keep: Set<string>, olderMs: number) {
-  for (const name of await readdir(dir('orders'))) {
+  for (const name of await readdir(mine('orders'))) {
     const hash = /^brief-([0-9a-f]{64})\.json$/.exec(name)?.[1];
     if (!hash || keep.has(hash)) continue;
-    const file = join(dir('orders'), name);
+    const file = join(mine('orders'), name);
     if (Date.now() - (await stat(file)).mtimeMs > olderMs) await rm(file, { force: true });
   }
 }
