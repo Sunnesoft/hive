@@ -24,6 +24,13 @@ On 8 live NEAR contracts with published audits, one model stated 28 of the audit
   native USDC (`17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`). Runner account
   [`runner.hiveswarm.near`](https://nearblocks.io/address/runner.hiveswarm.near), operator
   [`operator.hiveswarm.near`](https://nearblocks.io/address/operator.hiveswarm.near), owner `hiveswarm.near`.
+- **A real order, end to end:** `order-2`, an audit of the SWEAT token at the commit that was exploited, paid 4.50
+  USDC by `sunnesoft.near`. Placed in
+  [4hEUjEsN…](https://nearblocks.io/txns/4hEUjEsNjav8xzUq9FNGFfhzcMDD9FvfyrRhfw3goPNf), three experts assigned in
+  [BGyRwdgA…](https://nearblocks.io/txns/BGyRwdgA2CZNSWevLzJHKkd1MPFMyVP9jLq5d6YNZYQv), answered and settled 15
+  minutes later in [E2FyfaZJ…](https://nearblocks.io/txns/E2FyfaZJFNcCsVhkE1UTdnMhonrQKhC7B7jNP9HaCazH): 4.00
+  charged, 0.50 back. The exploited callback is the answer's first finding, Critical.
+  [The order ↓](#real-orders-on-mainnet-the-sweat-callback-exploit)
 - **Check it yourself:** `scripts/swarm.sh verify <demo url> app-compose.json` checks the Intel quote, the keys, the
   event log, the compose (image digest, env, policies) of the running TEE; it passes all of its checks.
 - **Testnet:** the same contract is on testnet at `swarm2.sfhnx9j68.testnet` with test USDC; its history of test
@@ -133,7 +140,7 @@ new account, and gas left for a callback.
 Other kinds of task use the same mechanism: tokenomics, legal and compliance, due diligence, grant review and
 research. **They are not measured yet.** Every run, per contract: [eval/README.md](eval/README.md).
 
-## A real order on mainnet: the SWEAT callback exploit
+## Real orders on mainnet: the SWEAT callback exploit
 
 The swarm was hired on mainnet, through `/order`, with real USDC, on code that was really exploited. On 24 April
 2026 a commit of the SWEAT token ([`b9febf7`](https://github.com/Sweat-Foundation/sweat-token/commit/b9febf7e039352c08ee90f1425e1dc32cecdb7e9))
@@ -179,7 +186,43 @@ itself as `sender_id`. The swarm found the hole and its own trial played it down
 One task, so no rate; but it says two things plainly. Without the knowledge the model does not see the hole, or sees it and
 dismisses it. And on Haiku the swarm's trial found the real path of the attack, while on NEAR AI's models it
 refuted the finder's path, a direct call that indeed cannot work, and with it a hole that is real: the trial judged
-the wording, not the flaw. The rules of the trial now say so; see [What's next](#whats-next).
+the wording, not the flaw.
+
+**The same order after the fix: `order-2`.** We changed what the trial does, not its models (the experts and the
+protocol run on the same NEAR AI models), and placed the same order again: the same five files, the same 4.50 USDC.
+
+| step | transaction |
+|---|---|
+| the customer `sunnesoft.near` places `order-2`, 4.50 USDC | [4hEUjEsN…](https://nearblocks.io/txns/4hEUjEsNjav8xzUq9FNGFfhzcMDD9FvfyrRhfw3goPNf) |
+| the runner in the TEE assigns the same three experts and holds their spend | [BGyRwdgA…](https://nearblocks.io/txns/BGyRwdgA2CZNSWevLzJHKkd1MPFMyVP9jLq5d6YNZYQv) |
+| all three deliver, 15 minutes later | [CpU2Qhx5…](https://nearblocks.io/txns/CpU2Qhx5jStDLAu93hkzhHNDCDWmsBwSnbzvssdrypfd) |
+| the contract settles: 4.00 charged, **0.50 back** to the customer; the answer's sha256 `9f643d4f…` on chain | [E2FyfaZJ…](https://nearblocks.io/txns/E2FyfaZJFNcCsVhkE1UTdnMhonrQKhC7B7jNP9HaCazH) |
+
+Of the 4.00: the experts' rates, 3.00, shared by what their findings that held were worth (near-contract-review
+1.19, rust-contract-review 0.94, near-incidents 0.87); 0.80 to the operator; 0.20 to the owner. Models: 0.56.
+
+**What it says now.** 35 findings, 12 of them proved and tested by the team. The first one is **Critical:
+"`ft_resolve_transfer` is public and not `#[private]`, so anyone can drive the refund path with a chosen sender,
+receiver and amount"**. Two of the three experts found it, the third tested the proof and confirmed it. The proof
+goes step by step down to the lines of `near-contract-standards` that move the victim's balance to the attacker, and
+comes with a test. The answer's summary opens with it: "unsafe to deploy due to a critical flaw in
+`ft_resolve_transfer`". A false grave finding the experts also raised ("`on_record` is not `#[private]`": it is, on
+the line above) did not reach the proved list. It stands among the leads, with the check that refutes it.
+
+**What changed between the two orders.**
+
+- **The libraries' code is in the materials.** The runner reads the sources of the crates the code imports from
+  crates.io, at the version its `Cargo.lock` names. A step that turns on `near-contract-standards` is checked against
+  that crate's lines, not against a model's memory of it. A step that needs a file it lacks names it, and is asked
+  again with it.
+- **The trial judges the flaw, not the wording.** A tester refutes a finding only if no way reaches the flaw, not
+  when the finder's own path fails. On `order-1` the direct call was refuted, and the hole with it. The finder
+  states the gravest harm it can show on the lines, and nothing it cannot show.
+- **Testers read each step in its place.** Code finds every line a proof quotes, at its file and line number, and
+  gives the testers the whole function it stands in. The answer links each step to its line on GitHub. Replayed on
+  eight contracts read blind, wrong items that kept a majority of the testers' confirmations fell from 14 of 21 to
+  9, while true ones held (51 of 61 findings of the audits, 57 of 59 other real findings).
+- **A step that fails is tried again, warmer.** At temperature 0 a model that loops on a prompt loops on it again.
 
 ## Illia's brief → how we do it
 
@@ -270,14 +313,17 @@ What is not done, or not as good as we would like:
 
 The big items, in the order we would do them ([docs/TODO.md](docs/TODO.md) has the detail):
 
-1. **A stronger protocol model on NEAR AI** for the trial, the arbiter and the sorting of repeats, and **fewer
-   repeats** in an answer: on the mainnet order above, the arbiter on Qwen3.8-27B played down the exploited callback.
-2. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
+1. **Fewer repeats in an answer.** In `order-2` the exploited callback stands first, and then three more times in
+   other words (findings 2, 7 and 8). A finding the trial proved should take in the other wordings of its flaw.
+2. **Read the new trial blind on all eight contracts.** Before testers got whole functions, the new rules stated one
+   more finding of the audits than the old ones (52 of 68 against 51) and made more mistakes (20 against 13), most
+   of them among the leads. The tables above are for the old trial.
+3. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
    the customer can call, before the money settles.
-3. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
-4. **The Agent Market listing**, with bids on board tasks.
-5. **Measure other kinds of task**: tokenomics, legal and compliance, due diligence, grant review, research.
-6. **Mainnet, hardened**: Hive runs on mainnet; next come a reproducible contract build, a multisig owner,
+4. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
+5. **The Agent Market listing**, with bids on board tasks.
+6. **Measure other kinds of task**: tokenomics, legal and compliance, due diligence, grant review, research.
+7. **Mainnet, hardened**: Hive runs on mainnet; next come a reproducible contract build, a multisig owner,
    `delay_secs` above zero, separate NEAR AI keys for the runner and for measurements.
 
 ## Where this goes
