@@ -2,7 +2,7 @@
 # secrets come in as encrypted env (.env.tee, see scripts/swarm.sh tee-deploy). Pin the image by digest.
 services:
   runner:
-    image: ghcr.io/sunnesoft/swarm-runner@sha256:cbf8b8aa990b64eb5f1fe98f5c0fa513c60fa086ee994811ef7c2ffc372d01cd
+    image: ghcr.io/sunnesoft/swarm-runner@sha256:4f1676bab06e21d521b4762d4fed3b3bb8b2e5eff3c483f344aa2fdec6ca51f7
     restart: always
     ports:
       - "8080:8080" # /attestation, /info, /upload, the sealing page
