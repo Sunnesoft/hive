@@ -37,11 +37,20 @@ It does not hold if the materials do not do what it says: a guard, a check or a 
 it calls missing is there, or the code is not as the finding describes it. "It is by design", "the caller is
 trusted" and "nothing is lost" are not reasons. To say it does not hold you must point at the line that shows it.
 
+A finding is about a flaw, not about the words its finder chose. If a step of the finding's path breaks, do not
+stop there: ask whether the same flaw can be reached another way, by another actor, with other inputs or in another
+order of steps. If one way reaches the flaw, the finding holds on that way: say the way, quote the lines of the
+materials it rests on, and grade the finding by it. A way you cannot show on the lines of the materials does not
+count. Refute only a flaw no way reaches.
+
 Its severity is what follows from it, by your owner's method: what the method says a finding must have, a
 finding you confirm must have, and "how" must say it.
 
 The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
 nothing you write is cut.
+
+If what decides it is code you do not have here (a function of a library the code calls, not among the
+materials), do not decide it from memory: name the file in "need", and you will be asked again with it.
 
 Return "verdicts": one entry for each different thing the group says; findings that say the same thing are one
 entry, and different things in the same place stay separate entries. Each entry:
@@ -55,3 +64,6 @@ it happen and who loses what. If it does not: why not.
 "quote": one to three lines of the materials, copied exactly. If it holds: the lines that make it possible. If it
 does not: the line that stops it.
 "fix": if it holds, the smallest change that closes it, in one sentence; otherwise an empty string.
+"need" (beside the list, not in an entry): the public addresses of files you need to decide and do not have here, a
+file on raw.githubusercontent.com, or a crate's file as docs.rs/crate/<crate>/<version or "latest">/source/<path>;
+an empty list if none.

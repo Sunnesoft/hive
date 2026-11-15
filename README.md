@@ -167,11 +167,19 @@ itself as `sender_id`. The swarm found the hole and its own trial played it down
 | one model, asked once | no | — | $0.013 |
 | one model with the NEAR reviewer's knowledge in the call | yes | High, first item, impact right | $0.023 |
 | the swarm of three experts (the order above) | yes | Low: the trial played it down | $0.55 |
-| the same on Claude Haiku: one model / with the knowledge / the swarm | *running* | | |
 
-One task, so no rate; but it says two things plainly. Without the knowledge the model does not see the hole. And
-the trial is only as good as the protocol's model: on NEAR AI's Qwen3.8-27B it overruled a true finding here. That
-is the first item of [What's next](#whats-next).
+**The same files on Claude Haiku** (read the same way):
+
+| answer | states the exploited callback | at what severity |
+|---|---|---|
+| one model, asked once | it notices the missing `#[private]` but decides "a direct call cannot move tokens" | Low |
+| one model with the NEAR reviewer's knowledge in the call | no | — |
+| **the swarm of the same three experts** | **yes, each of the three on its own** | **Critical, first item**: a contract the attacker deploys chains `ft_resolve_transfer(sender_id = attacker, receiver_id = victim)` after a failing call |
+
+One task, so no rate; but it says two things plainly. Without the knowledge the model does not see the hole, or sees it and
+dismisses it. And on Haiku the swarm's trial found the real path of the attack, while on NEAR AI's models it
+refuted the finder's path, a direct call that indeed cannot work, and with it a hole that is real: the trial judged
+the wording, not the flaw. The rules of the trial now say so; see [What's next](#whats-next).
 
 ## Illia's brief → how we do it
 

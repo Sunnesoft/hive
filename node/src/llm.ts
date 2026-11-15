@@ -326,27 +326,28 @@ export type CheckVerdict = z.infer<typeof CheckVerdict>;
  *  thing the group says, as fields, not as prose. Asked for prose, one model wrote an essay where the verdict
  *  should have been and ran out of room before it reached one; a form has nowhere to put an essay. Sent only if
  *  its worst case fits `cap`; a check that fails, or whose reply is no form, costs the agent nothing. */
-export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = '', kind: 'check' | 'refute' | 'arbiter' = 'check'): Promise<{ verdicts: CheckVerdict[]; cost: bigint; why?: Why; cut?: boolean }> {
+export async function check(m: Materials, question: string, pages: Page[], about: string, money: bigint, knowledge = '', kind: 'check' | 'refute' | 'arbiter' = 'check'): Promise<{ verdicts: CheckVerdict[]; need?: string[]; cost: bigint; why?: Why; cut?: boolean }> {
   const price = priceOf(m.model);
   if (!price) return { verdicts: [], cost: 0n, why: 'model_unavailable' };
   const [system, prompt] = stepCall(kind, m, knowledge, question, pages, about);
   const limit = limitFor(price, Buffer.byteLength(system + prompt), money);
   if (limit < REPLY_LEAST) return { verdicts: [], cost: 0n, why: 'too_expensive' };
-  const Form = z.object({ verdicts: z.array(CheckVerdict) });
+  const Form = z.object({ verdicts: z.array(CheckVerdict), need: z.array(z.string()).nullish() });
   const call = () => written(m.model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Form });
   try {
     const r = await metered(kind, m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
-    return { verdicts: Form.parse(r.output).verdicts, cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
+    const form = Form.parse(r.output);
+    return { verdicts: form.verdicts, ...(form.need?.length ? { need: form.need } : {}), cost: microUsd(r.usage, price), cut: r.finishReason === 'length' };
   } catch (e) {
     return { verdicts: [], cost: 0n, why: 'model_failed', cut: (e as { finishReason?: string }).finishReason === 'length' };
   }
 }
 
-const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'note', 'refute', 'pass']), step: z.number().nullish(), quote: z.string().nullish(), why: z.string().nullish() })) });
+const Marks = z.object({ marks: z.array(z.object({ id: z.number(), mark: z.enum(['confirm', 'note', 'refute', 'pass']), step: z.number().nullish(), quote: z.string().nullish(), why: z.string().nullish() })), need: z.array(z.string()).nullish() });
 export type Mark = z.infer<typeof Marks>['marks'][number];
 /** An expert's marks on findings other experts posted (policies/mark.md): confirm, refute or pass, each with the
  *  line of the materials it rests on. Peer marks, and a quorum of them, take the place of a judge. */
-export async function mark(m: Materials, question: string, pages: Page[], about: string, money: bigint): Promise<{ marks: Mark[]; cost: bigint; why?: Why }> {
+export async function mark(m: Materials, question: string, pages: Page[], about: string, money: bigint): Promise<{ marks: Mark[]; need?: string[]; cost: bigint; why?: Why }> {
   const price = priceOf(m.model);
   if (!price) return { marks: [], cost: 0n, why: 'model_unavailable' };
   const [system, prompt] = stepCall('mark', m, '', question, pages, about);
@@ -355,7 +356,8 @@ export async function mark(m: Materials, question: string, pages: Page[], about:
   const call = () => written(m.model, { instructions: system, prompt, limit, temperature: m.temperature ?? 0, schema: Marks });
   try {
     const r = await metered('mark', m.model, { agent: m.name, system, prompt }, limit, call, (r) => ({ usage: r.usage, got: r.output, finish: r.finishReason, id: billedAs(r) }));
-    return { marks: Marks.parse(r.output).marks, cost: microUsd(r.usage, price) };
+    const form = Marks.parse(r.output);
+    return { marks: form.marks, ...(form.need?.length ? { need: form.need } : {}), cost: microUsd(r.usage, price) };
   } catch {
     return { marks: [], cost: 0n, why: 'model_failed' };
   }

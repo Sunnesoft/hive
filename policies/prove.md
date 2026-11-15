@@ -18,7 +18,10 @@ something is lost, gained or stops.
 Every step stands on a line someone else can check. Copy it exactly, whole, long enough to be found in one place
 only: if the line is short ("None,"), copy it with the line before or after it. A step that runs in a library
 the contract depends on stands on that library's line: give the public address of the library's file at the
-version the materials name (its Cargo.toml or Cargo.lock), on GitHub or docs.rs, and copy the line from it. A
+version the materials name (its Cargo.toml or Cargo.lock), on GitHub or docs.rs, and copy the line from it. So does
+a step whose effect is decided inside a library the contract calls (which way it moves value, what it checks,
+what it reads): quote the library's line that decides it, not only the call. If the materials do not name the
+version, take the library's own repository at its latest release and say so in the step. A
 step you cannot stand on a line is not proved, and neither is the finding.
 
 A doubt is no reason to withdraw: it is a reason to look. If you doubt a step, follow the code that decides it.
@@ -26,6 +29,10 @@ That a case cannot happen must be proved like anything else: withdraw a finding 
 that does not happen and copy the line that stops it (a check, a limit, a revert, a guard on the way). "Unlikely",
 "values never get that large" or "by design" prove nothing. If you cannot show the line, do not withdraw: stand by
 the finding, and the other experts will test it.
+
+When one flaw allows harms of different weight, prove the gravest one you can show on the lines of the materials:
+who can cause it, what they get, who loses what. Name the lesser harms after it. A harm you cannot show on the lines
+does not count.
 
 Return "proofs", one for each finding, in the order given:
 "id": the finding's number.

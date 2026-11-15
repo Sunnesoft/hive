@@ -14,7 +14,7 @@ const http = axios.create({
   maxRedirects: 3,
   maxContentLength: 2_000_000,
   responseType: 'text',
-  headers: { 'user-agent': 'swarm-for-hire' },
+  headers: { 'user-agent': 'hive-runner (library source for reviews)' },
 });
 
 /** HTML to plain text in a separate thread: a page that breaks the parser kills only that thread. */
@@ -68,6 +68,17 @@ export async function read(url: string): Promise<string> {
   return textOf(new Uint8Array(res.data), String(res.headers['content-type'] ?? ''), new URL(url).pathname);
 }
 
+/** A public file's bytes as they are (an archive, say), through the same filter. */
+export async function bytesOf(url: string, max = SOURCE_BYTES): Promise<Uint8Array> {
+  const res = await http.get<ArrayBuffer>(url, { responseType: 'arraybuffer', maxContentLength: max });
+  return new Uint8Array(res.data);
+}
+/** A public JSON document, through the same filter. */
+export async function jsonOf<T>(url: string): Promise<T> {
+  const res = await http.get<T>(url, { responseType: 'json' });
+  return res.data;
+}
+
 /** https links the customer put in the brief or the messages: public material they want used. */
 export const linksIn = (text: string, max = MAX_SOURCES) =>
   [...new Set((text.match(/https:\/\/[^\s)<>"'\]]+/g) ?? []).map((u) => u.replace(/[.,;:!?]+$/, '')))].slice(0, max);
@@ -85,7 +96,8 @@ export const SOURCE_BYTES = 5_000_000; // the most downloaded for one link
 export const SOURCE_CHARS = 400_000; // of one source's text
 export const PUBLIC_CHARS = 160_000; // of the public material one expert gets with its question: the customer's files and what they refer to (deps.ts); on NEAR AI a call reads it from its cache after the first
 
-export type Page = { url: string; text: string };
+/** `first`: the number in its file of the text's first line, where code put a label above the file (0); 1 if absent. */
+export type Page = { url: string; text: string; first?: number };
 export type Unread = { url: string; why: string };
 
 /** Public pages for a job: the brief's links and, with a search key, the results of the planned searches.

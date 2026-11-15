@@ -29,3 +29,21 @@ is true only across receipts. A cross-contract call is a later receipt: when it 
 before it is undone, and only a callback that restores it can put it back. Tokens sent with ft_transfer_call come
 back to the sender when ft_on_transfer panics. A #[private] method can be called by the contract alone. Before a
 finding stands, read the place that would stop it.
+
+Reading who can do it and what it costs, keep two things in mind. A balance that leaves its owner's account without
+the owner's consent is the owner's loss and a gain to whoever receives it, though no token is minted and the supply
+stays the same. And where the caller chooses an argument that says who receives value or on whose behalf a balance
+moves (a sender, a receiver, a beneficiary, a refund address), and nothing in the code ties it to the caller (a
+check of the predecessor, a signature, the owner, a registration, stored state), the attacker names an account it
+controls: itself or another it holds. A path that fails as a direct call may still run from a contract the attacker
+deploys, or as a callback the attacker chains after a call of its own: look for that before you drop it.
+
+Some of what decides a finding is the runtime's or the SDK's, not the contract's: read it as they do. An outgoing
+transfer's amount leaves the contract's balance when its receipt is made, in the same call: no later call sees it
+"in flight". A receipt that would leave the account with less NEAR than its storage needs fails whole
+(LackBalanceForState), so a withdrawal cannot strand the storage stake: it reverts. A call made through Self::ext
+or an #[ext_contract] interface (near-sdk 4.1 and later) gets the gas it names plus a share of the unused gas by
+weight, so a callback that names 5 Tgas does not run on 5 Tgas alone. The one yoctoNEAR a contract attaches to
+ft_transfer is no loss worth a finding: it comes from the yoctoNEAR assert_one_yocto made the caller attach, or from
+the gas reward the call earns the contract. Where a step depends on such a rule and the version matters, say the
+version.

@@ -35,7 +35,8 @@ import { lint } from './lint.ts';
 import * as llm from './llm.ts';
 import { log } from './log.ts';
 import { alike, bySeverity, CHECK_AT_ONCE, CHECK_IN, clip, COMBINE_IN, findingsIn, groupsOf, grounded, KNOWN_IN, lineOf, MAX_CHECKS, MAX_COMBINED, middleOf, PASS_FINDINGS, READ_FINDINGS, MAX_LEADS, MAX_PASSES, MAX_PROOFS, PASS_CHARS, partition, partsOf, piecesOf, PROOF_IN, SAME, SAME_IN, SAME_WORDS, SEVERITIES, showFinding, usdc, type Finding } from './rules.ts';
-import { read, type Page } from './web.ts';
+import { needed } from './deps.ts';
+import { PUBLIC_CHARS, read, type Page } from './web.ts';
 
 /** `also`: other wordings of the same finding, which the model named the same and code joined to this one. They
  *  stay on the page: if the model was wrong to join them, the customer still reads what was raised. */
@@ -163,6 +164,20 @@ const section = (title: string, body: string, bytes: number) => clip(`# ${title}
 const codeOf = (r: { text: string; cut?: boolean }) =>
   r.cut || !r.text.trim() ? undefined : (/```[^\n]*\n[\s\S]*?\n```/.exec(r.text)?.[0] ?? `\`\`\`\n${r.text.trim()}\n\`\`\``);
 
+/** A step asked again, once, with the public files it said it needed to decide (deps.needed): code it did not have
+ *  is read, not remembered. Two checks took the NEP-141 resolver to refund only an escrow it never checks, and
+ *  refused a true finding (SWEAT, 15 November). Returns the reply and the files it was given. */
+async function withNeeded<R extends { need?: string[]; cost: bigint }>(pages: Page[], ask: (pages: Page[]) => Promise<R>): Promise<{ r: R; more: Page[] }> {
+  const first = await ask(pages);
+  const wanted = (first.need ?? []).filter((u) => !pages.some((p) => p.url === u));
+  if (!wanted.length) return { r: first, more: [] };
+  const more = await needed(wanted, PUBLIC_CHARS - pages.reduce((n, p) => n + p.text.length, 0) - 2_000).catch(() => [] as Page[]);
+  if (!more.length) return { r: first, more: [] };
+  const again = await ask([...pages, ...more]);
+  return { r: { ...again, cost: first.cost + again.cost }, more };
+}
+const plus = (material: string, more: Page[]) => (more.length ? `${material}\n${more.map((p) => p.text).join('\n')}` : material);
+
 /** One expert's review of the materials it was given. `code`: the task asks for code, so the gravest findings get proofs. */
 export async function review(expert: Expert, question: string, pages: Page[], hold: bigint, code: boolean): Promise<Review> {
   const { m } = expert;
@@ -235,23 +250,26 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const toCheck = m.review?.checks ? groups.slice(0, m.review.checks) : groups; // all of them, the gravest first, unless the expert said how many it pays for
   /** The check of one group: what of it holds and quotes a line that is in the materials, and, if nothing does,
    *  what the check said instead. Tried again once if the model failed; not started once the review's time is up. */
-  const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; of?: number[][]; said?: string; failed?: llm.Why }> => {
+  const judged = async (group: Finding[]): Promise<{ confirmed: Checked[]; of?: number[][]; said?: string; refused?: string; failed?: llm.Why }> => {
     if (Date.now() > deadline) return { confirmed: [], failed: 'model_failed' };
     // A check reads all of the materials, and the part of the knowledge its findings were raised from: the rule that
     // "assert_one_yocto without #[payable] can never succeed" stood in the knowledge, and the checks that judged
     // findings about that very function never saw it.
     const about = section('Findings to check', group.map((f, i) => showFinding(f, i + 1)).join('\n\n'), CHECK_IN);
     const knowledge = [...new Set(group.map((f) => partOf.get(f)).filter((k): k is string => !!k))].join('\n\n');
-    const once = await llm.check(m, question, pages, about, left(), knowledge);
-    const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(spare(m), question, pages, about, left(), knowledge) : once);
+    const asked = await withNeeded(pages, (ps) => llm.check(m, question, ps, about, left(), knowledge));
+    const once = asked.r;
+    const r = paid(once.why === 'model_failed' && Date.now() < deadline ? await llm.check(spare(m), question, [...pages, ...asked.more], about, left(), knowledge) : once);
+    const seen = plus(material, asked.more);
     const severityOf = (s: string) => SEVERITIES.find((x) => x.toLowerCase() === s.trim().toLowerCase()) ?? gravest(group).severity;
     const lines = (quote: string) => quote.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).map((l) => `\`${l.replace(/`/g, "'")}\``).join('\n');
-    const held = r.verdicts.filter((v) => v.holds && grounded(v.quote, material));
+    const held = r.verdicts.filter((v) => v.holds && grounded(v.quote, seen));
     const of = held.map((v) => (v.of ?? []).filter((n) => Number.isInteger(n) && n >= 1 && n <= group.length).map((n) => n - 1));
     const confirmed = held
       .map((v): Checked => ({ severity: severityOf(v.severity), where: v.where.trim(), title: v.title.trim(), how: v.how.trim(), evidence: lines(v.quote), fix: (v.fix ?? '').trim() }));
     const said = confirmed.length ? undefined : (r.verdicts.find((v) => !v.holds)?.how.trim() ?? (r.verdicts.length ? 'It held the finding true and quoted no line that stands in the materials.' : undefined));
-    return { confirmed, of, ...(said ? { said } : {}), ...(r.why ? { failed: r.why } : {}) };
+    const refused = r.verdicts.find((v) => !v.holds)?.how.trim();
+    return { confirmed, of, ...(said ? { said } : {}), ...(refused ? { refused } : {}), ...(r.why ? { failed: r.why } : {}) };
   };
   const checks = await each(toCheck, (group) => judged(group.all));
   if (toCheck.length && checks.every((r) => r.failed) && Date.now() < deadline) return stop(checks[0]!.failed!); // the model is not there; out of time, what was raised is still given
@@ -272,7 +290,18 @@ export async function review(expert: Expert, question: string, pages: Page[], ho
   const combined: Checked[] = (await each(together.findings, (f) => judged([f]))).flatMap((r) => r.confirmed);
   counts.combined = combined.length;
   // A group of which nothing held, or that was never checked, stays as it was raised, with what its check said.
-  const open = groups.flatMap((g, i): Raised[] => (held[i]?.length ? [] : [{ ...withAlso(gravest(g.all), g.wordings), ...(checks[i]?.said ? { checkSaid: checks[i]!.said } : {}) }]));
+  // A wording graver than all its check confirmed in its group is not laid under the milder one: it stays a lead of
+  // its own, with what its check said. A public callback and a missing check in the same function were checked as
+  // one group; the check confirmed the check and refused the callback, and the callback was gone (SWEAT, 15 November).
+  const graverLeft = (i: number): Raised[] => {
+    const kept = held[i] ?? [];
+    if (!kept.length) return [];
+    const mildest = Math.min(...kept.map(rank));
+    const said = checks[i]?.refused;
+    return toCheck[i]!.all.filter((f) => rank(f) < mildest && !kept.some((k) => k.title.toLowerCase() === f.title.toLowerCase()))
+      .map((f) => ({ ...f, ...(said ? { checkSaid: said } : {}) }));
+  };
+  const open = groups.flatMap((g, i): Raised[] => (held[i]?.length ? graverLeft(i) : [{ ...withAlso(gravest(g.all), g.wordings), ...(checks[i]?.said ? { checkSaid: checks[i]!.said } : {}) }]));
   // Two groups may have held the same thing, and a lead may say what a finding says. By code's measure such a lead
   // is the finding. The model's answer joins findings with findings and leads with leads, never a lead into a
   // finding: joined there once, a finding the check had wrongly refused became "another wording" of a different one.
@@ -305,8 +334,9 @@ const some = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one
  *  to be read. */
 /** How a finding happens, step by step, each step on a line of the materials: the proof its finder gave, which
  *  code checked line by line and other experts tested. */
-const pathOf = (p: llm.Proof) => `**How it happens**, step by step:\n\n${p.steps.map((s, i) => `${i + 1}. ${s.does}  \n   \`${s.line.split('\n')[0]!.trim().replace(/`/g, "'")}\`${s.source ? ` (in ${s.source})` : ''}`).join('\n')}\n\n*End:* ${p.end}`;
-const entry = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
+const atName = (link: string) => link.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\//, '').replace(/^https:\/\/docs\.rs\/crate\//, '').replace('#L', ':');
+const pathOf = (p: Path) => `**How it happens**, step by step:\n\n${p.steps.map((s, i) => `${i + 1}. ${s.does}  \n   \`${s.line.split('\n')[0]!.trim().replace(/`/g, "'")}\`${s.at ? ` ([${atName(s.at)}](${s.at}))` : s.source ? ` (in ${s.source})` : ''}`).join('\n')}\n\n*End:* ${p.end}`;
+const entry = (f: Checked & { path?: Path }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
@@ -320,7 +350,7 @@ const entry = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = 
     !f.sortedWith && f.proof && `**Test** (written, not run):\n\n${f.proof}`,
   ].filter(Boolean).join('\n\n');
 /** A minor finding in brief: what is wrong, where, how in a sentence or two, and the line it rests on. */
-const briefly = (f: Checked & { path?: llm.Proof }, n: number, marks = '', note = '') =>
+const briefly = (f: Checked & { path?: Path }, n: number, marks = '', note = '') =>
   [
     `### ${n}. ${f.severity}: ${f.title}${marks}`,
     [f.where && `*Where:* ${f.where}.`, note].filter(Boolean).join(' '),
@@ -373,7 +403,9 @@ export const digestOf = (r: Pick<Review, 'findings' | 'leads'>) =>
  *  code not shown), how many other experts confirmed or refuted it with a line code found, and, if it was
  *  refuted, whether the arbiter upheld the finder's appeal. */
 export type Trial = { proved: boolean; withdrawn: boolean; confirm: number; note: number; refute: number; confirmedBy: number[]; upheld?: boolean };
-export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial; path?: llm.Proof };
+/** A proof as the customer reads it: each step with `at`, the link to its line where code found it. */
+export type Path = Omit<llm.Proof, 'steps'> & { steps: (llm.Proof['steps'][number] & { at?: string })[] };
+export type Joined = Checked & { by: number[]; seen: number[]; crossed?: { by: number; holds: boolean; said: string }; hotspot?: boolean; trial?: Trial; path?: Path };
 export type Lead = Raised & { seen: number[] };
 /** The reviews of several experts as one list. Which findings are one is the protocol's model's answer to one
  *  narrow question (policies/same.md): the same flaw, the same cause in the same place, so that one fix closes
@@ -381,12 +413,23 @@ export type Lead = Raised & { seen: number[] };
  *  finding: in the middle of its confirmed wordings, the others listed under it, counted for every expert that
  *  confirmed any of them. That rule is not one of text: what one fix closes is the same flaw in a video or a plan
  *  too. What no expert confirmed stays a lead. The experts never saw each other's findings. The gravest first. */
+/** What a model named the same is folded into one finding, known by its middle wording; but a wording graver than
+ *  that is never folded under it. A model may take a public callback and a missing check in the same function for
+ *  one flaw: folded, the graver one went unseen (the SWEAT order, 15 November). It stays a finding of its own,
+ *  sorted with the one it was joined to, and is tried on its own. */
+export function apartIfGraver(g: Item[]): Item[][] {
+  if (g.length < 2) return [g];
+  const head = headOf(g);
+  const graver = g.filter((x) => rank(x.f) < rank(head));
+  return graver.length ? [g.filter((x) => !graver.includes(x)), ...graver.map((x) => [x])] : [g];
+}
+
 export async function join(reviews: { id: number; findings: Checked[]; leads: Raised[] }[]): Promise<{ findings: Joined[]; leads: Lead[] }> {
   const all: Item[] = reviews.flatMap((r) => [...r.findings.map((f) => ({ f, id: r.id, held: true })), ...r.leads.map((f) => ({ f, id: r.id, held: false }))]);
   const model = cfg.COMPOSE_MODEL ?? cfg.PROTOCOL_MODEL;
   const [held, unheld] = [verbatim(all.filter((x) => x.held)), verbatim(all.filter((x) => !x.held))];
   const sorted = (reviews.length < 2 ? [...held, ...unheld].map((g) => [g]) : [...(await sortedBy(model, held)).groups, ...(await sortedBy(model, unheld)).groups])
-    .map((joined) => [joined.flat()]);
+    .map((joined) => apartIfGraver(joined.flat()));
   const ids = (g: Item[]) => [...new Set(g.map((x) => x.id!))].sort((a, b) => a - b);
   const wordings = (g: Item[]) => withAlso(headOf(g), g.flatMap((x) => [x.f.title, ...(x.f.also ?? [])]));
   const found = (g: Item[]): Joined => {
@@ -438,6 +481,66 @@ export function weightsOf(findings: Joined[]): Map<number, number> {
 const foundIn = (s: llm.Proof['steps'][number], material: string, sources: Map<string, string>) => grounded(s.line, s.source ? (sources.get(s.source) ?? '') : material);
 export const provedIn = (p: llm.Proof | undefined, material: string, sources: Map<string, string> = new Map()) =>
   !!p && p.steps.some((s) => foundIn(s, material, sources)); // withdrawn too: its finder's doubt is for the testers to settle
+/** Where a step's line stands: the file and the number of the line in it, found by code, never said by a model.
+ *  A tester is sent there to read the line in its place, as far around it as it needs: on SWEAT (15 November) a
+ *  proof quoted `fn on_record(...)` as a public method, `#[private]` stood on the line above, and two testers
+ *  confirmed the proof from its quote. Where a line stands twice (a trait and its impl), the place that holds the
+ *  whole quote is taken. */
+export function lineAt(line: string, pages: Page[]): { url: string; n: number } | undefined {
+  const bare = (s: string) => s.replace(/\s+/g, '');
+  const quoted = line.split('\n').map(bare).filter(Boolean);
+  if (!quoted.length) return undefined;
+  const k = quoted.reduce((best, q, i) => (q.length > quoted[best]!.length ? i : best), 0);
+  const key = quoted[k]!.slice(0, 80);
+  if (key.length < 8) return undefined;
+  const whole = quoted.join('');
+  let first: { url: string; n: number } | undefined;
+  for (const p of pages) {
+    const lines = p.text.split('\n');
+    for (let j = 0; j < lines.length; j++) {
+      if (!bare(lines[j]!).includes(key)) continue;
+      const from = Math.max(0, j - k);
+      const at = { url: p.url, n: from + (p.first ?? 1) };
+      if (bare(lines.slice(from, from + quoted.length + 1).join('')).includes(whole)) return at;
+      first ??= at;
+    }
+  }
+  return first;
+}
+/** The function a line stands in, whole: from the attributes and comments above its head to its closing brace.
+ *  What a tester reads a step against: shown the function, testers on eight contracts confirmed 5 fewer of 21 wrong
+ *  items and as many true ones (the line alone: 3 fewer); the false `on_record` above went down, 3 refutes of 3.
+ *  A line more than MAX_ABOVE lines into its function, or a function longer than MAX_FN, is not given. */
+export function fnAt(page: Page, n: number): { from: number; text: string } | undefined {
+  const lines = page.text.split('\n');
+  const at = n - (page.first ?? 1);
+  let head = at;
+  while (head >= 0 && !FN_HEAD.test(lines[head]!)) head--;
+  if (head < 0 || at - head > MAX_ABOVE) return undefined;
+  let top = head;
+  while (top > 0 && /^\s*(#\[|@\w|\/\/|\/\*|\*)/.test(lines[top - 1]!)) top--;
+  let depth = 0, end = head, opened = false;
+  for (; end < lines.length && end < head + MAX_FN; end++) {
+    for (const c of lines[end]!) if (c === '{') { depth++; opened = true; } else if (c === '}') depth--;
+    if (opened && depth <= 0) break;
+    if (!opened && /;\s*$/.test(lines[end]!)) break; // a declaration with no body
+  }
+  if (end < at) return undefined;
+  return { from: top + (page.first ?? 1), text: lines.slice(top, end + 1).join('\n') };
+}
+const FN_HEAD = /^\s*((pub(\([^)]*\))?|public|private|internal|external|export|async|const|unsafe|extern|entry|native|default|override|virtual|static)\s+)*(fn|function|fun|modifier)\s/;
+const [MAX_ABOVE, MAX_FN] = [150, 160];
+/** A place as a reader opens it: a file on GitHub at its line; another address with the line's number. */
+export const linkOf = ({ url, n }: { url: string; n: number }) => {
+  const raw = /^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/.exec(url);
+  return raw ? `https://github.com/${raw[1]}/${raw[2]}/blob/${raw[3]}/${raw[4]}#L${n}` : `${url}#L${n}`;
+};
+/** A place as a tester reads it: the file's path and the line's number. */
+const named = ({ url, n }: { url: string; n: number }) => {
+  const raw = /^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/[^/]+\/(.+)$/.exec(url);
+  const crate = /^https:\/\/docs\.rs\/crate\/([^/]+)\/([^/]+)\/source\/(.+)$/.exec(url);
+  return `${raw ? raw[1] : crate ? `${crate[3]} of ${crate[1]} ${crate[2]}` : url}, line ${n}`;
+};
 /** The libraries' files a proof may stand on: public source code, at a fixed address, nothing else. */
 const LIBRARY_HOSTS = /^https:\/\/(raw\.githubusercontent\.com|github\.com|docs\.rs)\//;
 const MAX_LIBRARY_FILES = 12; // library files fetched for one trial
@@ -486,15 +589,30 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
   const wanted = [...new Set([...proofs.values()].flatMap((p) => p.steps.map((s) => s.source?.trim() ?? '')).filter((u) => LIBRARY_HOSTS.test(u)))].slice(0, MAX_LIBRARY_FILES);
   await Promise.all(wanted.map(async (url) => { const text = await read(url).catch(() => ''); if (text) sources.set(url, text); }));
   const proved = new Set(findings.map((_, k) => k).filter((k) => provedIn(proofs.get(k), material, sources)));
-  const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   \`${s.line}\`${foundIn(s, material, sources) ? '' : '\n   (code did not find this line in the materials or in the library named: check it)'}${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
+  const placed = (s: llm.Proof['steps'][number]) => (s.source ? (sources.has(s.source) ? lineAt(s.line, [{ url: s.source, text: sources.get(s.source)! }]) : undefined) : lineAt(s.line, pages));
+  const showStep = (s: llm.Proof['steps'][number], i: number) => `${i + 1}. ${s.does}\n   ${((p) => (p ? `at ${named(p)}: ` : ''))(placed(s))}\`${s.line}\`${foundIn(s, material, sources) ? '' : '\n   (code did not find this line in the materials or in the library named: check it)'}${s.source ? `\n   in ${s.source}:\n\`\`\`\n${around(sources.get(s.source) ?? '', s.line)}\n\`\`\`` : ''}`;
+  // The functions the steps of these proofs stand in, each once, whole: what the testers, the finder and the
+  // arbiter read the steps against. A step on a library file the trial fetched keeps its lines around it.
+  const standIn = (ks: number[]) => {
+    const seen = new Map<string, string>();
+    for (const k of ks) for (const s of proofs.get(k)?.steps ?? []) {
+      if (s.source) continue;
+      const at = lineAt(s.line, pages);
+      const page = at && pages.find((p) => p.url === at.url);
+      const f = page && fnAt(page, at.n);
+      if (f && !seen.has(`${at.url} ${f.from}`)) seen.set(`${at.url} ${f.from}`, `${named({ url: at.url, n: f.from }).replace(', line ', ', from line ')}:\n\`\`\`\n${f.text}\n\`\`\``);
+    }
+    return seen.size ? `\n\n# The code these steps stand in, as it is in the materials\n\n${[...seen.values()].join('\n\n')}` : '';
+  };
   const showProof = (k: number) => { const p = proofs.get(k)!; return `### ${k}. ${findings[k]!.severity}: ${findings[k]!.title}\n\n${p.steps.map(showStep).join('\n')}\n\nEnd: ${p.end}`; };
   // The tests, each expert of the proofs it did not write.
   const marks: { k: number; by: number; mark: llm.Mark }[] = [];
   await each(team.flatMap((t) => chunks([...proved].filter((k) => !findings[k]!.by.includes(t.id) && finder(findings[k]!)?.id !== t.id), TEST_AT_ONCE).map((part) => ({ t, part }))), async ({ t, part }) => {
     if (late()) return;
-    const r = await llm.mark(t.m, question, pages, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}`, left(t));
+    const { r, more } = await withNeeded(pages, (ps) => llm.mark(t.m, question, ps, `# Findings and their proofs\n\n${part.map(showProof).join('\n\n')}${standIn(part)}`, left(t)));
     spend(t.id, r.cost);
-    for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', material)) marks.push({ k: m.id, by: t.id, mark: m });
+    const seen = plus(material, more);
+    for (const m of r.marks) if (part.includes(m.id) && m.mark !== 'pass' && grounded(m.quote ?? '', seen)) marks.push({ k: m.id, by: t.id, mark: m });
   });
   // The appeals of what a test refuted, each to the arbiter alone.
   const upheld = new Map<number, boolean>();
@@ -503,17 +621,19 @@ export async function tried<T extends Joined>(findings: T[], team: { id: number;
     const f = findings[k]!, t = finder(f), said = `${f.where} ${f.title} ${f.how}`;
     const knowledge = partsOf(filesOf(t.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
     const against = marks.filter((x) => x.k === k && x.mark.mark === 'refute').map((x) => `- step ${x.mark.step ?? 0}: ${x.mark.why ?? ''} The line: \`${x.mark.quote}\``).join('\n');
-    const a = await llm.appeal(t.m, knowledge, question, pages, `# Your finding and its proof\n\n${showProof(k)}\n\n# The refutation\n\n${against}`, left(t));
+    const a = await llm.appeal(t.m, knowledge, question, pages, `# Your finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutation\n\n${against}`, left(t));
     spend(t.id, a.cost);
-    if (!a.appeal || a.appeal.withdrawn) return upheld.set(k, false);
-    const rule = a.appeal.rule.trim() && knowledge.replace(/\s+/g, ' ').includes(a.appeal.rule.trim().replace(/\s+/g, ' ')) ? a.appeal.rule.trim() : ''; // a rule counts only if it is in the finder's knowledge
-    const v = await llm.check(judge, question, pages, `# The finding and its proof\n\n${showProof(k)}\n\n# The refutations\n\n${against}\n\n# The finder's appeal\n\n${rule ? `The rule of its knowledge it rests on: "${rule}"\n\n` : ''}${a.appeal.answer}`, usdc('1'), '', 'arbiter');
+    const appeal = a.appeal;
+    if (!appeal || appeal.withdrawn) return upheld.set(k, false);
+    const rule = appeal.rule.trim() && knowledge.replace(/\s+/g, ' ').includes(appeal.rule.trim().replace(/\s+/g, ' ')) ? appeal.rule.trim() : ''; // a rule counts only if it is in the finder's knowledge
+    const v = (await withNeeded(pages, (ps) => llm.check(judge, question, ps, `# The finding and its proof\n\n${showProof(k)}${standIn([k])}\n\n# The refutations\n\n${against}\n\n# The finder's appeal\n\n${rule ? `The rule of its knowledge it rests on: "${rule}"\n\n` : ''}${appeal.answer}`, usdc('1'), '', 'arbiter'))).r;
     upheld.set(k, v.verdicts[0]?.holds ?? false);
   });
   const out = findings.map((f, k) => {
     const on = marks.filter((x) => x.k === k).map((x) => x.mark.mark);
     const trial: Trial = { proved: proved.has(k), withdrawn: !!proofs.get(k)?.withdrawn, confirm: on.filter((m) => m === 'confirm').length, note: on.filter((m) => m === 'note').length, refute: on.filter((m) => m === 'refute').length, confirmedBy: marks.filter((x) => x.k === k && x.mark.mark === 'confirm').map((x) => x.by), ...(upheld.has(k) ? { upheld: upheld.get(k)! } : {}) };
-    const path = proofs.get(k);
+    const proof = proofs.get(k);
+    const path: Path | undefined = proof && { ...proof, steps: proof.steps.map((s) => ((p) => (p ? { ...s, at: linkOf(p) } : s))(placed(s))) };
     return { ...f, trial, ...(path && proved.has(k) ? { path } : {}) };
   });
   return { findings: out, cost };
@@ -552,12 +672,13 @@ export async function crossChecked<T extends Joined>(findings: T[], team: { id: 
     const checker = team[(team.findIndex((t) => t.id === f.by[0]) + 1) % team.length]!; // the next expert of the team
     const said = `${f.where} ${f.title} ${f.how}`;
     const knowledge = partsOf(filesOf(checker.m)).map((part) => ({ part, near: alike(part, said) })).sort((a, b) => b.near - a.near).slice(0, 2).map((x) => x.part).join('\n\n');
-    const r = await llm.check(checker.m, question, pages, section('Finding to refute', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge, 'refute');
+    const { r, more } = await withNeeded(pages, (ps) => llm.check(checker.m, question, ps, section('Finding to refute', showFinding(f, 1), CHECK_IN), checker.money - (cost.get(checker.id) ?? 0n), knowledge, 'refute'));
+    const seen = plus(material, more);
     cost.set(checker.id, (cost.get(checker.id) ?? 0n) + r.cost);
     const v = r.verdicts[0];
     const why = (v?.how ?? '').trim().replace(/\s+/g, ' ');
-    if (v?.holds && grounded(v.quote, material)) return { ...f, crossed: { by: checker.id, holds: true, said: why } };
-    if (v && !v.holds && v.quote && grounded(`\`${v.quote}\``, material)) return { ...f, crossed: { by: checker.id, holds: false, said: `${why} The line it points at: \`${v.quote.trim().split('\n')[0]!}\`` } };
+    if (v?.holds && grounded(v.quote, seen)) return { ...f, crossed: { by: checker.id, holds: true, said: why } };
+    if (v && !v.holds && v.quote && grounded(`\`${v.quote}\``, seen)) return { ...f, crossed: { by: checker.id, holds: false, said: `${why} The line it points at: \`${v.quote.trim().split('\n')[0]!}\`` } };
     return f;
   });
   return { findings: out, cost };
@@ -669,13 +790,18 @@ export const listOf = (r: { findings: Joined[]; leads: Lead[] }, experts: number
   // Tried by the swarm (`tried`): what was proved and backed by two experts, or upheld on appeal, stands first; what
   // was proved and nobody refuted follows; what was not proved, or was refuted and lost its appeal, last, in brief.
   const [stands, isNote] = [standsTried, isNoteTried];
-  const open = (f: Joined) => !!f.trial?.proved && !stands(f) && !isNote(f); // refuted, or withdrawn and not confirmed: there, with what was said
+  // Withdrawn by its finder on a line of the materials that stops it, and confirmed by nobody: it is not "proved"
+  // any more, whoever wrote the proof. On staking farm one such stood among the proved, and a blind reader found
+  // the finder had been right to withdraw it. It stays, in brief, below the notes.
+  const dropped = (f: Joined) => !!f.trial?.proved && f.trial.withdrawn && !f.trial.confirm && !stands(f) && !isNote(f);
+  const open = (f: Joined) => !!f.trial?.proved && !stands(f) && !isNote(f) && !dropped(f); // refuted, or not yet backed: there, with what was said
   const trialTiers: [Joined[], string, boolean?][] = [
     [r.findings.filter(stands).sort((a, b) => rank(a) - rank(b) || b.by.length - a.by.length), `**Proved and tested by the team**: ${some(r.findings.filter(stands).length, 'finding')}. Each came with a proof on lines of your files, and another expert tested it and could not break it, or the arbiter upheld it.`],
     [r.findings.filter((f) => open(f) && f.severity !== 'Low'), `**Proved, not yet backed by a second expert**: ${some(r.findings.filter((f) => open(f) && f.severity !== 'Low').length, 'finding')}. No second expert confirmed it, or one refuted it: what was said stands under each.`],
     [r.findings.filter((f) => open(f) && f.severity === 'Low'), `**Low, proved, not yet backed**: ${some(r.findings.filter((f) => open(f) && f.severity === 'Low').length, 'finding')}, each in brief.`, true],
     [r.findings.filter(isNote), `**True, and harmless: notes**: ${some(r.findings.filter(isNote).length, 'point')}, each in brief. The experts who tested them found the code as said, and nobody who gains or loses by it.`, true],
-    [r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f)), `**Not proved**: ${some(r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f)).length, 'point')}, each in brief: code found none of the lines its proof stood on. Read them as leads.`, true],
+    [r.findings.filter(dropped), `**Withdrawn by the expert who found it**: ${some(r.findings.filter(dropped).length, 'point')}, each in brief. Proving it, the expert found a line of your files that stops it, and no other expert confirmed it.`, true],
+    [r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f) && !dropped(f)), `**Not proved**: ${some(r.findings.filter((f) => !stands(f) && !open(f) && !isNote(f) && !dropped(f)).length, 'point')}, each in brief: code found none of the lines its proof stood on. Read them as leads.`, true],
   ];
   const tiers: [Joined[], string, boolean?][] = r.findings.some((f) => f.trial) && experts > 1 ? trialTiers : experts > 1 ? [
     [agreed, `**Confirmed by two or more experts**, each on its own and without seeing the others' work: ${some(agreed.length, 'finding')}.`],

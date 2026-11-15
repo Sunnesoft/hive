@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { digestOf, hotSpots, listOf, reportOf, type Joined } from '../src/review.ts';
+import { digestOf, hotSpots, listOf, reportOf, type Joined, apartIfGraver } from '../src/review.ts';
 import { provenance, sharesOf, type Finding } from '../src/rules.ts';
 
 const drain: Finding = { severity: 'High', where: 'withdraw()', title: 'Anyone can withdraw the pool', how: 'withdraw() sends the whole balance to msg.sender.', evidence: '`payable(msg.sender).transfer(address(this).balance);`', fix: 'Add onlyOwner.' };
@@ -116,4 +116,47 @@ test('hot spots: places where two experts left notes, or one could not settle a 
   assert.equal(spots[0]!.notes.length, 2);
   assert.ok(!spots.some((x) => x.place === 'nft_revoke')); // one expert's one note, and no open question: not a hot spot
   assert.ok(!spots.some((x) => x.place === 'nft_transfer_call')); // two experts agree there already
+});
+
+test('repeats folded into one finding never hide a graver wording: it stays a finding of its own', () => {
+  const at = (severity: string, title: string) => ({ f: { severity, where: 'core.rs, ft_resolve_transfer', title, how: '', evidence: '', fix: '' } as never, held: true });
+  const callback = at('High', 'ft_resolve_transfer is public: anyone moves a holder\'s balance to an account it names');
+  const lows = [at('Low', 'the resolver does not re-check the denylist'), at('Low', 'a refund reaches a restricted sender'), at('Medium', 'a restricted receiver keeps tokens')];
+  const parts = apartIfGraver([...lows, callback]);
+  assert.equal(parts.length, 2);
+  assert.ok(parts.some((g) => g.length === 1 && g[0] === callback));
+  assert.deepEqual(apartIfGraver(lows.slice(0, 2)), [lows.slice(0, 2)]); // repeats of one weight stay folded
+});
+
+test('a finding its finder withdrew on a line of the materials, and nobody confirmed, leaves the proved: it stands in brief below the notes', () => {
+  const t = (over: Partial<NonNullable<Joined['trial']>>) => ({ proved: true, withdrawn: false, confirm: 0, note: 0, refute: 0, confirmedBy: [], ...over });
+  const list = listOf({ findings: [
+    { ...drain, by: [0], seen: [0], trial: t({ withdrawn: true }) },
+    { ...mint, by: [1], seen: [1], trial: t({ withdrawn: true, confirm: 1, confirmedBy: [0] }) },
+  ], leads: [] }, 2);
+  assert.match(list, /\*\*Proved, not yet backed by a second expert\*\*: 1 finding\./);
+  assert.match(list, /\*\*Withdrawn by the expert who found it\*\*: 1 point, each in brief\./);
+  assert.ok(list.indexOf('Withdrawn by the expert') > list.indexOf('Shares are minted for nothing')); // the confirmed one stays among the proved
+  assert.ok(list.indexOf('Anyone can withdraw the pool') > list.indexOf('Withdrawn by the expert'));
+});
+
+test('a step is placed by code at its file and line: where a line stands twice, at the place that holds the whole quote', async () => {
+  const { lineAt, linkOf } = await import('../src/review.ts');
+  const url = 'https://raw.githubusercontent.com/o/r/abc/src/defer.rs';
+  const text = ['pub trait Callback {', '    fn on_record(&mut self, receiver_id: AccountId, amount: U128);', '}', '', 'impl Callback for Contract {', '    #[private]', '    fn on_record(&mut self, receiver_id: AccountId, amount: U128) {', '        if !is_promise_success() {'].join('\n');
+  const at = lineAt('fn on_record(&mut self, receiver_id: AccountId, amount: U128) {', [{ url, text }]);
+  assert.deepEqual(at, { url, n: 7 }); // the impl, under #[private]: not the trait's line 2
+  assert.equal(linkOf(at!), 'https://github.com/o/r/blob/abc/src/defer.rs#L7');
+  assert.deepEqual(lineAt('fn on_record(&mut self, receiver_id: AccountId, amount: U128) {', [{ url, text: `// a label\n${text}`, first: 0 }]), { url, n: 7 }); // a label above the file is not a line of it
+  assert.equal(lineAt('None,', [{ url, text }]), undefined); // too short to place
+});
+
+test('the function a step stands in is given whole, from the attributes above its head to its end', async () => {
+  const { fnAt } = await import('../src/review.ts');
+  const text = ['impl Callback for Contract {', '    /// Called back by the holding account.', '    #[private]', '    fn on_record(&mut self, amount: U128) {', '        if !is_promise_success() {', '            panic_str("failed");', '        }', '        self.mint(amount);', '    }', '', '    fn other(&self) {}', '}'].join('\n');
+  const page = { url: 'https://raw.githubusercontent.com/o/r/abc/src/defer.rs', text };
+  assert.deepEqual(fnAt(page, 8), { from: 2, text: text.split('\n').slice(1, 9).join('\n') }); // the doc comment and #[private] come with it
+  assert.equal(fnAt(page, 1), undefined); // a line in no function
+  const sol = ['contract Vault {', '    // only the owner', '    function sweep(address to) external onlyOwner {', '        payable(to).transfer(address(this).balance);', '    }', '}'].join('\n');
+  assert.equal(fnAt({ url: 'u', text: sol }, 4)?.from, 2);
 });

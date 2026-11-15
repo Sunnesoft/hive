@@ -17,6 +17,7 @@ const NAMED: Record<string, string[]> = {
   'staking farm audit': ['staking-farm', 'staking farm'],
   'registry audit': ['appchain registry', 'appchain-registry', 'octopus network near smart contract security audit'],
   'vote escrow audit': ['ref-ve', 'ref ve '],
+  'sweat exploit': ['fireblocks', 'zero-day', 'sweat and hot', 'sweat nep-141', 'sweat token'],
   'sweat token audit': ['sweat nep-141', 'sweat token', 'sweat economy token', ' defer ', 'burn model'],
   'mintbase store audit': ['mintbase'],
   'cnear audit': ['cnear'],

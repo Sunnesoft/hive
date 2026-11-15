@@ -15,3 +15,4 @@ store-testnet/
 trace-*/
 eval/out/
 eval/agents/*/sealed.bin
+eval/agents/old-*/

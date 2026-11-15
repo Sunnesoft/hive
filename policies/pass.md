@@ -39,6 +39,10 @@ contract they call, a library), say so in "how" and write the finding all the sa
 The lengths below are what a reader wants. Where a point cannot be said whole within one, say it whole in more:
 nothing you write is cut.
 
+When one flaw allows harms of different weight, state the gravest one you can show on the lines of the materials:
+who can cause it, what they get, who loses what. Name the lesser harms after it. A harm you cannot show on the lines
+does not count.
+
 Return "findings": every finding, the gravest first, as many as there are. Each finding:
 "severity": Critical, High, Medium or Low.
 "where": the function or place it is in.

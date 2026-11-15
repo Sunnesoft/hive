@@ -21,3 +21,11 @@ is true only across receipts. A cross-contract call is a later receipt: when it 
 before it is undone, and only a callback that restores it can put it back. Tokens sent with ft_transfer_call come
 back to the sender when ft_on_transfer panics. A #[private] method can be called by the contract alone. Before a
 finding stands, read the place that would stop it.
+
+Reading who can do it and what it costs, keep two things in mind. A balance that leaves its owner's account without
+the owner's consent is the owner's loss and a gain to whoever receives it, though no token is minted and the supply
+stays the same. And where the caller chooses an argument that says who receives value or on whose behalf a balance
+moves (a sender, a receiver, a beneficiary, a refund address), and nothing in the code ties it to the caller (a
+check of the predecessor, a signature, the owner, a registration, stored state), the attacker names an account it
+controls: itself or another it holds. A path that fails as a direct call may still run from a contract the attacker
+deploys, or as a callback the attacker chains after a call of its own: look for that before you drop it.
