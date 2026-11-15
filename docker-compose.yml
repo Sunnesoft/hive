@@ -2,7 +2,7 @@
 # secrets come in as encrypted env (.env.tee, see scripts/swarm.sh tee-deploy). Pin the image by digest.
 services:
   runner:
-    image: ghcr.io/sunnesoft/swarm-runner@sha256:80199a943fe5f05d95f11dcd0b7e40886ab36a29b10a613790e586b6a75308ac
+    image: ghcr.io/sunnesoft/swarm-runner@sha256:3258c3d67cdbe18e6c737182e22b737b2cfbc257cfe1d61822942b15c36dbc41
     restart: always
     ports:
       - "8080:8080" # /attestation, /info, /upload, the sealing page
@@ -21,7 +21,6 @@ services:
       DAILY_BUDGET_USD: "2.00" # the most spent at NEAR AI in a UTC day; then no new work is started
       MAX_REWORKS: "2"
       BIDS: "off" # "on": bid on board tasks at the price of the team each needs
-      MARKET_LISTING_URL: https://market.near.ai/agents/swarm-for-hire # for the site's "Hire" buttons
       NEARAI_API_KEY: ${NEARAI_API_KEY}
       MARKET_TOKEN: ${MARKET_TOKEN:-} # without it only orders placed in the contract are served
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
