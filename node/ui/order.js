@@ -13,7 +13,7 @@ const experts = await getJSON('/agents').catch(() => []);
 const rates = experts.map((x) => BigInt(x.rate)).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
 // Who is in the swarm now: the public card of each expert, so a customer sees what it knows before paying.
 {
-  const who = $('who');
+  const who = $('swarmList');
   if (who && experts.length) {
     const head = document.createElement('b'); head.textContent = `In the swarm now: ${experts.length} expert${experts.length === 1 ? '' : 's'}`;
     const list = document.createElement('ul');
@@ -59,6 +59,7 @@ const amount = () => { try { return BigInt(units($('amount').value)); } catch { 
 // ---- session: the same signature as the builder's app, good for 12 hours ----
 const SESSION = 'swarm.session';
 let me = null;
+let placing = false; // while an order is being placed, the wallet is asked one thing at a time
 let session = JSON.parse(localStorage.getItem(SESSION) ?? 'null'); // { account, body, at }
 const fresh = (s) => s && s.account === me && Date.now() - s.at < 11 * 3_600_000;
 const b64 = (b) => btoa(String.fromCharCode(...b));
@@ -85,7 +86,7 @@ function signedIn(id) {
   $('connect').hidden = true;
   $('disconnect').hidden = false;
   form();
-  refresh().catch((e) => status(`Could not load your orders: ${e?.message ?? e}`, 'bad'));
+  if (!placing) refresh().catch((e) => status(`Could not load your orders: ${e?.message ?? e}`, 'bad'));
 }
 connector.on('wallet:signIn', (e) => signedIn(e.accounts[0].accountId));
 connector.on('wallet:signOut', () => (localStorage.removeItem(SESSION), location.reload()));
@@ -116,7 +117,13 @@ function form() {
   $('teamHint').textContent = a ? advice(fits(a)) : '';
 }
 async function place() {
-  if (!me) return connect($('place'));
+  placing = true;
+  if (!me) {
+    // Connecting is the first half of placing: once the wallet answers, go on to the payment without a second click.
+    await connect($('place'));
+    for (let i = 0; i < 50 && !me; i++) await new Promise((r) => setTimeout(r, 200));
+    if (!me) return void (placing = false);
+  }
   const [text, a] = [brief(), amount()];
   if (!text) return (status('Write your task first: it is what the swarm answers.', 'bad'), $('brief').focus());
   if (text.length > MAX_BRIEF) return status(`The task is too long: ${text.length} of ${MAX_BRIEF} characters. Shorten it, or put the details behind a link.`, 'bad');
@@ -130,14 +137,19 @@ async function place() {
     if ((await getJSON('/brief', json({ salt, customer: me, brief: text }))).hash !== hash) throw new Error('the runner named the task by another hash');
     keep(hash, { salt, customer: me, brief: text });
     status('Confirm the payment in your wallet…', 'wait');
-    await call(info.token, 'ft_transfer_call', { receiver_id: info.contract, amount: `${a}`, msg: JSON.stringify({ Order: $('publish').checked ? { brief_hash: hash, salt, brief: text } : { brief_hash: hash } }) }, '1');
+    const sent = await call(info.token, 'ft_transfer_call', { receiver_id: info.contract, amount: `${a}`, msg: JSON.stringify({ Order: $('publish').checked ? { brief_hash: hash, salt, brief: text } : { brief_hash: hash } }) }, '1');
     sessionStorage.removeItem(DRAFT);
     $('brief').value = '';
-    status('Your order is in the contract. The swarm takes it within a minute; the answer appears below.', 'ok');
+    const tx = sent?.transaction?.hash ?? sent?.transaction_outcome?.id;
+    const explorer = info.network === 'mainnet' ? 'https://nearblocks.io/txns/' : 'https://testnet.nearblocks.io/txns/';
+    status('Order placed. Your budget is held by the contract; the swarm takes the order within a minute and answers within 30 minutes. Follow it in “Your orders” below: the answer appears there.', 'ok');
+    if (tx) $('status').append(' ', h('a', { href: explorer + tx, target: '_blank', rel: 'noopener' }, 'See the transaction'));
+    $('mineTitle')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     watch(30);
   } catch (e) {
     status(`The order was not placed: ${e?.message ?? e}`, 'bad');
   } finally {
+    placing = false;
     busy($('place'), false);
     form();
   }
