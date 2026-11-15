@@ -75,6 +75,11 @@ const REFVE = at('https://raw.githubusercontent.com/ref-finance/ref-ve/1fd6dfe21
 const SWEAT = at('https://raw.githubusercontent.com/Sweat-Foundation/sweat-token/9b84e71ae05d7faf46826a82fbaf453794f0ef14',
   ['contract/Cargo.toml', 'contract/src/lib.rs', 'contract/src/api.rs', 'contract/src/core.rs', 'contract/src/defer.rs', 'contract/src/storage.rs', 'contract/src/migration.rs', 'contract/src/meta.rs',
     'vendors/near-contract-standards/src/fungible_token/core_impl.rs', 'vendors/near-contract-standards/src/fungible_token/storage_impl.rs']);
+// The SWEAT token at the commit that took #[private] off its ft_resolve_transfer (24 April 2026); the callback was
+// exploited days later and fixed on 29 April (Fireblocks, "NEAR zero-day: SWEAT and HOT"). The order placed on mainnet
+// for the demo (order-1 of swarm.hiveswarm.near) asked the swarm about these same files.
+const SWEAT_EXPLOIT = at('https://raw.githubusercontent.com/Sweat-Foundation/sweat-token/b9febf7e039352c08ee90f1425e1dc32cecdb7e9',
+  ['sweat/src/core.rs', 'sweat/src/lib.rs', 'sweat/src/defer.rs', 'sweat/src/migration.rs', 'sweat/src/integration.rs', 'sweat/src/math.rs', 'model/src/lib.rs']);
 const MBSTORE = at('https://raw.githubusercontent.com/Mintbase/mb-contracts/aedb2c4271864f126d1190711a0c9eb4d7a842b3/mb-store',
   ['Cargo.toml', 'src/lib.rs', 'src/core.rs', 'src/approvals.rs', 'src/minting.rs', 'src/enumeration.rs']);
 const CNEAR = at('https://raw.githubusercontent.com/sig-net/cNEAR/c1944263327d8b4cb0b640824b33f37f78d7108d', ['Cargo.toml', 'src/lib.rs']);
@@ -232,6 +237,15 @@ export const REVIEWS: ReviewTask[] = [
       'Low (GUV-8): defer_batch accepts an empty batch and entries with zero steps instead of rejecting a malformed batch',
       'Low (GUV-9): defer_batch sets no maximum size of a batch: an oversized one can use so much gas that the callback does not run, so the tokens are not deposited to the holding contract, the fee is not minted and what was accounted before the callback stays inconsistent',
       'Informational (GUV-11): defer_batch moves steps_since_tge forward before the holding contract\'s promise resolves and the callback of a failed batch moves it back: a failed earlier batch can roll the counter back behind a later successful one, so a range of steps is used twice',
+    ],
+  },
+  {
+    // Exploited in April 2026: the one finding that matters is the callback anyone can call. Scored on whether an
+    // answer states it, and at what severity; every other item is read against the code.
+    id: 'sweat exploit', platform: 'NEAR', set: 'held out', experts: ['near-contract-review', 'near-incidents', 'rust-contract-review'], files: SWEAT_EXPLOIT,
+    task: audit('the SWEAT NEP-141 token after a change that adds a denylist for transfers', SWEAT_EXPLOIT),
+    findings: [
+      'Critical: ft_resolve_transfer in core.rs has no #[private]: anyone can call it directly, naming any sender_id and receiver_id; with no promise result to read, the unused amount is taken to be all of it, so the receiver\'s tokens move to the sender_id the caller named (the exploit of April 2026)',
     ],
   },
   {

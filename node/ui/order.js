@@ -181,7 +181,8 @@ function card(o) {
     h('header', {}, h('b', { class: 'mono' }, o.id), h('span', { class: `pill ${kind}` }, label), h('span', { class: 'faint end' }, `${placed(o)} · budget ${usd(o.amount)} USDC`)),
     h('details', {}, h('summary', {}, 'Your task'), h('pre', { class: 'brief' }, o.brief ?? sent()[o.briefHash]?.brief ?? '(its text is not here)'),
       h('span', { class: 'faint hash' }, `In the contract, this task is the hash ${o.briefHash}`)),
-    o.state === 'delivered' ? [h('div', { class: 'answer-text' }, markdown(o.answer)), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.answerHash}`)] : '',
+    // The answer is long: folded by default, so the list of orders stays readable; its first lines say what it found.
+    o.state === 'delivered' ? [h('details', { class: 'answer-fold' }, h('summary', {}, `The answer${/Findings\s*\n+\s*(\d+)/.exec(o.answer ?? '')?.[1] ? `: ${/Findings\s*\n+\s*(\d+)/.exec(o.answer)[1]} findings` : ''}`), h('div', { class: 'answer-text' }, markdown(o.answer))), receipt(o), h('span', { class: 'faint hash' }, `sha256 of this answer, as the contract recorded it: ${o.answerHash}`)] : '',
     o.state === 'no_brief' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm does not have the text of this task'),
       h('span', {}, sent()[o.briefHash] ? 'Sending it again from this browser…' : `It was placed from another browser or device. Open this page there, or get all ${usd(o.amount)} USDC back ${Math.round(terms.run_secs / 60)} minutes after it was placed.`)) : '',
     o.state === 'declined' ? h('div', { class: 'note warn' }, h('b', {}, 'The swarm declined this task'), h('span', {}, o.why), h('span', {}, `All but 0.05 of its ${usd(o.amount)} USDC went back to your wallet: 0.05 paid for the check of the task.`)) : '',

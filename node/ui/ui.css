@@ -632,3 +632,5 @@ hr.soft { border: 0; height: 1px; background: var(--soft-2); margin: 0; }
 .who li { margin: .15rem 0; }
 .status.ok { background: #eaf8f0; border: 1px solid #b9e6cb; border-radius: 12px; padding: .8rem 1rem; }
 .status.ok a { font-weight: 600; }
+.answer-fold > summary { cursor: pointer; font-weight: 600; margin: .4rem 0; }
+.answer-fold[open] > summary { margin-bottom: .8rem; }
