@@ -86,7 +86,8 @@ owners choose. So they miss different things and make different mistakes. The sw
    not a model: a model that sums up a long list drops the rare item, and the rare item is the value.
 2. **Every finding is proved, then attacked.** Its finder proves it step by step. Each step quotes a line, and code
    looks that line up in the customer's files or in the libraries they use: no line, no finding. Another expert
-   tries to break the proof, reading each step in the whole function it stands in.
+   tries to break the proof, reading each step in the whole function it stands in. It refutes a finding only if
+   no way reaches the flaw, not when the finder's own path fails.
 3. **An arbiter settles disputes.** It owes neither side. The finder gets one appeal, citing one rule of its
    knowledge.
 4. **A finding is withdrawn only on a line of code that stops it**, never on a doubt.
@@ -107,8 +108,8 @@ appchain registry, vote escrow and SWEAT. The audits list 68 findings, and none 
 knowledge. Every answer was read blind. A fresh reader saw it under a neutral name and counted an audit finding only
 if the answer stated it as an item of its own. It judged every other item against the code.
 
-**On Claude Haiku 5.5**, with the trial as it was at submission, on 14 November (what changed after it is told under
-[the mainnet order](#a-real-order-on-mainnet-the-sweat-callback-exploit)):
+**On Claude Haiku 5.5**, with the trial as it was at submission, on 14 November (it has changed since: see
+[What's next](#whats-next)):
 
 | answer | audit findings stated, of 68 |
 |---|---|
@@ -183,24 +184,6 @@ that refutes it.
 
 Without the knowledge the model does not see the hole. With it, one call sees it; the swarm also proves it on the
 lines of the code and the library, and tests the proof.
-
-**An order before it got this wrong, and what we changed.** The first order of the same task
-([`order-1`](https://nearblocks.io/txns/CxnwP2vMNe9rZdwvxYyCDtribPUEjJ1MhoA3YHoJ45ry), on the trial as submitted)
-also stated the callback, but graded it Low: two experts refuted the finder's path, a direct call that indeed
-cannot work, and the hole went down with it. The models stayed the same; the trial changed:
-
-- **The libraries' code is in the materials.** The runner reads the sources of the crates the code imports from
-  crates.io, at the version its `Cargo.lock` names. A step that turns on `near-contract-standards` is checked against
-  that crate's lines, not against a model's memory of it. A step that needs a file it lacks names it, and is asked
-  again with it.
-- **The trial judges the flaw, not the wording.** A tester refutes a finding only if no way reaches the flaw, not
-  when the finder's own path fails. The finder states the gravest harm it can show on the lines, and nothing it
-  cannot show.
-- **Testers read each step in its place.** Code finds every line a proof quotes, at its file and line number, and
-  gives the testers the whole function it stands in. The answer links each step to its line on GitHub. Replayed on
-  eight contracts read blind, wrong items that kept a majority of the testers' confirmations fell from 14 of 21 to
-  9, while true ones held (51 of 61 findings of the audits, 57 of 59 other real findings).
-- **A step that fails is tried again, warmer.** At temperature 0 a model that loops on a prompt loops on it again.
 
 ## What the design guarantees, whatever the models do
 
@@ -286,9 +269,12 @@ The big items, in the order we would do them ([docs/TODO.md](docs/TODO.md) has t
 
 1. **Fewer repeats in an answer.** In `order-2` the exploited callback stands first, and then three more times in
    other words (findings 2, 7 and 8). A finding the trial proved should take in the other wordings of its flaw.
-2. **Read the new trial blind on all eight contracts.** The tables above are for the old trial. Read side by side
-   with it by the same blind reader, before testers got whole functions, the new rules stated one more finding of
-   the audits (52 of 68 against 51) and let through more wrong items (20 against 13), most of them among the leads.
+2. **Read the new trial blind on all eight contracts.** The tables above are for the trial as submitted. Since then
+   the materials carry the libraries' sources, testers judge the flaw rather than the finder's path, and they read
+   each step in its whole function. Read side by side with the old trial by the same blind reader, before testers
+   got whole functions, the new rules stated one more finding of the audits (52 of 68 against 51) and let through
+   more wrong items (20 against 13), most of them among the leads; replaying the testers with whole functions, wrong
+   items that kept a majority of confirmations fell from 14 of 21 to 9, and true ones held.
 3. **Reworks and disputes for orders placed in the contract**: a round of changes inside the budget, and an arbiter
    the customer can call, before the money settles.
 4. **The task bound to its customer in the contract itself** (it stores `sha256(caller, hash)`), not only in the runner.
