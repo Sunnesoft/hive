@@ -82,7 +82,7 @@ export function markdown(text) {
       flush();
       if (!list) root.append((list = h(item[1] ? 'ol' : 'ul')));
       list.append(h('li', {}, inline(item[2].replace(/\s*\\$/, ''))));
-    } else if (list && /^\s+\S/.test(line)) list.lastChild.append(h('br'), inline(line.trim().replace(/\s*\\$/, ''))); // an indented line goes on with the item above
+    } else if (list && /^\s+\S/.test(line)) list.lastChild.append(h('br'), ...inline(line.trim().replace(/\s*\\$/, ''))); // an indented line goes on with the item above: its nodes, not the list of them as text
     else if (!line.trim()) (flush(), (list = null));
     else para.push(line);
   }
